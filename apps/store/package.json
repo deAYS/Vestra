@@ -1,0 +1,13 @@
+{
+  "name": "@vestra/store",
+  "version": "0.0.0",
+  "type": "module",
+  "main": "./src/index.ts",
+  "scripts": {
+    "build": "esbuild ./src/index.ts --bundle --platform=node --format=esm --outfile=./dist/store.mjs"
+  },
+  "dependencies": {
+    "@vestra/installer": "workspace:*",
+    "@vestra/updater": "workspace:*"
+  }
+}
