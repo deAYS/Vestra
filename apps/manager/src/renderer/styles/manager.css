@@ -1,0 +1,292 @@
+/* Vestra Manager — dark, minimal, premium, technical. Restrained blue. */
+:root {
+  --vs-background: #06080d;
+  --vs-surface: #0c1018;
+  --vs-surface-2: #121824;
+  --vs-primary: #183b73;
+  --vs-primary-hover: #20509a;
+  --vs-text: #f5f7fa;
+  --vs-muted: #8d96a5;
+  --vs-border: #202938;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--vs-background);
+  color: var(--vs-text);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+.vs-shell {
+  max-width: 860px;
+  margin: 0 auto;
+  padding: 32px 24px 48px;
+}
+
+.vs-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 28px;
+}
+
+.vs-title {
+  margin: 0;
+  font-size: 28px;
+  letter-spacing: 0.35em;
+  font-weight: 700;
+}
+
+.vs-subtitle {
+  margin: 6px 0 0;
+  color: var(--vs-muted);
+  font-size: 14px;
+}
+
+.vs-section-title {
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--vs-muted);
+  margin: 0 0 16px;
+}
+
+.vs-list {
+  display: grid;
+  gap: 16px;
+}
+
+.vs-empty {
+  padding: 32px;
+  text-align: center;
+  color: var(--vs-muted);
+  background: var(--vs-surface);
+  border: 1px solid var(--vs-border);
+  border-radius: 12px;
+}
+
+.vs-card {
+  background: var(--vs-surface);
+  border: 1px solid var(--vs-border);
+  border-radius: 12px;
+  padding: 20px;
+  cursor: pointer;
+  transition: border-color 0.15s ease;
+}
+
+.vs-card--selected {
+  border-color: var(--vs-primary-hover);
+}
+
+.vs-card__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.vs-card__header h3 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.vs-card__badge {
+  font-size: 12px;
+  color: var(--vs-muted);
+  border: 1px solid var(--vs-border);
+  background: var(--vs-surface-2);
+  border-radius: 999px;
+  padding: 3px 10px;
+  white-space: nowrap;
+}
+
+.vs-card__version {
+  margin-top: 4px;
+  font-size: 13px;
+  color: var(--vs-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.vs-badge {
+  margin-top: 12px;
+  font-size: 14px;
+}
+
+.vs-badge--healthy {
+  color: #7ee2a8;
+}
+
+.vs-badge--needs-repair {
+  color: #f0b35c;
+}
+
+.vs-badge--check-failed {
+  color: #ef7d7d;
+}
+
+.vs-card__checking {
+  margin-top: 6px;
+  font-size: 13px;
+  color: var(--vs-muted);
+}
+
+.vs-card__muted {
+  font-size: 13px;
+  color: var(--vs-muted);
+}
+
+.vs-card__actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 16px;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+
+.vs-btn {
+  border: 1px solid var(--vs-border);
+  background: var(--vs-surface-2);
+  color: var(--vs-text);
+  border-radius: 8px;
+  padding: 9px 16px;
+  font-size: 14px;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.vs-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.vs-btn--primary {
+  background: var(--vs-primary);
+  border-color: var(--vs-primary);
+}
+
+.vs-btn--primary:hover:not(:disabled) {
+  background: var(--vs-primary-hover);
+}
+
+.vs-btn--danger {
+  background: transparent;
+  border-color: #5c2b2b;
+  color: #ef9d9d;
+}
+
+.vs-progress {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 14px;
+  font-size: 13px;
+  color: var(--vs-muted);
+}
+
+.vs-spinner {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid var(--vs-border);
+  border-top-color: var(--vs-primary-hover);
+  animation: vs-spin 0.8s linear infinite;
+}
+
+@keyframes vs-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.vs-error {
+  margin-top: 20px;
+  border: 1px solid #5c2b2b;
+  background: var(--vs-surface);
+  border-radius: 12px;
+  padding: 16px 18px;
+}
+
+.vs-error__title {
+  font-weight: 600;
+}
+
+.vs-error__hint {
+  margin-top: 4px;
+  font-size: 13px;
+  color: var(--vs-muted);
+}
+
+.vs-error__details {
+  margin-top: 10px;
+  font-size: 13px;
+}
+
+.vs-error__details pre {
+  margin-top: 8px;
+  padding: 10px;
+  background: var(--vs-background);
+  border: 1px solid var(--vs-border);
+  border-radius: 8px;
+  overflow: auto;
+  font-size: 12px;
+}
+
+.vs-error__actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.vs-notice {
+  margin-top: 20px;
+  border: 1px solid var(--vs-border);
+  background: var(--vs-surface);
+  border-radius: 12px;
+  padding: 14px 18px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.vs-dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.vs-dialog {
+  background: var(--vs-surface);
+  border: 1px solid var(--vs-border);
+  border-radius: 12px;
+  padding: 24px;
+  max-width: 440px;
+  width: 100%;
+}
+
+.vs-dialog h2 {
+  margin: 0 0 8px;
+  font-size: 18px;
+}
+
+.vs-dialog p {
+  margin: 0 0 20px;
+  color: var(--vs-muted);
+  font-size: 14px;
+}
+
+.vs-dialog__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
