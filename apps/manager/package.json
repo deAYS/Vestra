@@ -1,0 +1,26 @@
+{
+  "name": "@vestra/manager",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Vestra Manager — Discord installation management GUI (Electron).",
+  "main": "./dist/main/index.js",
+  "scripts": {
+    "build": "node ./scripts/build.mjs",
+    "build:dev": "node ./scripts/build.mjs --dev",
+    "dev": "node ./scripts/build.mjs --dev && electron ./dist/main/index.js",
+    "test": "bun test ./test"
+  },
+  "dependencies": {
+    "@vestra/installer": "workspace:*",
+    "@vestra/shared": "workspace:*",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.3",
+    "@types/react-dom": "^18.3.0",
+    "electron": "^34.5.0",
+    "happy-dom": "^17.4.0"
+  }
+}
