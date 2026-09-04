@@ -1,0 +1,18 @@
+# Vestra Manager — packaging scaffold (Phase: NOT executed).
+# Future artifact: VestraSetup.exe / Vestra.exe.
+# Signing + installer configuration deferred. Do not run electron-builder yet.
+appId: dev.vestra.manager
+productName: Vestra
+directories:
+  output: release
+  buildResources: build
+files:
+  - dist/**/*
+  - package.json
+win:
+  target:
+    - nsis
+nsis:
+  oneClicker: false
+  allowToChangeInstallationDirectory: true
+  shortcutName: Vestra
