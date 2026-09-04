@@ -50,6 +50,12 @@ export function buildLoaderSource(options?: LoaderOptions): string {
     log("already running.");
     return;
   }
+  // TEMPORARY isolation probe: one-shot window identity, only when the
+  // preload saw VESTRA_DIAG=1 (it bridges window.__VESTRA_DIAG__).
+  if (window.__VESTRA_DIAG__ && !window.__VESTRA_DIAG_LOGGED__) {
+    try { window.__VESTRA_DIAG_LOGGED__ = true; } catch (_) {}
+    try { log("diag url=" + location.href + " title=" + document.title); } catch (_) {}
+  }
   // Bundle URL: prefer the bridged value (context isolation hides the
   // preload's own window globals from page scripts), then the legacy
   // global, then sibling resolution as a last resort.

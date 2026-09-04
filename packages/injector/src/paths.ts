@@ -5,6 +5,7 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { getRealFs } from "./realFs.js";
 
 export type DiscordChannel = "stable" | "ptb" | "canary";
 
@@ -55,8 +56,11 @@ function isDirectory(p: string): boolean {
 }
 
 function isFile(p: string): boolean {
+  // Physical Discord `app.asar` probe: must use the unpatched filesystem.
+  // Under Electron's main process, patched `node:fs` misreports
+  // `statSync(.../app.asar).isFile() === false`.
   try {
-    return fs.statSync(p).isFile();
+    return getRealFs().statSync(p).isFile();
   } catch {
     return false;
   }

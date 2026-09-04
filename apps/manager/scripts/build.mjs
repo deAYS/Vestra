@@ -26,13 +26,15 @@ await fs.promises.mkdir(path.join(dist, "renderer"), { recursive: true });
 
 // NOTE: only "electron" is external. @vestra/* are TypeScript sources —
 // Electron's Node runtime cannot load .ts, so they must be bundled in.
+// `original-fs` is provided by Electron at runtime and must stay external:
+// bundling it would break the unpatched-filesystem bypass.
 await build({
   entryPoints: [path.join(root, "src", "main", "index.ts")],
   bundle: true,
   platform: "node",
   format: "esm",
   define,
-  external: ["electron"],
+  external: ["electron", "original-fs"],
   outfile: path.join(dist, "main", "index.js"),
   logLevel: "info",
 });

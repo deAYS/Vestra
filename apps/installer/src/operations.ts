@@ -17,6 +17,7 @@ import {
   BACKUP_SUFFIX,
   RECEIPT_FILE,
   applyInject,
+  getRealFs,
   isInjected,
   listInstalls,
   planInject,
@@ -113,14 +114,14 @@ async function ensurePayload(ctx: OperationContext): Promise<string> {
 export async function resetToBackup(install: DiscordInstall, safety?: SafetyOptions): Promise<boolean> {
   let backupIsFile = false;
   try {
-    backupIsFile = fs.statSync(`${install.asarPath}${BACKUP_SUFFIX}`).isFile();
+    backupIsFile = getRealFs().statSync(`${install.asarPath}${BACKUP_SUFFIX}`).isFile();
   } catch {
     backupIsFile = false;
   }
   if (!backupIsFile) return false;
   assertDestructiveTestTargetAllowed(install.asarPath, safety ?? {});
   try {
-    await fs.promises.copyFile(`${install.asarPath}${BACKUP_SUFFIX}`, install.asarPath);
+    await getRealFs().promises.copyFile(`${install.asarPath}${BACKUP_SUFFIX}`, install.asarPath);
     await fs.promises.rm(requireReceiptPath(install), { force: true });
     return true;
   } catch {
@@ -433,8 +434,9 @@ export interface PruneResult {
 }
 
 function isFileSync(p: string): boolean {
+  // Recorded `app.asar` existence probes: physical semantics under Electron.
   try {
-    return fs.statSync(p).isFile();
+    return getRealFs().statSync(p).isFile();
   } catch {
     return false;
   }

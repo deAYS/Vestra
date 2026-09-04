@@ -4,7 +4,7 @@
   "type": "module",
   "main": "./src/index.ts",
   "scripts": {
-    "build": "esbuild ./src/index.ts --bundle --platform=node --format=esm --outfile=./dist/injector.mjs"
+    "build": "esbuild ./src/index.ts --bundle --platform=node --format=esm --external:original-fs --external:electron --outfile=./dist/injector.mjs"
   },
   "dependencies": {
     "@electron/asar": "^4.3.0",

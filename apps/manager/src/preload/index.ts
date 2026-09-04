@@ -46,4 +46,19 @@ const api: VestraManagerApi = {
     typeof __VESTRA_MANAGER_DEV__ !== "undefined" ? __VESTRA_MANAGER_DEV__ : false,
 };
 
-contextBridge.exposeInMainWorld("vestraManager", api);
+// TEMPORARY dev-only diagnostics (validation phase): trace preload boot.
+// Production remains quiet. No extra APIs exposed.
+if (typeof __VESTRA_MANAGER_DEV__ !== "undefined" && __VESTRA_MANAGER_DEV__) {
+  console.log("[Vestra Manager] preload loaded");
+}
+
+try {
+  contextBridge.exposeInMainWorld("vestraManager", api);
+} catch (err: unknown) {
+  if (typeof __VESTRA_MANAGER_DEV__ !== "undefined" && __VESTRA_MANAGER_DEV__) {
+    console.error(
+      `[Vestra Manager] preload expose failed: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+  throw err;
+}

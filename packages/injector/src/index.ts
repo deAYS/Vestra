@@ -38,3 +38,6 @@ export type {
 } from "./patch.js";
 
 export { unpackAsar, packAsar, readAsarFile, readAsarMain, AsarError } from "./asar.js";
+
+export { getRealFs } from "./realFs.js";
+export type { RealFs } from "./realFs.js";

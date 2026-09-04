@@ -80,6 +80,36 @@ const { pathToFileURL } = require("url");
 const CAPABILITIES = ${capabilitiesJson};
 const PREFIX = ${prefixJson};
 
+// TEMPORARY investigation diagnostics (Wardogs isolation probe): silent
+// unless VESTRA_DIAG=1. Logs process + window identity to console and
+// %TEMP%/vestra-diag.log. Exposes window.__VESTRA_DIAG__ for the loader.
+let __VESTRA_DIAG_ON__ = false;
+try {
+  __VESTRA_DIAG_ON__ = typeof process !== "undefined" && process && process.env && process.env.VESTRA_DIAG === "1";
+} catch (_) {}
+function vestraDiagPreload(msg) {
+  if (!__VESTRA_DIAG_ON__) return;
+  try {
+    try { console.log("[Vestra][diag] " + msg); } catch (_) {}
+    try {
+      const tmp = (process.env.TEMP || process.env.TMP || "/tmp");
+      fs.appendFileSync(path.join(tmp, "vestra-diag.log"), new Date().toISOString() + " pid=" + process.pid + " " + msg + "\\n");
+    } catch (_) {}
+  } catch (_) {}
+}
+try {
+  if (__VESTRA_DIAG_ON__) {
+    let argv0 = "?";
+    try { argv0 = (process.argv && process.argv[0]) || "?"; } catch (_) {}
+    let cwd = "?";
+    try { cwd = process.cwd(); } catch (_) {}
+    let href = "?";
+    try { href = (typeof location !== "undefined" && location.href) || "?"; } catch (_) {}
+    vestraDiagPreload("preload loaded execPath=" + process.execPath + " cwd=" + cwd + " argv0=" + argv0 + " url=" + href);
+    try { contextBridge.exposeInMainWorld("__VESTRA_DIAG__", true); } catch (_) {}
+  }
+} catch (_) {}
+
 function isAllowed(channel) {
   return typeof channel === "string" && CAPABILITIES.indexOf(channel) !== -1;
 }
@@ -225,6 +255,13 @@ ${options?.splash === false ? "" : `// __VESTRA_SPLASH_BEGIN__
         root.innerHTML = HTML;
         host.appendChild(style);
         host.appendChild(root);
+        try {
+          if (__VESTRA_DIAG_ON__) {
+            var __splashUrl = "?";
+            try { __splashUrl = location.href; } catch (_) {}
+            vestraDiagPreload("splash-insert url=" + __splashUrl);
+          }
+        } catch (_) {}
         // Apply whatever arrived before the element existed (fast boots).
         if (pending) {
           paint(pending.n, pending.label);
@@ -262,6 +299,15 @@ try {
       if (!__vestraLogged) {
         __vestraLogged = true;
         try { console.log("[Vestra] preload active (" + reason + ")"); } catch (_) {}
+        try {
+          if (__VESTRA_DIAG_ON__) {
+            var __diagUrl = "?";
+            try { __diagUrl = location.href; } catch (_) {}
+            var __diagTitle = "?";
+            try { __diagTitle = document.title; } catch (_) {}
+            vestraDiagPreload("renderer-bootstrap reason=" + reason + " url=" + __diagUrl + " title=" + __diagTitle);
+          }
+        } catch (_) {}
       }
       var host = document.head || document.documentElement;
       if (!host) return false;

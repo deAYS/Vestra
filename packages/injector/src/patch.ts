@@ -17,6 +17,7 @@ import {
 } from "@vestra/shared/node/testSafety.js";
 import { packAsar, readAsarMain, unpackAsar } from "./asar.js";
 import type { DiscordInstall } from "./paths.js";
+import { getRealFs } from "./realFs.js";
 
 export const VESTRA_DIR = "vestra";
 export const RECEIPT_FILE = "vestra-receipt.json";
@@ -78,8 +79,10 @@ export function readReceipt(install: DiscordInstall): InjectReceipt | undefined 
 /** True when a receipt + backup exist (no unpacking needed). */
 export function isInjected(install: DiscordInstall): boolean {
   if (readReceipt(install) === undefined) return false;
+  // Physical backup probe (`app.asar.vestra-backup` contains `.asar`
+  // mid-path): must use the unpatched filesystem under Electron.
   try {
-    return fs.statSync(backupPathFor(install)).isFile();
+    return getRealFs().statSync(backupPathFor(install)).isFile();
   } catch {
     return false;
   }
@@ -154,7 +157,8 @@ export async function applyInject(
     options?.keepWorkDir ?? (await fs.promises.mkdtemp(path.join(os.tmpdir(), "vestra-inject-")));
   let backedUp = false;
   try {
-    await fs.promises.copyFile(install.asarPath, plan.backupPath);
+    // Physical archive copies: route through the unpatched filesystem.
+    await getRealFs().promises.copyFile(install.asarPath, plan.backupPath);
     backedUp = true;
     await unpackAsar(install.asarPath, workDir);
 
@@ -177,7 +181,7 @@ export async function applyInject(
   } catch (err: unknown) {
     if (backedUp) {
       try {
-        await fs.promises.copyFile(plan.backupPath, install.asarPath);
+        await getRealFs().promises.copyFile(plan.backupPath, install.asarPath);
       } catch {
         // Backup restore also failed — surface the original error.
       }
@@ -200,15 +204,15 @@ export async function uninject(install: DiscordInstall, safety?: SafetyOptions):
   assertDestructiveTestTargetAllowed(install.asarPath, safety ?? {});
   let backupIsFile = false;
   try {
-    backupIsFile = fs.statSync(backupPathFor(install)).isFile();
+    backupIsFile = getRealFs().statSync(backupPathFor(install)).isFile();
   } catch {
     backupIsFile = false;
   }
   if (!backupIsFile) {
     throw new Error(`Not injected (no backup): ${install.asarPath}`);
   }
-  await fs.promises.copyFile(backupPathFor(install), install.asarPath);
-  await fs.promises.rm(backupPathFor(install), { force: true });
+  await getRealFs().promises.copyFile(backupPathFor(install), install.asarPath);
+  await getRealFs().promises.rm(backupPathFor(install), { force: true });
   await fs.promises.rm(receiptPathFor(install), { force: true });
 }
 

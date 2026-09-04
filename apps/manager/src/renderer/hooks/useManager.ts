@@ -160,7 +160,15 @@ export function useManager(): ManagerState {
       try {
         let found: DiscordInstallation[];
         try {
+          // TEMPORARY dev-only diagnostics (validation phase): trace the
+          // initial discover call. Error/empty-list semantics unchanged.
+          if (devModeRef.current) {
+            console.log("[Vestra Manager] renderer discover start");
+          }
           found = await managerApi().discover();
+          if (devModeRef.current) {
+            console.log(`[Vestra Manager] renderer discover result: ${found.length}`);
+          }
         } catch (err: unknown) {
           // Discovery failure is NOT an empty list: the bridge may be down
           // (e.g. preload failed) or the service threw. Surface it distinctly
@@ -168,6 +176,9 @@ export function useManager(): ManagerState {
           // callers only replace them on success below.
           if (!mounted.current) return;
           const detail = err instanceof Error ? err.message : String(err);
+          if (devModeRef.current) {
+            console.error(`[Vestra Manager] renderer discover error: ${detail}`);
+          }
           setDiscoveryError({ code: "unknown", detail, message: "Discord discovery failed." });
           return;
         }

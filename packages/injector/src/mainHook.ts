@@ -83,13 +83,43 @@ try {
   const PRELOAD_PATH = (${preloadPathExpr});
   const SETTINGS_FILE = ${JSON.stringify(settingsFile)};
   const APP_PATHS = ${JSON.stringify(APP_PATH_ALLOWLIST)};
-
   function settingsPath() {
     return path.join(app.getPath("userData"), SETTINGS_FILE);
   }
   function validPath(p) {
     return typeof p === "string" && p !== "" && p.indexOf("\\0") === -1;
   }
+
+  // TEMPORARY investigation diagnostics (Wardogs isolation probe): silent
+  // unless the host process env sets VESTRA_DIAG=1. Read-only logging to
+  // console + %TEMP%/vestra-diag.log. No behavior change when unset.
+  function vestraDiag(msg) {
+    try {
+      if (!process || !process.env || process.env.VESTRA_DIAG !== "1") return;
+      try { console.log("[Vestra][diag] " + msg); } catch (_) {}
+      try {
+        var tmp = process.env.TEMP || process.env.TMP || "/tmp";
+        fs.appendFileSync(path.join(tmp, "vestra-diag.log"),
+          new Date().toISOString() + " pid=" + process.pid + " " + msg + "\\n");
+      } catch (_) {}
+    } catch (_) {}
+  }
+  function vestraProcessId() {
+    try {
+      var argv = Array.isArray(process.argv) ? process.argv.slice(0, 10).join(" ") : "?";
+      var cwd = "?";
+      try { cwd = process.cwd(); } catch (_) {}
+      var appPath = "?";
+      try { appPath = app.getAppPath(); } catch (_) {}
+      var appName = "?";
+      try { appName = app.getName(); } catch (_) {}
+      var ver = "?";
+      try { ver = app.getVersion(); } catch (_) {}
+      return "execPath=" + process.execPath + " cwd=" + cwd + " argv=" + argv +
+        " appName=" + appName + " appPath=" + appPath + " version=" + ver;
+    } catch (_) { return "identity-unavailable"; }
+  }
+  try { vestraDiag("main-hook loaded " + vestraProcessId()); } catch (_) {}
 
   // Fast health check: read-mostly, zero filesystem writes, never throws.
   // Returns a structured result for tests / future diagnostics. Healthy is
@@ -235,8 +265,10 @@ try {
           const s = opts.webPreferences.session || (ses && ses.defaultSession);
           chainViaSession(s);
         } catch (_) {}
+        try { vestraDiag("BrowserWindow constructed preload=session-chained"); } catch (_) {}
       } else {
         opts.webPreferences.preload = PRELOAD_PATH;
+        try { vestraDiag("BrowserWindow constructed preload=vestra-direct"); } catch (_) {}
       }
       return new OriginalBW(opts);
     }
@@ -248,6 +280,26 @@ try {
     app.on("browser-window-created", (_event, window) => {
       try {
         chainViaSession(window.webContents.session);
+      } catch (_) {}
+      // TEMPORARY isolation probe: which windows get Vestra's preload.
+      try {
+        if (process && process.env && process.env.VESTRA_DIAG === "1") {
+          var wc = window.webContents;
+          var url = "?";
+          try { url = wc.getURL(); } catch (_) {}
+          var title = "?";
+          try { title = window.getTitle(); } catch (_) {}
+          vestraDiag("window-created url=" + url + " title=" + title);
+          try {
+            wc.once("did-finish-load", function () {
+              try {
+                var u2 = "?";
+                try { u2 = wc.getURL(); } catch (_) {}
+                vestraDiag("window-loaded url=" + u2);
+              } catch (_) {}
+            });
+          } catch (_) {}
+        }
       } catch (_) {}
     });
   } catch (_) {}
