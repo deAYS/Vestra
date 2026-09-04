@@ -42,6 +42,8 @@ export interface ManagerState {
   progressText: string | null;
   error: OperationError | null;
   errorChannel: DiscordChannel | null;
+  /** discover() itself threw (or the bridge is unreachable). Distinct from []. */
+  discoveryError: OperationError | null;
   notice: string | null;
   confirmUninstall: DiscordChannel | null;
   refresh(): Promise<void>;
@@ -95,6 +97,7 @@ export function useManager(): ManagerState {
   const [progress, setProgress] = useState<InstallerProgressEvent | null>(null);
   const [error, setError] = useState<OperationError | null>(null);
   const [errorChannel, setErrorChannel] = useState<DiscordChannel | null>(null);
+  const [discoveryError, setDiscoveryError] = useState<OperationError | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [confirmUninstall, setConfirmUninstall] = useState<DiscordChannel | null>(null);
   const mounted = useRef(true);
@@ -153,8 +156,21 @@ export function useManager(): ManagerState {
       }
       setError(null);
       setErrorChannel(null);
+      setDiscoveryError(null);
       try {
-        const found = await managerApi().discover();
+        let found: DiscordInstallation[];
+        try {
+          found = await managerApi().discover();
+        } catch (err: unknown) {
+          // Discovery failure is NOT an empty list: the bridge may be down
+          // (e.g. preload failed) or the service threw. Surface it distinctly
+          // and never erase previously discovered installations here —
+          // callers only replace them on success below.
+          if (!mounted.current) return;
+          const detail = err instanceof Error ? err.message : String(err);
+          setDiscoveryError({ code: "unknown", detail, message: "Discord discovery failed." });
+          return;
+        }
         if (!mounted.current) return;
         setInstallations(found);
         const channels = found.map((f) => f.channel);
@@ -354,6 +370,7 @@ export function useManager(): ManagerState {
     progressText: progress === null ? null : phaseText(progress),
     error,
     errorChannel,
+    discoveryError,
     notice,
     confirmUninstall,
     refresh,

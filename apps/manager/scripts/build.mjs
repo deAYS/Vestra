@@ -24,17 +24,23 @@ await fs.promises.mkdir(path.join(dist, "main"), { recursive: true });
 await fs.promises.mkdir(path.join(dist, "preload"), { recursive: true });
 await fs.promises.mkdir(path.join(dist, "renderer"), { recursive: true });
 
+// NOTE: only "electron" is external. @vestra/* are TypeScript sources —
+// Electron's Node runtime cannot load .ts, so they must be bundled in.
 await build({
   entryPoints: [path.join(root, "src", "main", "index.ts")],
   bundle: true,
   platform: "node",
   format: "esm",
   define,
-  external: ["electron", "@vestra/installer", "@vestra/shared", "@vestra/injector"],
+  external: ["electron"],
   outfile: path.join(dist, "main", "index.js"),
   logLevel: "info",
 });
 
+// NOTE: .cjs extension is load-bearing. apps/manager/package.json declares
+// "type": "module", so a CJS bundle emitted as .js is parsed as ESM and
+// crashes before contextBridge runs (verified: "module is not defined in ES
+// module scope"). .cjs is unambiguous CJS under any package type.
 await build({
   entryPoints: [path.join(root, "src", "preload", "index.ts")],
   bundle: true,
@@ -42,7 +48,7 @@ await build({
   format: "cjs",
   define,
   external: ["electron"],
-  outfile: path.join(dist, "preload", "index.js"),
+  outfile: path.join(dist, "preload", "index.cjs"),
   logLevel: "info",
 });
 

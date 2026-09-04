@@ -66,6 +66,8 @@ class FakeApi {
   installed = new Set<DiscordChannel>();
   drifted = new Set<DiscordChannel>();
   devMode = false;
+  failDiscover: string | null = null;
+  failStatus: string | null = null;
   checkGate: Promise<void> | null = null;
   failNext:
     | { method: "install" | "repair" | "uninstall"; code: string; detail: string }
@@ -81,11 +83,13 @@ class FakeApi {
 
   async discover(): Promise<DiscordInstallation[]> {
     this.calls.push({ method: "discover", args: undefined });
+    if (this.failDiscover !== null) throw new Error(this.failDiscover);
     return this.installations;
   }
 
   async status(args?: { channels?: DiscordChannel[] }): Promise<StatusSummary> {
     this.calls.push({ method: "status", args });
+    if (this.failStatus !== null) throw new Error(this.failStatus);
     const wanted = args?.channels ?? this.installations.map((i) => i.channel);
     return {
       statuses: this.installations
@@ -464,6 +468,41 @@ describe("manager renderer", () => {
       "discover reruns",
     );
     assert.ok(byTestId("install-card-stable"));
+  });
+
+  test("discover failure shows discovery error, NOT the empty-list message", async () => {
+    fake.failDiscover = "preload bridge unreachable";
+    await mount();
+    assert.ok(byTestId("discovery-error"), "discovery error shown");
+    assert.match(text(), /Discord discovery failed/);
+    assert.match(text(), /preload bridge unreachable/);
+    assert.equal(byTestId("install-list-empty"), null);
+    assert.equal(byTestId("install-list"), null);
+    const before = fake.calls.filter((c) => c.method === "discover").length;
+    fake.failDiscover = null;
+    await click(byTestId("discovery-retry"));
+    assert.ok(
+      fake.calls.filter((c) => c.method === "discover").length > before,
+      "retry reruns discovery",
+    );
+    assert.equal(byTestId("discovery-error"), null);
+    assert.ok(byTestId("install-card-stable"), "cards render after retry");
+  });
+
+  test("successful empty discover keeps the empty-list message", async () => {
+    fake.installations = [];
+    await mount();
+    assert.ok(byTestId("install-list-empty"), "empty message shown");
+    assert.match(text(), /No Discord installations detected/);
+    assert.equal(byTestId("discovery-error"), null);
+  });
+
+  test("status failure does not erase discovered cards", async () => {
+    fake.failStatus = "status backend down";
+    await mount();
+    assert.ok(byTestId("install-card-stable"), "stable card persists");
+    assert.ok(byTestId("install-card-canary"), "canary card persists");
+    assert.equal(byTestId("discovery-error"), null);
   });
 
   test("21. renderer tests never touch a real Discord install", async () => {

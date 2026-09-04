@@ -8,6 +8,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 
 const SRC = path.join(import.meta.dirname, "..", "src");
+const ROOT = path.join(import.meta.dirname, "..");
 
 function read(rel: string): string {
   return fs.readFileSync(path.join(SRC, rel), "utf8");
@@ -77,6 +78,17 @@ describe("security boundary", () => {
     const windowSrc = read(path.join("main", "window.ts"));
     assert.match(windowSrc, /contextIsolation:\s*true/);
     assert.match(windowSrc, /nodeIntegration:\s*false/);
+  });
+
+  test("preload ships as .cjs (loadable under type:module)", () => {
+    // Regression: a CJS preload emitted as .js under "type": "module" is
+    // parsed as ESM and dies before contextBridge runs ("module is not
+    // defined in ES module scope"), leaving window.vestraManager undefined.
+    const buildScript = fs.readFileSync(path.join(ROOT, "scripts", "build.mjs"), "utf8");
+    assert.ok(buildScript.includes("index.cjs"), "build emits preload as .cjs");
+    const windowSrc = read(path.join("main", "window.ts"));
+    assert.ok(windowSrc.includes("index.cjs"), "window loads the .cjs preload");
+    assert.ok(!windowSrc.includes('"index.js"'), "no stale .js preload reference");
   });
 
   test("main bridge registers six methods and forces uninstall purge=false", () => {

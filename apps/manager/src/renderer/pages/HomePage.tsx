@@ -37,6 +37,22 @@ export function HomePage({ manager }: { manager: ManagerState }): JSX.Element {
         <h2 className="vs-section-title">Discord installations</h2>
         {!manager.booted ? (
           <div data-testid="boot-loading">Discovering Discord installations...</div>
+        ) : manager.discoveryError !== null ? (
+          <div className="vs-error" data-testid="discovery-error" role="alert">
+            <div className="vs-error__title">Discord discovery failed.</div>
+            <div className="vs-error__hint">
+              {manager.discoveryError.detail ?? "Could not reach the installer bridge."}
+            </div>
+            <div className="vs-error__actions">
+              <button
+                type="button"
+                onClick={() => void manager.refresh()}
+                data-testid="discovery-retry"
+              >
+                Retry
+              </button>
+            </div>
+          </div>
         ) : (
           <DiscordInstallList
             cards={cards}

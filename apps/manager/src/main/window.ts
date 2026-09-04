@@ -21,7 +21,7 @@ export function createManagerWindow(): BrowserWindow {
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
-      preload: path.join(HERE, "..", "preload", "index.js"),
+      preload: path.join(HERE, "..", "preload", "index.cjs"),
     },
   });
   void win.loadFile(path.join(HERE, "..", "renderer", "index.html"));
