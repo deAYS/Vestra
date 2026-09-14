@@ -1,0 +1,466 @@
+{
+  "project": {
+    "name": "Vestra",
+    "type": "Discord client modification framework",
+    "inspiration": [
+      "Vencord",
+      "BetterDiscord"
+    ],
+    "positioning": "A standalone, modular Discord client-mod framework with a typed plugin API, settings UI, themes, patching utilities, and an installer.",
+    "primary_goal": "Build the smallest stable client-mod runtime first, then expand through a modular plugin system.",
+    "initial_release_target": "0.0.1"
+  },
+  "branding": {
+    "name": "Vestra",
+    "product_names": {
+      "client": "Vestra Client",
+      "plugins": "Vestra Plugins",
+      "themes": "Vestra Themes",
+      "store": "Vestra Store",
+      "sdk": "Vestra SDK",
+      "installer": "Vestra Installer",
+      "cloud": "Vestra Cloud"
+    },
+    "tagline_options": [
+      "Your Discord. Your rules.",
+      "Discord, built around you."
+    ],
+    "recommended_tagline": "Your Discord. Your rules.",
+    "visual_identity": {
+      "style": "dark, minimal, technical, premium",
+      "logo_direction": "Minimal angular V composed of two geometric cuts. Avoid Discord logo imagery.",
+      "colors": {
+        "background": "#06080D",
+        "surface": "#0C1018",
+        "surface_2": "#121824",
+        "primary": "#183B73",
+        "primary_hover": "#20509A",
+        "text": "#F5F7FA",
+        "muted_text": "#8D96A5",
+        "border": "#202938"
+      }
+    },
+    "naming": {
+      "npm_scope": "@vestra",
+      "global_object": "Vestra",
+      "css_prefix": "vs-",
+      "data_attribute_prefix": "data-vestra-",
+      "plugin_api_package": "@vestra/api",
+      "suggested_repository": "vestra-client"
+    }
+  },
+  "technology": {
+    "language": "TypeScript",
+    "ui": "React",
+    "runtime_and_package_manager": "Bun",
+    "bundler": "esbuild",
+    "styles": [
+      "SCSS",
+      "CSS Modules"
+    ],
+    "validation": "Zod",
+    "desktop_platform": "Electron-based Discord desktop client",
+    "future_ci": "GitHub Actions",
+    "typescript": {
+      "strict_mode": true
+    }
+  },
+  "architecture": {
+    "style": "monorepo",
+    "directories": {
+      "apps/installer": "Install, uninstall, repair and update Vestra.",
+      "packages/core": "Renderer runtime, APIs, UI, plugin management and patching.",
+      "packages/core/src/api": "Public and internal Vestra APIs.",
+      "packages/core/src/ui": "Vestra UI components and settings pages.",
+      "packages/core/src/webpack": "Discord module discovery utilities.",
+      "packages/injector": "Bootstrap/injection layer that loads Vestra into Discord.",
+      "packages/shared": "Types, constants and utilities shared across packages.",
+      "plugins": "Built-in Vestra plugins.",
+      "themes": "Optional built-in or development themes."
+    },
+    "suggested_tree": [
+      "apps/installer/",
+      "packages/core/src/api/plugins.ts",
+      "packages/core/src/api/settings.ts",
+      "packages/core/src/api/styles.ts",
+      "packages/core/src/api/patcher.ts",
+      "packages/core/src/api/logger.ts",
+      "packages/core/src/ui/",
+      "packages/core/src/webpack/",
+      "packages/core/src/pluginManager.ts",
+      "packages/core/src/index.ts",
+      "packages/injector/",
+      "packages/shared/",
+      "plugins/example/",
+      "plugins/quick-css/",
+      "themes/",
+      "package.json",
+      "tsconfig.json"
+    ]
+  },
+  "design_principles": [
+    "Keep core runtime small.",
+    "Every subsystem should be independently replaceable.",
+    "Plugins must not be able to crash the entire Vestra runtime.",
+    "All patches must be reversible.",
+    "All plugin lifecycle functions may be asynchronous.",
+    "Settings must be centralized instead of each plugin inventing storage.",
+    "Discord-specific internals must stay behind Vestra APIs where practical.",
+    "Use strongly typed APIs.",
+    "Do not implement the installer before the renderer runtime is stable.",
+    "Do not optimize for plugin quantity during early development."
+  ],
+  "plugin_system": {
+    "plugin_definition": {
+      "required_fields": {
+        "name": "string",
+        "description": "string",
+        "authors": "string[]"
+      },
+      "optional_fields": {
+        "enabledByDefault": "boolean",
+        "start": "() => void | Promise<void>",
+        "stop": "() => void | Promise<void>",
+        "settings": "PluginSettingsDefinition",
+        "patches": "PatchDefinition[]"
+      }
+    },
+    "example": {
+      "name": "ExamplePlugin",
+      "description": "Tests the Vestra plugin system.",
+      "authors": [
+        "Uzuhullah"
+      ],
+      "enabledByDefault": true,
+      "lifecycle": {
+        "start": "Execute plugin startup logic.",
+        "stop": "Undo plugin state, listeners, styles and patches."
+      }
+    },
+    "manager_requirements": [
+      "Register plugins.",
+      "Reject duplicate plugin names.",
+      "Enable plugins.",
+      "Disable plugins.",
+      "Track enabled state.",
+      "Persist enabled state.",
+      "Catch startup exceptions.",
+      "Catch shutdown exceptions.",
+      "Support async start and stop.",
+      "Allow querying registered plugins.",
+      "Allow querying plugin enabled state."
+    ]
+  },
+  "settings": {
+    "prototype_storage": "localStorage",
+    "future_storage": "native persistent configuration file through Vestra Native bridge",
+    "storage_key": "vestra-settings",
+    "initial_shape": {
+      "plugins": {
+        "<pluginName>": {
+          "enabled": "boolean",
+          "settings": "Record<string, unknown>"
+        }
+      },
+      "customCss": "boolean"
+    }
+  },
+  "public_api_target": {
+    "import_package": "@vestra/api",
+    "modules": [
+      "Plugins",
+      "Settings",
+      "Patcher",
+      "Webpack",
+      "React",
+      "DOM",
+      "Styles",
+      "Commands",
+      "Notifications",
+      "Native",
+      "Logger"
+    ],
+    "planned_import_example": [
+      "definePlugin",
+      "findByProps",
+      "Patcher",
+      "Settings",
+      "Toasts"
+    ]
+  },
+  "webpack_api": {
+    "purpose": "Locate Discord's internal modules without hardcoding direct bundle indexes.",
+    "planned_functions": [
+      "find",
+      "findByProps",
+      "findByDisplayName",
+      "findStore",
+      "waitFor",
+      "filters"
+    ],
+    "requirements": [
+      "Cache resolved modules where safe.",
+      "Fail gracefully if a Discord update changes a module.",
+      "Support lazy discovery.",
+      "Expose typed wrappers for commonly used modules.",
+      "Keep raw Webpack access separate from high-level APIs."
+    ]
+  },
+  "patcher": {
+    "purpose": "Safely intercept functions and restore them when a plugin is disabled.",
+    "planned_methods": [
+      "before",
+      "after",
+      "instead",
+      "unpatch",
+      "unpatchAll"
+    ],
+    "requirements": [
+      "Every patch returns an unpatch function.",
+      "Every patch belongs to a plugin or patch namespace.",
+      "Disabling a plugin automatically removes its patches.",
+      "A plugin failure must not permanently modify the target function.",
+      "Support multiple independent patches on the same target."
+    ]
+  },
+  "native_bridge": {
+    "status": "later milestone",
+    "responsibilities": [
+      "Persistent filesystem settings.",
+      "Opening files and folders when explicitly requested.",
+      "Updater integration.",
+      "Installer/runtime communication.",
+      "Safe limited access to Electron/Node functionality."
+    ],
+    "security_rule": "Do not expose unrestricted Node or Electron access directly to arbitrary plugins."
+  },
+  "ui": {
+    "initial_pages": [
+      "Vestra Settings",
+      "Plugins",
+      "Themes",
+      "QuickCSS",
+      "About"
+    ],
+    "plugin_settings_requirements": [
+      "Search plugins.",
+      "Enable or disable plugins.",
+      "Display description and authors.",
+      "Open plugin-specific settings.",
+      "Show plugin errors without crashing settings UI."
+    ]
+  },
+  "builtin_plugins_v0": [
+    {
+      "name": "QuickCSS",
+      "priority": "critical",
+      "description": "Apply user-defined CSS."
+    },
+    {
+      "name": "ThemeManager",
+      "priority": "high",
+      "description": "Enable, disable and manage themes."
+    },
+    {
+      "name": "DeveloperTools",
+      "priority": "high",
+      "description": "Developer utilities for Vestra development."
+    },
+    {
+      "name": "ImageUtilities",
+      "priority": "medium",
+      "description": "Additional image-related context actions and utilities."
+    },
+    {
+      "name": "BetterProfiles",
+      "priority": "medium",
+      "description": "Optional profile UI enhancements."
+    },
+    {
+      "name": "TypingIndicatorPlus",
+      "priority": "medium",
+      "description": "Additional typing indicator information."
+    },
+    {
+      "name": "VoiceUtilities",
+      "priority": "medium",
+      "description": "Optional quality-of-life voice controls."
+    },
+    {
+      "name": "BetterChat",
+      "priority": "medium",
+      "description": "General optional chat quality-of-life improvements."
+    }
+  ],
+  "roadmap": [
+    {
+      "order": 1,
+      "name": "Core Bootstrap",
+      "deliverable": "A renderer bundle can execute Vestra.start() successfully."
+    },
+    {
+      "order": 2,
+      "name": "Plugin Manager",
+      "deliverable": "Typed plugins can register, start, stop and fail safely."
+    },
+    {
+      "order": 3,
+      "name": "Settings",
+      "deliverable": "Plugin enabled state and settings persist."
+    },
+    {
+      "order": 4,
+      "name": "Styles API",
+      "deliverable": "Plugins and QuickCSS can add and remove CSS safely."
+    },
+    {
+      "order": 5,
+      "name": "Settings UI",
+      "deliverable": "Vestra settings can manage plugins and configuration."
+    },
+    {
+      "order": 6,
+      "name": "Webpack Module Finder",
+      "deliverable": "Vestra can locate internal Discord modules dynamically."
+    },
+    {
+      "order": 7,
+      "name": "Patcher",
+      "deliverable": "Plugins can patch functions with automatic cleanup."
+    },
+    {
+      "order": 8,
+      "name": "Discord Component APIs",
+      "deliverable": "Common Discord components and stores are exposed through stable wrappers."
+    },
+    {
+      "order": 9,
+      "name": "Native Bridge",
+      "deliverable": "Controlled renderer-to-native functionality exists."
+    },
+    {
+      "order": 10,
+      "name": "Injector",
+      "deliverable": "Vestra loads automatically into supported Discord installations."
+    },
+    {
+      "order": 11,
+      "name": "Installer",
+      "deliverable": "Users can install, uninstall and repair Vestra."
+    },
+    {
+      "order": 12,
+      "name": "Updater",
+      "deliverable": "Vestra can safely update itself."
+    },
+    {
+      "order": 13,
+      "name": "Plugin Repository",
+      "deliverable": "Plugins can be discovered and managed through a repository/store system."
+    }
+  ],
+  "milestones": {
+    "0.0.1": {
+      "goal": "First usable internal prototype",
+      "required": [
+        "Core bootstrap",
+        "Plugin manager",
+        "Persistent settings",
+        "Vestra settings screen",
+        "Enable and disable plugins",
+        "QuickCSS",
+        "One example plugin"
+      ],
+      "not_required": [
+        "Public plugin store",
+        "Auto updater",
+        "Full installer",
+        "Large plugin collection"
+      ]
+    },
+    "0.0.2": {
+      "goal": "Discord integration foundation",
+      "required": [
+        "Webpack module finder",
+        "Patcher",
+        "Automatic patch cleanup",
+        "Basic Discord stores/components wrappers"
+      ]
+    },
+    "0.1.0": {
+      "goal": "Installable alpha",
+      "required": [
+        "Injector",
+        "Installer",
+        "Native bridge",
+        "Theme manager",
+        "Updater foundation",
+        "Stable internal plugin API"
+      ]
+    }
+  },
+  "ai_coding_rules": {
+    "general": [
+      "Implement only the requested subsystem in each task.",
+      "Do not rewrite unrelated working code.",
+      "Prefer small modules over giant files.",
+      "Use TypeScript strict mode.",
+      "Avoid any unless there is no practical alternative.",
+      "Every disposable resource must have cleanup logic.",
+      "Every event listener created by a plugin must be removable.",
+      "Every CSS injection must be removable.",
+      "Every function patch must be reversible.",
+      "Errors from one plugin must be isolated from the rest of Vestra.",
+      "Do not silently swallow errors; send them through Vestra Logger.",
+      "Public API names should remain stable once used by built-in plugins."
+    ],
+    "first_prompt": {
+      "task": "Implement the plugin framework only.",
+      "requirements": [
+        "TypeScript strict mode.",
+        "Plugins use definePlugin({...}).",
+        "Every plugin has name, description and authors.",
+        "Optional start() and stop().",
+        "PluginManager handles registration.",
+        "Prevent duplicate plugin names.",
+        "Enable and disable plugins.",
+        "Catch plugin exceptions so one broken plugin cannot crash Vestra.",
+        "Persist enabled states.",
+        "All lifecycle operations support async functions.",
+        "Do not implement Discord injection yet.",
+        "Do not implement Webpack patching yet.",
+        "Keep APIs modular because they will be extended later.",
+        "Create all required source files and exports."
+      ]
+    }
+  },
+  "non_goals_initially": [
+    "Hundreds of plugins.",
+    "A public marketplace.",
+    "Cloud accounts.",
+    "Cross-device sync.",
+    "Complex monetization.",
+    "A custom Discord replacement client.",
+    "Supporting every Discord release channel from day one."
+  ],
+  "quality_checks": [
+    "Can a plugin be enabled without restarting Vestra?",
+    "Can a plugin be disabled without leaving listeners, patches or styles behind?",
+    "Does one plugin throwing an exception leave the rest of Vestra operational?",
+    "Are settings preserved after reload?",
+    "Can internal APIs change without forcing every plugin to directly depend on Discord internals?",
+    "Is every patch reversible?",
+    "Can the core run before the injector exists?",
+    "Are platform-specific operations isolated from renderer code?"
+  ],
+  "release_0_0_1_definition_of_done": [
+    "Vestra.start() executes.",
+    "Vestra branding appears in the console and settings UI.",
+    "At least one plugin is registered.",
+    "Plugins can be enabled and disabled.",
+    "Enabled state survives reload.",
+    "QuickCSS can inject and remove CSS.",
+    "A broken test plugin does not crash Vestra.",
+    "The project builds with zero TypeScript errors."
+  ]
+}

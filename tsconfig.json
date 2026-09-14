@@ -1,0 +1,38 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "jsx": "react-jsx",
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "forceConsistentCasingInFileNames": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "baseUrl": ".",
+    "paths": {
+      "@vestra/shared": ["./packages/shared/src/index.ts"],
+      "@vestra/shared/node/testSafety": ["./packages/shared/src/node/testSafety.ts"],
+      "@vestra/shared/node/testSafety.js": ["./packages/shared/src/node/testSafety.ts"],
+      "@vestra/api": ["./packages/core/src/api/index.ts"],
+      "@vestra/core": ["./packages/core/src/index.ts"],
+      "@vestra/injector": ["./packages/injector/src/index.ts"]
+    }
+  },
+  "include": [
+    "apps/*/src/**/*",
+    "packages/*/src/**/*",
+    "plugins/*/src/**/*"
+  ],
+  "exclude": ["node_modules", "dist"]
+}
