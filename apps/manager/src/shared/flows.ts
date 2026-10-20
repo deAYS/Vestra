@@ -1,12 +1,3 @@
-// Vestra Manager — operation flows over a minimal service interface.
-// The renderer passes window.vestraManager; tests pass a fake.
-// One selected installation per action: callers pass exactly one channel.
-//
-// Install:  install([ch]) -> check([ch]) -> success only if deep healthy.
-// Repair:   check([ch]) first; healthy => no repair call; drifted =>
-//           repair([ch]) -> check([ch]) again -> success only if healthy.
-// Uninstall: uninstall([ch]) with purge=false (enforced here AND main-side).
-
 import type { DiscordChannel } from "./channels.js";
 import type { CheckSummary, OperationSummary } from "./types.js";
 
@@ -96,7 +87,7 @@ export async function runUninstallFlow(
   channel: DiscordChannel,
 ): Promise<FlowOk | FlowErr> {
   const result = await service.uninstall({ channels: [channel], purge: false });
-  if (result.ok) return { ok: true };
+  if (result.ok && result.results.some(r => r.channel === channel && r.ok)) return { ok: true };
   const failed = result.results.find((r) => !r.ok);
   return {
     ok: false,
