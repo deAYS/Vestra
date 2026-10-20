@@ -1,8 +1,3 @@
-// @vestra/core UI — error boundaries.
-// Phase 5. A throwing plugin row must never take down the whole settings UI:
-// every card gets its own boundary, and every page gets one too. Errors are
-// routed through Logger, never swallowed.
-
 import { Component, type ErrorInfo, type ReactNode } from "react";
 import { Logger } from "../api/logger.js";
 import { formatError, s } from "./theme.js";
