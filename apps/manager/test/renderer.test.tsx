@@ -42,7 +42,10 @@ import type {
   StatusSummary,
 } from "../src/shared/types.js";
 
-function installEntry(channel: DiscordChannel, version: string): DiscordInstallation {
+function installEntry(
+  channel: DiscordChannel,
+  version: string,
+): DiscordInstallation {
   return {
     channel,
     version,
@@ -69,9 +72,11 @@ class FakeApi {
   failDiscover: string | null = null;
   failStatus: string | null = null;
   checkGate: Promise<void> | null = null;
-  failNext:
-    | { method: "install" | "repair" | "uninstall"; code: string; detail: string }
-    | null = null;
+  failNext: {
+    method: "install" | "repair" | "uninstall";
+    code: string;
+    detail: string;
+  } | null = null;
   calls: RecordedCall[] = [];
   progressListeners: Array<(e: InstallerProgressEvent) => void> = [];
   emitted: InstallerProgressEvent[] = [];
@@ -154,7 +159,9 @@ class FakeApi {
     };
   }
 
-  async install(args: { channels: DiscordChannel[] }): Promise<OperationSummary> {
+  async install(args: {
+    channels: DiscordChannel[];
+  }): Promise<OperationSummary> {
     this.calls.push({ method: "install", args });
     const channel = args.channels[0] as DiscordChannel;
     this.emit({ operation: "install", phase: "discovering" });
@@ -173,7 +180,14 @@ class FakeApi {
       return {
         ok: false,
         results: [
-          { asarPath: `/fake/${channel}/app.asar`, channel, ok: false, action: "failed", detail, code: code as "verification-failed" },
+          {
+            asarPath: `/fake/${channel}/app.asar`,
+            channel,
+            ok: false,
+            action: "failed",
+            detail,
+            code: code as "verification-failed",
+          },
         ],
       };
     }
@@ -183,12 +197,19 @@ class FakeApi {
     return {
       ok: true,
       results: [
-        { asarPath: `/fake/${channel}/app.asar`, channel, ok: true, action: "installed" },
+        {
+          asarPath: `/fake/${channel}/app.asar`,
+          channel,
+          ok: true,
+          action: "installed",
+        },
       ],
     };
   }
 
-  async repair(args: { channels: DiscordChannel[] }): Promise<OperationSummary> {
+  async repair(args: {
+    channels: DiscordChannel[];
+  }): Promise<OperationSummary> {
     this.calls.push({ method: "repair", args });
     if (this.failNext?.method === "repair") {
       const { code, detail } = this.failNext;
@@ -197,7 +218,14 @@ class FakeApi {
       return {
         ok: false,
         results: [
-          { asarPath: `/fake/${channel}/app.asar`, channel, ok: false, action: "failed", detail, code: code as "verification-failed" },
+          {
+            asarPath: `/fake/${channel}/app.asar`,
+            channel,
+            ok: false,
+            action: "failed",
+            detail,
+            code: code as "verification-failed",
+          },
         ],
       };
     }
@@ -216,7 +244,9 @@ class FakeApi {
     };
   }
 
-  async uninstall(args: { channels: DiscordChannel[] }): Promise<OperationSummary> {
+  async uninstall(args: {
+    channels: DiscordChannel[];
+  }): Promise<OperationSummary> {
     this.calls.push({ method: "uninstall", args });
     for (const channel of args.channels) {
       this.installed.delete(channel);
@@ -288,7 +318,9 @@ function click(el: HappyElement | null): Promise<void> {
 beforeEach(() => {
   fake = new FakeApi();
   (happyWindow as unknown as Record<string, unknown>)["vestraManager"] = fake;
-  container = happyWindow.document.createElement("div") as unknown as HappyElement;
+  container = happyWindow.document.createElement(
+    "div",
+  ) as unknown as HappyElement;
   (container as unknown as { id: string }).id = "root";
   happyWindow.document.body.appendChild(container as unknown as HappyNode);
 });
@@ -314,7 +346,10 @@ describe("manager renderer", () => {
   test("3. production default: Stable selected + Recommended", async () => {
     await mount();
     const stable = byTestId("install-card-stable");
-    assert.ok(stable?.className.includes("vs-card--selected"), "stable selected");
+    assert.ok(
+      stable?.className.includes("vs-card--selected"),
+      "stable selected",
+    );
     assert.equal(byTestId("badge-stable")?.textContent, "Recommended");
     assert.equal(byTestId("badge-canary"), null);
   });
@@ -323,7 +358,10 @@ describe("manager renderer", () => {
     fake.devMode = true;
     await mount();
     const stable = byTestId("install-card-stable");
-    assert.ok(stable?.className.includes("vs-card--selected"), "stable selected");
+    assert.ok(
+      stable?.className.includes("vs-card--selected"),
+      "stable selected",
+    );
     assert.equal(byTestId("badge-stable")?.textContent, "Development target");
     assert.equal(byTestId("badge-canary"), null);
   });
@@ -380,25 +418,29 @@ describe("manager renderer", () => {
     await click(byTestId("install-canary"));
     const installs = fake.calls.filter((c) => c.method === "install");
     assert.equal(installs.length, 1);
-    assert.deepEqual((installs[0]?.args as { channels: string[] }).channels, ["canary"]);
+    assert.deepEqual((installs[0]?.args as { channels: string[] }).channels, [
+      "canary",
+    ]);
     const checks = fake.calls.filter((c) => c.method === "check");
     assert.ok(checks.length >= 2, "deep check runs after install");
     assert.match(text(), /Vestra installed successfully/);
     assert.ok(byTestId("status-healthy"));
   });
 
-  test("12. repair checks first; healthy shows already-healthy, no rewrite", async () => {
+  test("12. healthy Repair still reinstalls Vestra", async () => {
     fake.installed.add("canary");
     await mount();
     assert.ok(byTestId("status-healthy"));
-    const repairsBefore = fake.calls.filter((c) => c.method === "repair").length;
+    const repairsBefore = fake.calls.filter(
+      (c) => c.method === "repair",
+    ).length;
     await click(byTestId("repair-canary"));
     assert.equal(
       fake.calls.filter((c) => c.method === "repair").length,
-      repairsBefore,
-      "repair not called when healthy",
+      repairsBefore + 1,
+      "repair called even when healthy",
     );
-    assert.match(text(), /Vestra is already healthy/);
+    assert.match(text(), /Vestra repaired successfully/);
   });
 
   test("13. drifted repair only touches the selected channel", async () => {
@@ -409,7 +451,9 @@ describe("manager renderer", () => {
     await click(byTestId("repair-canary"));
     const repairs = fake.calls.filter((c) => c.method === "repair");
     assert.equal(repairs.length, 1);
-    assert.deepEqual((repairs[0]?.args as { channels: string[] }).channels, ["canary"]);
+    assert.deepEqual((repairs[0]?.args as { channels: string[] }).channels, [
+      "canary",
+    ]);
     assert.match(text(), /repaired successfully/);
   });
 
@@ -432,7 +476,11 @@ describe("manager renderer", () => {
     assert.equal(uninstalls.length, 1);
     const args = uninstalls[0]?.args as { channels: string[]; purge?: boolean };
     assert.deepEqual(args.channels, ["canary"]);
-    assert.equal(args.purge, false, "uninstall uses purge=false (main also forces false)");
+    assert.equal(
+      args.purge,
+      false,
+      "uninstall uses purge=false (main also forces false)",
+    );
     assert.match(text(), /Not installed/);
   });
 
@@ -440,7 +488,13 @@ describe("manager renderer", () => {
     await mount();
     await click(byTestId("install-canary"));
     const phases = fake.emitted.map((e) => e.phase);
-    assert.deepEqual(phases, ["discovering", "staging", "patching", "verifying", "complete"]);
+    assert.deepEqual(phases, [
+      "discovering",
+      "staging",
+      "patching",
+      "verifying",
+      "complete",
+    ]);
     assert.ok(fake.emitted.every((e) => e.operation === "install"));
   });
 
@@ -461,10 +515,13 @@ describe("manager renderer", () => {
 
   test("18. refresh reruns discovery/status", async () => {
     await mount();
-    const discoveredBefore = fake.calls.filter((c) => c.method === "discover").length;
+    const discoveredBefore = fake.calls.filter(
+      (c) => c.method === "discover",
+    ).length;
     await click(byTestId("refresh-button"));
     assert.ok(
-      fake.calls.filter((c) => c.method === "discover").length > discoveredBefore,
+      fake.calls.filter((c) => c.method === "discover").length >
+        discoveredBefore,
       "discover reruns",
     );
     assert.ok(byTestId("install-card-stable"));
