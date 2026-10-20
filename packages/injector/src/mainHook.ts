@@ -4,6 +4,7 @@ import {
   VESTRA_NATIVE_CHANNELS,
 } from "@vestra/shared";
 import { buildAddonsSource } from "./addonsSource.js";
+import { buildSettingsSource } from "./settingsSource.js";
 
 export interface MainHookOptions {
   /**
@@ -109,9 +110,7 @@ export function buildMainHookSource(options: MainHookOptions): string {
   const PRELOAD_PATH = (${preloadPathExpr});
   const SETTINGS_FILE = ${JSON.stringify(settingsFile)};
   const APP_PATHS = ${JSON.stringify(APP_PATH_ALLOWLIST)};
-  function settingsPath() {
-    return path.join(app.getPath("userData"), SETTINGS_FILE);
-  }
+  ${buildSettingsSource()}
   function validPath(p) {
     return typeof p === "string" && p !== "" && p.indexOf("\\0") === -1;
   }
@@ -186,18 +185,11 @@ export function buildMainHookSource(options: MainHookOptions): string {
     "addons:writeTheme": async (name, css) => writeThemeFile(name, css),
     "addons:removeTheme": async (name) => removeThemeFile(name),
     "settings:read": async () => {
-      try {
-        return await fs.promises.readFile(settingsPath(), "utf8");
-      } catch (err) {
-        if (err && err.code === "ENOENT") return null;
-        throw err;
-      }
+      return readSettings();
     },
     "settings:write": async (text) => {
       if (typeof text !== "string") throw new TypeError("settings:write needs a string");
-      await fs.promises.mkdir(path.dirname(settingsPath()), { recursive: true });
-      await fs.promises.writeFile(settingsPath(), text, "utf8");
-      return true;
+      return writeSettings(text);
     },
     "shell:openPath": async (p) => {
       if (!validPath(p)) throw new TypeError("shell:openPath needs a path");
