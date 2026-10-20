@@ -86,7 +86,7 @@ export function buildPreloadSource(options?: PreloadOptions): string {
       });
       if (!payload || typeof payload.bundle !== "string" || typeof payload.loader !== "string") throw new Error("Invalid bootstrap response");
       // Execute explicitly in the page world. DOM script tags are blocked by CSP.
-      await webFrame.executeJavaScript(payload.bundle + "\\n;window.Vestra = window.Vestra.Vestra || window.Vestra.default || window.Vestra; window.Vestra.Settings.load();\\n//# sourceURL=vestra.js");
+      await webFrame.executeJavaScript(payload.bundle + "\\n;window.Vestra = window.Vestra.Vestra || window.Vestra.default || window.Vestra; (async () => { await window.Vestra.Settings.connectStorage({readSettingsFile:()=>window.VestraNative.invoke('settings:read',[]).then(value=>value??undefined),writeSettingsFile:text=>window.VestraNative.invoke('settings:write',[text])}); window.Vestra.Settings.load(); })();\\n//# sourceURL=vestra.js");
       for (const plugin of payload.plugins || []) {
         try { await webFrame.executeJavaScript(plugin.source + "\\n//# sourceURL=vestra-plugin-" + encodeURIComponent(plugin.name) + ".js"); }
         catch (err) {
