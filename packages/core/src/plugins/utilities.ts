@@ -240,10 +240,12 @@ export const FullTimestamps = eventPlugin(
       .map((part) => `${part}[data-vestra-time]`);
     Styles.inject(
       "plugin-full-timestamps",
-      `${styled.join(",")}{font-size:0!important}${styled.map((part) => `${part}>*`).join(",")}{display:none!important}${styled.map((part) => `${part}::after`).join(",")}{content:attr(data-vestra-time);font:11px var(--font-primary,system-ui);color:var(--text-muted);margin-inline:3px}`,
+      `${styled.join(",")}{font-size:0!important;white-space:nowrap!important}${styled.map((part) => `${part}>*`).join(",")}{display:none!important}${styled.map((part) => `${part}::after`).join(",")}{content:attr(data-vestra-time);font:11px var(--font-primary,system-ui);color:var(--text-muted);margin-inline:3px;white-space:nowrap}${styled.map(part => `${part}[data-vestra-time-compact]::after`).join(",")}{content:attr(data-vestra-time-compact);font-size:10px;margin-inline:0}`,
     );
     // Discord can reuse a time node when scrolling. Its datetime is part of identity.
     const cleanup = enhance(selector, (element) => {
+      const originalTitle = element.getAttribute("title");
+      let ownTitle: string | undefined;
       const update = (): void => {
         const text = formatTimestamp(
           element.getAttribute("datetime") ?? "",
@@ -253,8 +255,17 @@ export const FullTimestamps = eventPlugin(
             twelveHour: booleanOption("FullTimestamps", "twelveHour", false),
           },
         );
-        if (text) element.setAttribute("data-vestra-time", text);
-        else element.removeAttribute("data-vestra-time");
+        if (text) {
+          element.setAttribute("data-vestra-time", text);
+          ownTitle = text;
+          element.setAttribute("title", text);
+          if (!element.closest('h2,[class*="header_"]')) {
+            element.setAttribute("data-vestra-time-compact", new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(new Date(element.getAttribute("datetime")!)));
+          } else element.removeAttribute("data-vestra-time-compact");
+        } else {
+          element.removeAttribute("data-vestra-time");
+          element.removeAttribute("data-vestra-time-compact");
+        }
       };
       update();
       const observer = new MutationObserver(update);
@@ -280,6 +291,11 @@ export const FullTimestamps = eventPlugin(
         observer.disconnect();
         unsubscribe();
         element.removeAttribute("data-vestra-time");
+        element.removeAttribute("data-vestra-time-compact");
+        if (element.getAttribute("title") === ownTitle) {
+          if (originalTitle === null) element.removeAttribute("title");
+          else element.setAttribute("title", originalTitle);
+        }
       };
     });
     return () => {
