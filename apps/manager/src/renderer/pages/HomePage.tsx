@@ -1,5 +1,3 @@
-// Vestra Manager — home page: installation cards + global notices.
-
 import { applyDeepResult, cardFromShallow, type CardModel } from "../../shared/statusModel.js";
 import type { ManagerState } from "../hooks/useManager.js";
 import { ConfirmDialog } from "../components/ConfirmDialog.js";
