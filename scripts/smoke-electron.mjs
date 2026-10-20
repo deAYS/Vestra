@@ -104,6 +104,7 @@ try {
     path.join(fixture, "main.cjs"),
   );
   for (const motion of ["full", "reduced"]) {
+    await fs.cp(path.join(fixture, "app-data"), path.join(fixture, "app-data-" + motion), { recursive: true });
     const env = { ...process.env, VESTRA_TEST_MOTION: motion };
     delete env.ELECTRON_RUN_AS_NODE;
     const flag =
