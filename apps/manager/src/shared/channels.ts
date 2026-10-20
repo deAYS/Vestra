@@ -8,13 +8,19 @@ export const MANAGER_IPC = {
   repair: "vestra-manager:repair",
   uninstall: "vestra-manager:uninstall",
   progress: "vestra-manager:progress",
+  maintenanceStatus: "vestra-manager:maintenance-status",
+  maintenanceSet: "vestra-manager:maintenance-set",
 } as const;
 
 export type ManagerIpcChannel = (typeof MANAGER_IPC)[keyof typeof MANAGER_IPC];
 
 export type DiscordChannel = "stable" | "ptb" | "canary";
 
-export const ALL_CHANNELS: readonly DiscordChannel[] = ["stable", "ptb", "canary"];
+export const ALL_CHANNELS: readonly DiscordChannel[] = [
+  "stable",
+  "ptb",
+  "canary",
+];
 
 export function isDiscordChannel(value: unknown): value is DiscordChannel {
   return value === "stable" || value === "ptb" || value === "canary";
