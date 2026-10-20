@@ -17,11 +17,11 @@ describe("channel selection", () => {
     assert.equal(isDevelopmentBuild(false), false);
   });
 
-  test("4. development mode selects canary + Development target badge", () => {
-    assert.equal(defaultChannel(true), "canary");
+  test("4. development mode also selects Stable + Development target badge", () => {
+    assert.equal(defaultChannel(true), "stable");
     assert.equal(isDevelopmentBuild(true), true);
-    assert.equal(channelBadge("canary", true), "Development target");
-    assert.equal(channelBadge("stable", true), undefined);
+    assert.equal(channelBadge("stable", true), "Development target");
+    assert.equal(channelBadge("canary", true), undefined);
   });
 
   test("production marks stable Recommended, never canary", () => {
@@ -37,7 +37,7 @@ describe("channel selection", () => {
 
   test("multiple installations prefer the build default", () => {
     assert.equal(selectDefaultChannel(["stable", "canary"], false), "stable");
-    assert.equal(selectDefaultChannel(["stable", "canary"], true), "canary");
+    assert.equal(selectDefaultChannel(["stable", "canary"], true), "stable");
     assert.equal(selectDefaultChannel(["stable", "ptb"], true), "stable");
   });
 
