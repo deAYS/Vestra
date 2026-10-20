@@ -22,6 +22,7 @@ await build({
   absWorkingDir: root,
   entryPoints: ["packages/injector/src/splash.ts"],
   bundle: true,
+  loader: { ".css": "text" },
   platform: "browser",
   format: "iife",
   globalName: "VestraSplash",
@@ -35,6 +36,7 @@ const result = await build({
     resolveDir: root,
   },
   bundle: true,
+  loader: { ".css": "text" },
   platform: "node",
   format: "esm",
   write: false,
@@ -46,7 +48,6 @@ for (const theme of THEME_LIBRARY) {
   const id = theme.name.replace("Vestra ", "").toLowerCase();
   await fs.writeFile(path.join(out, "themes", `${id}.theme.css`), theme.css);
 }
-await fs.copyFile(path.join(root,"themes/afterglow.theme.css"),path.join(out,"themes/afterglow.theme.css"));
 console.log(
-  "GitHub Pages site built in site/dist (5 theme downloads + shared startup animation).",
+  `GitHub Pages site built in site/dist (${THEME_LIBRARY.length} theme downloads + shared startup animation).`,
 );
