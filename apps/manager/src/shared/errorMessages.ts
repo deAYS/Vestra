@@ -1,7 +1,3 @@
-// Vestra Manager — InstallerErrorCode to friendly UI copy.
-// Keeps the raw `detail` available for a "Show details" disclosure;
-// the normal UI never dumps stack traces.
-
 import type { InstallerErrorCode } from "./types.js";
 
 export interface FriendlyError {
@@ -68,7 +64,7 @@ const PHASE_LABELS: Record<string, string> = {
   complete: "Done.",
 };
 
-/** Phase label for progress UI. Never a fake percentage. */
+/** Describe the current installer operation. */
 export function progressLabel(phase: string, channelLabel?: string): string {
   const base = PHASE_LABELS[phase] ?? "Working...";
   if (phase === "patching" && channelLabel !== undefined) {
