@@ -1,7 +1,3 @@
-// @vestra/core UI — shared dependency types.
-// Phase 5. Narrow interfaces so pages stay testable without the singletons.
-// `PluginManager` satisfies `PluginManagerLike` structurally.
-
 import type { PluginDefinition } from "../api/plugins.js";
 import type { SettingsStore } from "../api/settings.js";
 
@@ -14,6 +10,7 @@ export interface PluginListEntry {
 }
 
 export interface PluginManagerLike {
+  subscribe?(listener: () => void): () => void;
   list(): readonly PluginListEntry[];
   enable(name: string): Promise<boolean>;
   disable(name: string): Promise<boolean>;
