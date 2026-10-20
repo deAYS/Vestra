@@ -14,8 +14,8 @@ export {
   DEFAULT_SETTINGS,
 } from "./settings.js";
 export type { VestraSettings, PluginSettingsEntry, CustomCss, SettingsListener } from "./settings.js";
-export { ThemeSchema } from "./settings.js";
-export type { Theme } from "./settings.js";
+export { ThemeSchema, ThemeCustomizationSchema } from "./settings.js";
+export type { Theme, ThemeCustomization } from "./settings.js";
 export { importTheme, startThemes, MIDNIGHT_THEME, THEME_LIBRARY } from "../themes.js";
 
 export {
