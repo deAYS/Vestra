@@ -16,14 +16,27 @@ import {
   planInject,
   readAsarFile,
   readAsarMain,
+  readReceipt,
   uninject,
   type DiscordChannel,
   type DiscordInstall,
   type DiscoveryOptions,
 } from "@vestra/injector";
 import { layoutHome } from "./home.js";
-import { loadPayloadSources, payloadDirFor, sha256Hex, stagePayload, verifyPayload } from "./payload.js";
-import { loadRegistry, loadRegistryWithDiagnostics, saveRegistry, type InstallRegistry, type RegistryEntry } from "./registry.js";
+import {
+  loadPayloadSources,
+  payloadDirFor,
+  sha256Hex,
+  stagePayload,
+  verifyPayload,
+} from "./payload.js";
+import {
+  loadRegistry,
+  loadRegistryWithDiagnostics,
+  saveRegistry,
+  type InstallRegistry,
+  type RegistryEntry,
+} from "./registry.js";
 
 export interface OperationContext {
   homeDir: string;
@@ -53,16 +66,28 @@ export interface BatchResult {
   results: PerInstallResult[];
 }
 
-function ctxVersions(ctx: OperationContext): { bundlePath: string; payloadVersion: string } {
+function ctxVersions(ctx: OperationContext): {
+  bundlePath: string;
+  payloadVersion: string;
+} {
   const bundlePath = ctx.bundlePath ?? "";
   if (bundlePath === "") {
-    throw new TypeError("A bundlePath is required (build @vestra/core or pass --bundle).");
+    throw new TypeError(
+      "A bundlePath is required (build @vestra/core or pass --bundle).",
+    );
   }
   return { bundlePath, payloadVersion: ctx.payloadVersion ?? VESTRA_VERSION };
 }
 
-export function channelMatches(channels: DiscordChannel[] | undefined, channel: string): boolean {
-  return channels === undefined || channels.length === 0 || channels.includes(channel as DiscordChannel);
+export function channelMatches(
+  channels: DiscordChannel[] | undefined,
+  channel: string,
+): boolean {
+  return (
+    channels === undefined ||
+    channels.length === 0 ||
+    channels.includes(channel as DiscordChannel)
+  );
 }
 
 /** Collect the test-safety policy carried by an operation context. */
@@ -84,7 +109,11 @@ function guardHome(ctx: OperationContext): void {
   assertTestHomeAllowed(ctx.homeDir, safetyFor(ctx));
 }
 
-function targetsFor(ctx: OperationContext, channels?: DiscordChannel[], only?: string[]): DiscordInstall[] {
+function targetsFor(
+  ctx: OperationContext,
+  channels?: DiscordChannel[],
+  only?: string[],
+): DiscordInstall[] {
   const found = listInstalls(ctx.discovery);
   const byChannel = found.filter((i) => channelMatches(channels, i.channel));
   if (only === undefined || only.length === 0) return byChannel;
@@ -104,19 +133,29 @@ async function ensurePayload(ctx: OperationContext): Promise<string> {
  * When a backup exists (a write is about to happen), the Discord-mutation
  * guard runs first and MAY throw in test mode for unsafe targets.
  */
-export async function resetToBackup(install: DiscordInstall, safety?: SafetyOptions): Promise<boolean> {
+export async function resetToBackup(
+  install: DiscordInstall,
+  safety?: SafetyOptions,
+): Promise<boolean> {
   let backupIsFile = false;
   try {
-    backupIsFile = getRealFs().statSync(`${install.asarPath}${BACKUP_SUFFIX}`).isFile();
+    backupIsFile = getRealFs()
+      .statSync(`${install.asarPath}${BACKUP_SUFFIX}`)
+      .isFile();
   } catch {
     backupIsFile = false;
   }
   if (!backupIsFile) return false;
   assertDestructiveTestTargetAllowed(install.asarPath, safety ?? {});
   try {
-    await getRealFs().promises.copyFile(`${install.asarPath}${BACKUP_SUFFIX}`, install.asarPath);
+    await getRealFs().promises.copyFile(
+      `${install.asarPath}${BACKUP_SUFFIX}`,
+      install.asarPath,
+    );
     await fs.promises.rm(requireReceiptPath(install), { force: true });
-    await getRealFs().promises.rm(`${install.asarPath}${BACKUP_SUFFIX}`, { force: true });
+    await getRealFs().promises.rm(`${install.asarPath}${BACKUP_SUFFIX}`, {
+      force: true,
+    });
     return true;
   } catch {
     return false;
@@ -128,7 +167,23 @@ function requireReceiptPath(install: DiscordInstall): string {
 }
 
 /** Clear any previous patch (receipt-backed or stale) so a fresh inject can run. Never throws for IO conditions. */
-async function prepareFreshInstall(install: DiscordInstall, safety?: SafetyOptions): Promise<void> {
+async function prepareFreshInstall(
+  install: DiscordInstall,
+  safety?: SafetyOptions,
+): Promise<void> {
+  // An updater may replace app.asar in place while leaving our receipt behind.
+  // Preserve the new native archive; restoring an old backup would roll it back.
+  const main = readAsarMain(install.asarPath);
+  if (!readAsarFile(install.asarPath, main).includes("// __VESTRA_HOOK__")) {
+    if (readReceipt(install) !== undefined) {
+      assertDestructiveTestTargetAllowed(install.asarPath, safety ?? {});
+      await getRealFs().promises.rm(`${install.asarPath}${BACKUP_SUFFIX}`, {
+        force: true,
+      });
+      await fs.promises.rm(requireReceiptPath(install), { force: true });
+    }
+    return;
+  }
   if (isInjected(install)) {
     try {
       await uninject(install, safety);
@@ -146,7 +201,12 @@ async function prepareFreshInstall(install: DiscordInstall, safety?: SafetyOptio
  */
 export async function installAll(
   ctx: OperationContext,
-  options?: { channels?: DiscordChannel[] | undefined; force?: boolean | undefined; stage?: boolean | undefined; only?: string[] | undefined },
+  options?: {
+    channels?: DiscordChannel[] | undefined;
+    force?: boolean | undefined;
+    stage?: boolean | undefined;
+    only?: string[] | undefined;
+  },
 ): Promise<BatchResult> {
   // Protection (2): fail fast before staging anything under the home.
   guardHome(ctx);
@@ -188,7 +248,13 @@ export async function installAll(
       guardTarget(install, ctx);
       if (isInjected(install)) {
         if (options?.force !== true) {
-          await done({ asarPath: install.asarPath, channel: install.channel, ok: true, action: "skipped", detail: "already injected (use force to re-patch)" });
+          await done({
+            asarPath: install.asarPath,
+            channel: install.channel,
+            ok: true,
+            action: "skipped",
+            detail: "already injected (use force to re-patch)",
+          });
           continue;
         }
       }
@@ -197,9 +263,20 @@ export async function installAll(
       }
       const { plan } = planInject(install, payload, safety);
       await applyInject(plan, payload, safety);
-      await done({ asarPath: install.asarPath, channel: install.channel, ok: true, action: options?.force === true ? "reinstalled" : "installed" });
+      await done({
+        asarPath: install.asarPath,
+        channel: install.channel,
+        ok: true,
+        action: options?.force === true ? "reinstalled" : "installed",
+      });
     } catch (err: unknown) {
-      await done({ asarPath: install.asarPath, channel: install.channel, ok: false, action: "failed", detail: describe(err) });
+      await done({
+        asarPath: install.asarPath,
+        channel: install.channel,
+        ok: false,
+        action: "failed",
+        detail: describe(err),
+      });
     }
   }
   return { results };
@@ -208,7 +285,10 @@ export async function installAll(
 /** Remove Vestra from installs. `purge` also deletes the product home. */
 export async function uninstallAll(
   ctx: OperationContext,
-  options?: { channels?: DiscordChannel[] | undefined; purge?: boolean | undefined },
+  options?: {
+    channels?: DiscordChannel[] | undefined;
+    purge?: boolean | undefined;
+  },
 ): Promise<BatchResult> {
   // Protection (2): registry writes + optional home purge happen below.
   guardHome(ctx);
@@ -218,12 +298,16 @@ export async function uninstallAll(
   const discovered = targetsFor(ctx, options?.channels);
   const byPath = new Map(discovered.map((i) => [i.asarPath, i] as const));
   // Union: registry entries (even if Discord moved) + injected discoveries.
-  const paths = new Set<string>([...Object.keys(registry), ...discovered.filter((i) => isInjected(i)).map((i) => i.asarPath)]);
+  const paths = new Set<string>([
+    ...Object.keys(registry),
+    ...discovered.filter((i) => isInjected(i)).map((i) => i.asarPath),
+  ]);
   const results: PerInstallResult[] = [];
 
   for (const asarPath of paths) {
     const install = byPath.get(asarPath);
-    const channel = install?.channel ?? registry[asarPath]?.channel ?? "unknown";
+    const channel =
+      install?.channel ?? registry[asarPath]?.channel ?? "unknown";
     // The channel filter applies to registry records too: an entry outside
     // the filter is neither present nor stale — leave it completely alone.
     if (install === undefined && !channelMatches(options?.channels, channel)) {
@@ -234,7 +318,13 @@ export async function uninstallAll(
         // Discord is gone; drop the stale record.
         delete registry[asarPath];
         await saveRegistry(registryPath, registry);
-        results.push({ asarPath, channel, ok: true, action: "forgotten", detail: "install no longer present" });
+        results.push({
+          asarPath,
+          channel,
+          ok: true,
+          action: "forgotten",
+          detail: "install no longer present",
+        });
         continue;
       }
       // Protection (1): refuse unsafe test targets before any Discord write.
@@ -242,7 +332,13 @@ export async function uninstallAll(
       if (!isInjected(install)) {
         delete registry[asarPath];
         await saveRegistry(registryPath, registry);
-        results.push({ asarPath, channel, ok: true, action: "skipped", detail: "not injected" });
+        results.push({
+          asarPath,
+          channel,
+          ok: true,
+          action: "skipped",
+          detail: "not injected",
+        });
         continue;
       }
       await uninject(install, safety);
@@ -250,7 +346,13 @@ export async function uninstallAll(
       await saveRegistry(registryPath, registry);
       results.push({ asarPath, channel, ok: true, action: "uninstalled" });
     } catch (err: unknown) {
-      results.push({ asarPath, channel, ok: false, action: "failed", detail: describe(err) });
+      results.push({
+        asarPath,
+        channel,
+        ok: false,
+        action: "failed",
+        detail: describe(err),
+      });
     }
   }
 
@@ -272,29 +374,51 @@ export interface HealthReport {
 }
 
 /** Deep health check without full unpacks (single-file asar reads). */
-export async function checkHealth(ctx: OperationContext, install: DiscordInstall): Promise<HealthReport> {
+export async function checkHealth(
+  ctx: OperationContext,
+  install: DiscordInstall,
+): Promise<HealthReport> {
   const { registryPath, payloadRoot } = layoutHome(ctx.homeDir);
   const base = { asarPath: install.asarPath, channel: install.channel };
   const injected = isInjected(install);
   if (!injected) {
-    return { ...base, injected, registered: false, payloadOk: false, asarOk: false, healthy: false, detail: "not injected" };
+    return {
+      ...base,
+      injected,
+      registered: false,
+      payloadOk: false,
+      asarOk: false,
+      healthy: false,
+      detail: "not injected",
+    };
   }
   const registry = await loadRegistry(registryPath);
   const entry = registry[install.asarPath];
   const payloadVersion = ctx.payloadVersion ?? VESTRA_VERSION;
-  const dir = payloadDirFor(payloadRoot, entry?.payloadVersion ?? payloadVersion);
+  const dir = payloadDirFor(
+    payloadRoot,
+    entry?.payloadVersion ?? payloadVersion,
+  );
   const staged = await verifyPayload(dir);
   let asarOk = false;
   let detail = "injected";
   try {
     const mainEntry = readAsarMain(install.asarPath);
     const mainSource = readAsarFile(install.asarPath, mainEntry);
-    const bundleInAsar = readAsarFile(install.asarPath, "vestra/vestra.js");
-    const stagedBundle = await fs.promises.readFile(path.join(dir, "vestra.js"), "utf8").catch(() => undefined);
-    asarOk =
-      mainSource.includes("// __VESTRA_HOOK__") &&
-      stagedBundle !== undefined &&
-      sha256Hex(bundleInAsar) === sha256Hex(stagedBundle);
+    asarOk = mainSource.includes("// __VESTRA_HOOK__");
+    for (const filename of [
+      "vestra.js",
+      "vestra-preload.cjs",
+      "vestra-main-hook.cjs",
+      "vestra-loader.js",
+    ]) {
+      const installed = readAsarFile(install.asarPath, `vestra/${filename}`);
+      const stagedFile = await fs.promises.readFile(
+        path.join(dir, filename),
+        "utf8",
+      );
+      asarOk &&= sha256Hex(installed) === sha256Hex(stagedFile);
+    }
     detail = asarOk ? "healthy" : "asar drifted (hook or bundle mismatch)";
   } catch (err: unknown) {
     detail = `asar unreadable: ${describe(err)}`;
@@ -312,8 +436,7 @@ export async function checkHealth(ctx: OperationContext, install: DiscordInstall
 }
 
 /**
- * Repair: restage the payload, then reinstall every unhealthy install
- * (uninject first when a stale patch exists). Healthy installs are skipped.
+ * Explicit repair restages and reinstalls every selected installation.
  */
 export async function repairAll(
   ctx: OperationContext,
@@ -339,10 +462,6 @@ export async function repairAll(
       // Protection (1): refuse unsafe test targets before any Discord write.
       guardTarget(install, ctx);
       const health = await checkHealth(ctx, install);
-      if (health.healthy) {
-        results.push({ asarPath: install.asarPath, channel: install.channel, ok: true, action: "skipped", detail: "healthy" });
-        continue;
-      }
       await prepareFreshInstall(install, safety);
       const { plan } = planInject(install, payload, safety);
       await applyInject(plan, payload, safety);
@@ -356,9 +475,21 @@ export async function repairAll(
         rootDir: install.rootDir,
       };
       await saveRegistry(registryPath, registry);
-      results.push({ asarPath: install.asarPath, channel: install.channel, ok: true, action: "repaired", detail: health.detail });
+      results.push({
+        asarPath: install.asarPath,
+        channel: install.channel,
+        ok: true,
+        action: "repaired",
+        detail: health.detail,
+      });
     } catch (err: unknown) {
-      results.push({ asarPath: install.asarPath, channel: install.channel, ok: false, action: "failed", detail: describe(err) });
+      results.push({
+        asarPath: install.asarPath,
+        channel: install.channel,
+        ok: false,
+        action: "failed",
+        detail: describe(err),
+      });
     }
   }
   return { results };
@@ -371,7 +502,9 @@ export async function statusAll(
 ): Promise<{ health: HealthReport[]; stale: string[] }> {
   const { registryPath } = layoutHome(ctx.homeDir);
   const registry: InstallRegistry = await loadRegistry(registryPath);
-  const discovered = listInstalls(ctx.discovery).filter((i) => channelMatches(options?.channels, i.channel));
+  const discovered = listInstalls(ctx.discovery).filter((i) =>
+    channelMatches(options?.channels, i.channel),
+  );
   const health: HealthReport[] = [];
   for (const install of discovered) {
     health.push(await checkHealth(ctx, install));
@@ -381,7 +514,9 @@ export async function statusAll(
   // present in the filtered discovery set. Records outside the filter are
   // neither present nor stale — leave them completely alone.
   const stale = Object.keys(registry).filter(
-    (p) => !present.has(p) && channelMatches(options?.channels, registry[p]?.channel ?? "unknown"),
+    (p) =>
+      !present.has(p) &&
+      channelMatches(options?.channels, registry[p]?.channel ?? "unknown"),
   );
   return { health, stale };
 }
@@ -400,9 +535,15 @@ function describe(err: unknown): string {
 /** Stable reason codes for stale detection. */
 export type StaleReason = "installation-missing" | "superseded-version";
 /** Reasons a record is kept (never deleted). */
-export type KeepReason = "active" | "ambiguous" | "malformed" | "channel-filtered";
+export type KeepReason =
+  | "active"
+  | "ambiguous"
+  | "malformed"
+  | "channel-filtered";
 
-export type StaleDecision = { stale: true; reason: StaleReason; detail?: string | undefined } | { stale: false; reason: KeepReason; detail?: string | undefined };
+export type StaleDecision =
+  | { stale: true; reason: StaleReason; detail?: string | undefined }
+  | { stale: false; reason: KeepReason; detail?: string | undefined };
 
 export interface PruneSkipped {
   key: string;
@@ -463,39 +604,85 @@ interface RecordIdentity {
  * the path unambiguously ends in `resources/app.asar`.
  */
 function resolveRecordIdentity(key: string, raw: unknown): RecordIdentity {
-  const fallback = { target: key, channel: "", version: "", appDir: undefined, rootDir: undefined };
+  const fallback = {
+    target: key,
+    channel: "",
+    version: "",
+    appDir: undefined,
+    rootDir: undefined,
+  };
   if (typeof raw !== "object" || raw === null) {
     return { ...fallback, ambiguousDetail: "record is not an object" };
   }
   const entry = raw as Partial<RegistryEntry>;
-  const target = typeof entry.asarPath === "string" && entry.asarPath !== "" ? entry.asarPath : key;
+  const target =
+    typeof entry.asarPath === "string" && entry.asarPath !== ""
+      ? entry.asarPath
+      : key;
   if (typeof target !== "string" || target === "") {
     return { ...fallback, target: key, ambiguousDetail: "missing asarPath" };
   }
   const channel = typeof entry.channel === "string" ? entry.channel : "";
   if (channel !== "stable" && channel !== "ptb" && channel !== "canary") {
-    return { ...fallback, target, channel, version: typeof entry.installVersion === "string" ? entry.installVersion : "", ambiguousDetail: `unknown channel "${channel}"` };
+    return {
+      ...fallback,
+      target,
+      channel,
+      version:
+        typeof entry.installVersion === "string" ? entry.installVersion : "",
+      ambiguousDetail: `unknown channel "${channel}"`,
+    };
   }
-  const version = typeof entry.installVersion === "string" ? entry.installVersion : "";
-  let appDir = typeof entry.appDir === "string" && entry.appDir !== "" ? entry.appDir : undefined;
-  let rootDir = typeof entry.rootDir === "string" && entry.rootDir !== "" ? entry.rootDir : undefined;
+  const version =
+    typeof entry.installVersion === "string" ? entry.installVersion : "";
+  let appDir =
+    typeof entry.appDir === "string" && entry.appDir !== ""
+      ? entry.appDir
+      : undefined;
+  let rootDir =
+    typeof entry.rootDir === "string" && entry.rootDir !== ""
+      ? entry.rootDir
+      : undefined;
   if (appDir === undefined || rootDir === undefined) {
     // Derive only when unambiguous: <appDir>/resources/app.asar.
     if (path.basename(target) !== "app.asar") {
-      return { target, channel, version, appDir, rootDir, ambiguousDetail: "asarPath does not end in app.asar" };
+      return {
+        target,
+        channel,
+        version,
+        appDir,
+        rootDir,
+        ambiguousDetail: "asarPath does not end in app.asar",
+      };
     }
     const resourcesDir = path.dirname(target);
     if (path.basename(resourcesDir) !== "resources") {
-      return { target, channel, version, appDir, rootDir, ambiguousDetail: "asarPath is not inside a resources dir" };
+      return {
+        target,
+        channel,
+        version,
+        appDir,
+        rootDir,
+        ambiguousDetail: "asarPath is not inside a resources dir",
+      };
     }
     const derivedAppDir = path.dirname(resourcesDir);
     if (appDir === undefined) appDir = derivedAppDir;
     if (rootDir === undefined) {
       const base = path.basename(derivedAppDir);
-      rootDir = base.startsWith("app-") ? path.dirname(derivedAppDir) : derivedAppDir;
+      rootDir = base.startsWith("app-")
+        ? path.dirname(derivedAppDir)
+        : derivedAppDir;
     }
   }
-  return { target, channel, version, appDir, rootDir, ambiguousDetail: undefined };
+  return {
+    target,
+    channel,
+    version,
+    appDir,
+    rootDir,
+    ambiguousDetail: undefined,
+  };
 }
 
 /**
@@ -508,8 +695,16 @@ export function assessStaleRecord(
   raw: unknown,
   discovered: DiscordInstall[],
 ): StaleDecision {
-  if (typeof raw !== "object" || raw === null || typeof (raw as { asarPath?: unknown }).asarPath !== "string") {
-    return { stale: false, reason: "malformed", detail: "record has no asarPath string" };
+  if (
+    typeof raw !== "object" ||
+    raw === null ||
+    typeof (raw as { asarPath?: unknown }).asarPath !== "string"
+  ) {
+    return {
+      stale: false,
+      reason: "malformed",
+      detail: "record has no asarPath string",
+    };
   }
   const id = resolveRecordIdentity(key, raw);
   if (id.ambiguousDetail !== undefined) {
@@ -526,7 +721,11 @@ export function assessStaleRecord(
   if (!isFileSync(id.target)) {
     return { stale: true, reason: "installation-missing" };
   }
-  return { stale: false, reason: "ambiguous", detail: "existing path needs sibling context (see findStaleRecords)" };
+  return {
+    stale: false,
+    reason: "ambiguous",
+    detail: "existing path needs sibling context (see findStaleRecords)",
+  };
 }
 
 /**
@@ -546,13 +745,21 @@ export function findStaleRecords(
   const activeByPath = new Set(discovered.map((d) => d.asarPath));
 
   for (const key of malformedKeys) {
-    skipped.push({ key, reason: "malformed", detail: "record has no asarPath string" });
+    skipped.push({
+      key,
+      reason: "malformed",
+      detail: "record has no asarPath string",
+    });
   }
 
   for (const [key, entry] of Object.entries(registry)) {
     const channel = (entry as Partial<RegistryEntry>).channel ?? "unknown";
     if (!channelMatches(channels, channel)) {
-      skipped.push({ key, reason: "channel-filtered", detail: `channel "${channel}" outside filter` });
+      skipped.push({
+        key,
+        reason: "channel-filtered",
+        detail: `channel "${channel}" outside filter`,
+      });
       continue;
     }
     const id = resolveRecordIdentity(key, entry);
@@ -567,7 +774,12 @@ export function findStaleRecords(
     }
     // Rule A: recorded installation/app.asar path no longer exists.
     if (!isFileSync(id.target)) {
-      stale.push({ key, channel: id.channel, installVersion: id.version, reason: "installation-missing" });
+      stale.push({
+        key,
+        channel: id.channel,
+        installVersion: id.version,
+        reason: "installation-missing",
+      });
       continue;
     }
     // Rule B: historical version directory under the same root while the same
@@ -575,20 +787,45 @@ export function findStaleRecords(
     // (rootDir + appDir) is required — version number alone never decides.
     // Custom explicit roots (record root differs from every active root for
     // this channel) are kept even when a newer version exists elsewhere.
-    const activesForChannel = discovered.filter((d) => d.channel === id.channel);
-    const sameRootActive = activesForChannel.filter((d) => d.rootDir === id.rootDir && d.asarPath !== id.target);
-    if (sameRootActive.length > 0 && sameRootActive.every((d) => d.appDir !== id.appDir)) {
+    const activesForChannel = discovered.filter(
+      (d) => d.channel === id.channel,
+    );
+    const sameRootActive = activesForChannel.filter(
+      (d) => d.rootDir === id.rootDir && d.asarPath !== id.target,
+    );
+    if (
+      sameRootActive.length > 0 &&
+      sameRootActive.every((d) => d.appDir !== id.appDir)
+    ) {
       const best = sameRootActive[sameRootActive.length - 1] as DiscordInstall;
-      if (id.version !== "" && best.version !== "" && compareVersions(id.version, best.version) >= 0) {
-        skipped.push({ key, reason: "ambiguous", detail: `record version ${id.version} is not older than active ${best.version}` });
+      if (
+        id.version !== "" &&
+        best.version !== "" &&
+        compareVersions(id.version, best.version) >= 0
+      ) {
+        skipped.push({
+          key,
+          reason: "ambiguous",
+          detail: `record version ${id.version} is not older than active ${best.version}`,
+        });
         continue;
       }
-      stale.push({ key, channel: id.channel, installVersion: id.version, reason: "superseded-version" });
+      stale.push({
+        key,
+        channel: id.channel,
+        installVersion: id.version,
+        reason: "superseded-version",
+      });
       continue;
     }
     // Exists on disk and is not a superseded sibling (e.g. custom --root):
     // keep rather than delete on ambiguity.
-    skipped.push({ key, reason: "ambiguous", detail: "existing install is not a superseded sibling of an active install" });
+    skipped.push({
+      key,
+      reason: "ambiguous",
+      detail:
+        "existing install is not a superseded sibling of an active install",
+    });
   }
   return { stale, active, skipped };
 }
@@ -600,7 +837,10 @@ export function findStaleRecords(
  */
 export async function pruneStaleRecords(
   ctx: OperationContext,
-  options?: { channels?: DiscordChannel[] | undefined; dryRun?: boolean | undefined },
+  options?: {
+    channels?: DiscordChannel[] | undefined;
+    dryRun?: boolean | undefined;
+  },
 ): Promise<PruneResult> {
   // Exempt from protection (1): pruning performs zero Discord file writes.
   // Still subject to protection (2) whenever the registry may be written.
@@ -609,9 +849,15 @@ export async function pruneStaleRecords(
     guardHome(ctx);
   }
   const { registryPath } = layoutHome(ctx.homeDir);
-  const { registry, malformedKeys, malformed } = await loadRegistryWithDiagnostics(registryPath);
+  const { registry, malformedKeys, malformed } =
+    await loadRegistryWithDiagnostics(registryPath);
   const discovered = listInstalls(ctx.discovery);
-  const { stale, active, skipped } = findStaleRecords(registry, malformedKeys, discovered, options?.channels);
+  const { stale, active, skipped } = findStaleRecords(
+    registry,
+    malformedKeys,
+    discovered,
+    options?.channels,
+  );
   const dryRun = options?.dryRun === true;
   if (!dryRun && stale.length > 0) {
     const next: InstallRegistry = { ...registry };
