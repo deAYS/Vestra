@@ -22,6 +22,18 @@ export const ThemeSchema = z.object({
   author: z.string().max(120).default("Unknown"),
   css: z.string().max(512_000),
   enabled: z.boolean(),
+  sourceFile: z
+    .string()
+    .min(1)
+    .max(140)
+    .refine(
+      (value) =>
+        !/[<>:"/\\|?*\u0000-\u001f]/.test(value) &&
+        !value.includes("..") &&
+        value.toLowerCase().endsWith(".css"),
+      "Invalid theme source filename",
+    )
+    .optional(),
 });
 export type Theme = z.infer<typeof ThemeSchema>;
 
@@ -49,7 +61,10 @@ function readRaw(): string | null {
   try {
     const ls = (globalThis as Record<string, unknown>)["localStorage"];
     if (!isRecord(ls) || typeof ls["getItem"] !== "function") return null;
-    const raw = (ls["getItem"] as (key: string) => unknown).call(ls, VESTRA_STORAGE_KEY);
+    const raw = (ls["getItem"] as (key: string) => unknown).call(
+      ls,
+      VESTRA_STORAGE_KEY,
+    );
     return typeof raw === "string" ? raw : null;
   } catch {
     return null;
@@ -72,7 +87,11 @@ function canUseLocalStorage(): boolean {
 function writeRaw(raw: string): void {
   const ls = (globalThis as Record<string, unknown>)["localStorage"];
   if (!isRecord(ls) || typeof ls["setItem"] !== "function") return;
-  (ls["setItem"] as (key: string, value: string) => unknown).call(ls, VESTRA_STORAGE_KEY, raw);
+  (ls["setItem"] as (key: string, value: string) => unknown).call(
+    ls,
+    VESTRA_STORAGE_KEY,
+    raw,
+  );
 }
 
 function cloneSettings(state: VestraSettings): VestraSettings {
@@ -80,7 +99,11 @@ function cloneSettings(state: VestraSettings): VestraSettings {
   for (const [name, entry] of Object.entries(state.plugins)) {
     plugins[name] = { enabled: entry.enabled, settings: { ...entry.settings } };
   }
-  return { plugins, customCss: { ...state.customCss }, themes: state.themes.map(theme => ({ ...theme })) };
+  return {
+    plugins,
+    customCss: { ...state.customCss },
+    themes: state.themes.map((theme) => ({ ...theme })),
+  };
 }
 
 interface LoadResult {
@@ -109,7 +132,9 @@ function normalizeParsed(parsed: unknown, logger: ScopedLogger): LoadResult {
       if (typeof rawEntry === "boolean") {
         plugins[name] = { enabled: rawEntry, settings: {} };
         migrated = true;
-        logger.warn(`Settings: migrated legacy boolean entry for plugin "${name}".`);
+        logger.warn(
+          `Settings: migrated legacy boolean entry for plugin "${name}".`,
+        );
         continue;
       }
       if (!isRecord(rawEntry)) {
@@ -118,7 +143,9 @@ function normalizeParsed(parsed: unknown, logger: ScopedLogger): LoadResult {
       }
       const rawEnabled = rawEntry["enabled"];
       if (typeof rawEnabled !== "boolean") {
-        logger.warn(`Settings: discarding entry for plugin "${name}" (bad/missing \`enabled\`).`);
+        logger.warn(
+          `Settings: discarding entry for plugin "${name}" (bad/missing \`enabled\`).`,
+        );
         continue;
       }
       const rawSettings = rawEntry["settings"];
@@ -128,10 +155,15 @@ function normalizeParsed(parsed: unknown, logger: ScopedLogger): LoadResult {
       } else if (isRecord(rawSettings)) {
         settings = { ...rawSettings };
       } else {
-        logger.warn(`Settings: discarding invalid \`settings\` for plugin "${name}".`);
+        logger.warn(
+          `Settings: discarding invalid \`settings\` for plugin "${name}".`,
+        );
       }
       // Final gate through Zod so future schema tightening applies uniformly.
-      const checked = PluginSettingsEntrySchema.safeParse({ enabled: rawEnabled, settings });
+      const checked = PluginSettingsEntrySchema.safeParse({
+        enabled: rawEnabled,
+        settings,
+      });
       if (!checked.success) {
         logger.warn(`Settings: discarding invalid entry for plugin "${name}".`);
         continue;
@@ -150,7 +182,9 @@ function normalizeParsed(parsed: unknown, logger: ScopedLogger): LoadResult {
   } else if (typeof rawCss === "boolean") {
     customCss = { enabled: rawCss, css: "" };
     migrated = true;
-    logger.warn("Settings: migrated legacy boolean `customCss` to `{ enabled, css }`.");
+    logger.warn(
+      "Settings: migrated legacy boolean `customCss` to `{ enabled, css }`.",
+    );
   } else if (typeof rawCss === "string") {
     customCss = { enabled: rawCss.length > 0, css: rawCss };
     migrated = true;
@@ -160,11 +194,15 @@ function normalizeParsed(parsed: unknown, logger: ScopedLogger): LoadResult {
     const css = rawCss["css"] ?? rawCss["text"];
     let ok = true;
     if (typeof enabled !== "boolean") {
-      logger.warn("Settings: discarding invalid `customCss.enabled` (expected boolean).");
+      logger.warn(
+        "Settings: discarding invalid `customCss.enabled` (expected boolean).",
+      );
       ok = false;
     }
     if (typeof css !== "string") {
-      logger.warn("Settings: discarding invalid `customCss.css` (expected string).");
+      logger.warn(
+        "Settings: discarding invalid `customCss.css` (expected string).",
+      );
       ok = false;
     }
     if (ok) {
@@ -176,7 +214,8 @@ function normalizeParsed(parsed: unknown, logger: ScopedLogger): LoadResult {
         css: typeof css === "string" ? css : "",
       };
     }
-    if (rawCss["text"] !== undefined && rawCss["css"] === undefined) migrated = true;
+    if (rawCss["text"] !== undefined && rawCss["css"] === undefined)
+      migrated = true;
   } else {
     logger.warn("Settings: discarding invalid `customCss` (expected object).");
   }
@@ -191,6 +230,14 @@ function normalizeParsed(parsed: unknown, logger: ScopedLogger): LoadResult {
         themes.push(checked.data);
       }
     }
+  }
+  const active = themes.filter((theme) => theme.enabled);
+  if (active.length > 1) {
+    const selected = active[active.length - 1]!.id;
+    themes.forEach((theme) => {
+      theme.enabled = theme.id === selected;
+    });
+    migrated = true;
   }
   return { settings: { plugins, customCss, themes }, migrated };
 }
@@ -253,7 +300,10 @@ export class SettingsStore {
 
   setEnabled(name: string, enabled: boolean): void {
     const prev = this.state.plugins[name];
-    this.state.plugins[name] = { enabled, settings: prev !== undefined ? { ...prev.settings } : {} };
+    this.state.plugins[name] = {
+      enabled,
+      settings: prev !== undefined ? { ...prev.settings } : {},
+    };
     this.persist();
     this.emit();
   }
@@ -292,15 +342,38 @@ export class SettingsStore {
   }
 
   getThemes(): Theme[] {
-    return this.state.themes.map(theme => ({ ...theme }));
+    return this.state.themes.map((theme) => ({ ...theme }));
   }
 
   setThemes(themes: readonly Theme[]): void {
     const checked = z.array(ThemeSchema).max(32).parse(themes);
-    if (new Set(checked.map(theme => theme.id)).size !== checked.length) throw new TypeError("Duplicate theme id.");
-    this.state.themes = checked;
+    if (new Set(checked.map((theme) => theme.id)).size !== checked.length)
+      throw new TypeError("Duplicate theme id.");
+    const enabled = checked.filter((theme) => theme.enabled);
+    const newlyEnabled = enabled.filter(
+      (theme) =>
+        !this.state.themes.some(
+          (previous) => previous.id === theme.id && previous.enabled,
+        ),
+    );
+    const selected = newlyEnabled.at(-1)?.id ?? enabled.at(-1)?.id;
+    this.state.themes = checked.map((theme) => ({
+      ...theme,
+      enabled: theme.id === selected,
+    }));
     this.persist();
     this.emit();
+  }
+
+  activateTheme(id: string | null): void {
+    if (id !== null && !this.state.themes.some((theme) => theme.id === id))
+      throw new TypeError("Theme not found.");
+    this.setThemes(
+      this.state.themes.map((theme) => ({
+        ...theme,
+        enabled: theme.id === id,
+      })),
+    );
   }
 
   setCustomCss(value: CustomCss): void {
@@ -331,7 +404,14 @@ export class SettingsStore {
 
   private persist(): void {
     try {
-      const raw = JSON.stringify(this.state);
+      // Local CSS files are authoritative and re-read before themes start.
+      // Keeping a second full copy here can exhaust browser storage.
+      const raw = JSON.stringify({
+        ...this.state,
+        themes: this.state.themes.map((theme) =>
+          theme.sourceFile ? { ...theme, css: "" } : theme,
+        ),
+      });
       if (this.useLocalStorage) {
         writeRaw(raw);
       } else {
