@@ -6,7 +6,12 @@ import { Styles } from "../api/styles.js";
 import { Toasts } from "../api/toasts.js";
 import { ToastsView } from "./Toasts.js";
 import { VestraSettingsPanel } from "./VestraSettings.js";
-import { DEFAULT_OVERLAY_KEYBIND, comboMatches, isBindable, parseCombo } from "./keybind.js";
+import {
+  DEFAULT_OVERLAY_KEYBIND,
+  comboMatches,
+  isBindable,
+  parseCombo,
+} from "./keybind.js";
 import type { PageProps, VestraUIDeps } from "./types.js";
 import { BrandMark, Icon } from "./Brand.js";
 import { ensureSettingsDesign } from "./design.js";
@@ -77,9 +82,14 @@ export function getOverlayKeybind(settings: SettingsStore): string {
 }
 
 /** Persist the keybind combo. Throws (TypeError) when not bindable. */
-export function setOverlayKeybind(settings: SettingsStore, combo: string): void {
+export function setOverlayKeybind(
+  settings: SettingsStore,
+  combo: string,
+): void {
   if (!isBindable(combo)) {
-    throw new TypeError(`"${combo}" is not a safe overlay keybind (use a modifier or function key).`);
+    throw new TypeError(
+      `"${combo}" is not a safe overlay keybind (use a modifier or function key).`,
+    );
   }
   settings.setPluginSetting("Vestra", KEYBIND_SETTING_KEY, combo);
 }
@@ -101,13 +111,24 @@ export function startOverlayShortcuts(deps: ShortcutDeps): () => void {
     const win = (globalThis as Record<string, unknown>)["window"];
     if (typeof win !== "object" || win === null) return noop;
     const target = win as unknown as {
-      addEventListener(type: string, listener: (e: KeyboardEvent) => void): void;
-      removeEventListener(type: string, listener: (e: KeyboardEvent) => void): void;
+      addEventListener(
+        type: string,
+        listener: (e: KeyboardEvent) => void,
+      ): void;
+      removeEventListener(
+        type: string,
+        listener: (e: KeyboardEvent) => void,
+      ): void;
     };
     if (typeof target.addEventListener !== "function") return noop;
     const handler = (event: KeyboardEvent): void => {
       try {
         if (event.defaultPrevented || event.repeat || event.isComposing) return;
+        if (
+          event.target instanceof Element &&
+          event.target.closest('[data-vestra-keybind-recording="true"]')
+        )
+          return;
         const combo = getOverlayKeybind(deps.settings);
         if (!comboMatches(combo, event)) return;
         event.preventDefault();
@@ -134,6 +155,12 @@ const OVERLAY_CSS_ID = "vestra-overlay";
 
 const OVERLAY_CSS = `
 #vestra-overlay-root{position:static}
+.vs-settings-launcher[data-hiding=true]{animation:vs-launcher-vanish .48s cubic-bezier(.4,0,.65,1) both;pointer-events:none}
+@keyframes vs-launcher-vanish{0%{opacity:1;transform:rotate(0) scale(1);filter:blur(0)}35%{opacity:1;transform:rotate(-18deg) scale(1.08)}100%{opacity:0;transform:translateY(-24px) rotate(210deg) scale(.08);filter:blur(5px)}}
+.vs-launcher-menu{position:fixed;z-index:2147483647;width:210px;border:1px solid #c5baf825;border-radius:12px;padding:6px;background:#1c1923;box-shadow:0 16px 45px #0009;color:#eee8f6;font:12px "Segoe UI",sans-serif;animation:vs-overlay-fade .16s ease-out}
+.vs-launcher-menu button{display:flex;align-items:center;justify-content:space-between;width:100%;padding:10px;border:0;border-radius:7px;background:transparent;color:inherit;font:inherit;cursor:pointer;text-align:left}
+.vs-launcher-menu button:hover,.vs-launcher-menu button:focus-visible{background:#c5baf81a;outline:none}
+.vs-launcher-menu p{font-size:10px;line-height:1.5;color:#9d92ad;margin:5px 10px 7px}
 .vs-overlay-backdrop{position:fixed;inset:0;z-index:2147483645;background:rgba(7,6,10,.76);-webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px);display:flex;align-items:center;justify-content:center;padding:32px 24px;box-sizing:border-box;animation:vs-overlay-fade .2s ease-out;font-family:system-ui,sans-serif}
 .vs-overlay-panel{position:relative;width:min(1040px,100%);height:min(730px,calc(100dvh - 64px));display:flex;flex-direction:column;background:#17161C;border:1px solid #FFFFFF0D;border-radius:17px;box-shadow:0 40px 120px #0009,0 0 0 1px #0004;color:#F2F0F7;overflow:hidden;animation:vs-overlay-pop .52s cubic-bezier(.16,1,.3,1)}
 .vs-overlay-header{display:flex;align-items:center;gap:10px;padding:14px 18px;border-bottom:1px solid #202938;background:rgba(255,255,255,.015)}
@@ -197,10 +224,17 @@ export function mountOverlay(deps: OverlayMountDeps): () => void {
   const noop = (): void => undefined;
   let doc: Document | undefined;
   try {
-    const raw = (globalThis as Record<string, unknown>)["document"] as unknown as
+    const raw = (globalThis as Record<string, unknown>)[
+      "document"
+    ] as unknown as
       | { createElement?: unknown; body?: unknown; getElementById?: unknown }
       | undefined;
-    if (raw === undefined || raw === null || typeof raw.createElement !== "function") return noop;
+    if (
+      raw === undefined ||
+      raw === null ||
+      typeof raw.createElement !== "function"
+    )
+      return noop;
     doc = raw as unknown as Document;
   } catch {
     return noop;
@@ -250,14 +284,25 @@ export function mountOverlay(deps: OverlayMountDeps): () => void {
   }
 }
 
-export function OverlayHost({ settings, plugins, version, controller }: OverlayHostProps): JSX.Element {
+export function OverlayHost({
+  settings,
+  plugins,
+  version,
+  controller,
+}: OverlayHostProps): JSX.Element {
   const [open, setOpen] = useState<boolean>(() => controller.isOpen());
   const [present, setPresent] = useState(() => controller.isOpen());
   const panel = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (open) { setPresent(true); return; }
-    const timer = setTimeout(() => setPresent(false), window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 180);
+    if (open) {
+      setPresent(true);
+      return;
+    }
+    const timer = setTimeout(
+      () => setPresent(false),
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 180,
+    );
     return () => clearTimeout(timer);
   }, [open]);
 
@@ -274,19 +319,34 @@ export function OverlayHost({ settings, plugins, version, controller }: OverlayH
     panel.current?.querySelector<HTMLButtonElement>("button")?.focus();
     const onKey = (event: KeyboardEvent): void => {
       if (event.defaultPrevented) return;
-      if (event.key === "Escape") { event.preventDefault(); controller.close(); }
+      if (event.key === "Escape") {
+        event.preventDefault();
+        controller.close();
+      }
       if (event.key === "Tab") {
-        const items = Array.from(panel.current?.querySelectorAll<HTMLElement>('button:not(:disabled),input:not(:disabled),textarea:not(:disabled),select:not(:disabled),summary,[tabindex="0"]') ?? [])
-          .filter(element => {
-            const closed = element.closest("details:not([open])");
-            return !element.closest("[hidden]") && (!closed || closed.querySelector("summary") === element) &&
-              element.getClientRects().length > 0 && getComputedStyle(element).visibility !== "hidden";
-          });
+        const items = Array.from(
+          panel.current?.querySelectorAll<HTMLElement>(
+            'button:not(:disabled),input:not(:disabled),textarea:not(:disabled),select:not(:disabled),summary,[tabindex="0"]',
+          ) ?? [],
+        ).filter((element) => {
+          const closed = element.closest("details:not([open])");
+          return (
+            !element.closest("[hidden]") &&
+            (!closed || closed.querySelector("summary") === element) &&
+            element.getClientRects().length > 0 &&
+            getComputedStyle(element).visibility !== "hidden"
+          );
+        });
         if (!items?.length) return;
         event.preventDefault();
         const current = items.indexOf(document.activeElement as HTMLElement);
-        const next = current < 0 ? (event.shiftKey ? items.length - 1 : 0) :
-          (current + (event.shiftKey ? -1 : 1) + items.length) % items.length;
+        const next =
+          current < 0
+            ? event.shiftKey
+              ? items.length - 1
+              : 0
+            : (current + (event.shiftKey ? -1 : 1) + items.length) %
+              items.length;
         items[next]!.focus();
       }
     };
@@ -300,7 +360,11 @@ export function OverlayHost({ settings, plugins, version, controller }: OverlayH
   return (
     <>
       <ToastsView manager={Toasts} />
-      <Launcher settings={settings} open={open} toggle={() => controller.toggle()} />
+      <Launcher
+        settings={settings}
+        open={open}
+        toggle={() => controller.toggle()}
+      />
       {present ? (
         <div
           className="vs-overlay-backdrop"
@@ -310,11 +374,16 @@ export function OverlayHost({ settings, plugins, version, controller }: OverlayH
             if (event.target === event.currentTarget) controller.close();
           }}
         >
-          <div ref={panel} className="vs-overlay-panel" role="dialog" aria-modal="true" aria-label="Vestra settings" tabIndex={-1}>
+          <div
+            ref={panel}
+            className="vs-overlay-panel"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Vestra settings"
+            tabIndex={-1}
+          >
             <div className="vs-overlay-window-tools">
-              <span className="vs-overlay-hint">
-                esc
-              </span>
+              <span className="vs-overlay-hint">esc</span>
               <button
                 type="button"
                 className="vs-overlay-close"
@@ -327,7 +396,11 @@ export function OverlayHost({ settings, plugins, version, controller }: OverlayH
               </button>
             </div>
             <div className="vs-overlay-body">
-              <VestraSettingsPanel settings={settings} plugins={plugins} version={version} />
+              <VestraSettingsPanel
+                settings={settings}
+                plugins={plugins}
+                version={version}
+              />
             </div>
           </div>
         </div>
@@ -337,5 +410,3 @@ export function OverlayHost({ settings, plugins, version, controller }: OverlayH
     </>
   );
 }
-
-
