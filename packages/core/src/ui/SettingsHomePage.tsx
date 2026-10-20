@@ -1,16 +1,12 @@
-// @vestra/core UI — Vestra Settings home page.
-// Phase 5. Overview + navigation shortcuts + the danger zone (reset all
-// settings with a two-step confirm). Reset never throws: store errors go
-// through Logger.
-
 import { useEffect, useState } from "react";
-import { VESTRA_BRANDING, VESTRA_STORAGE_KEY } from "@vestra/shared";
 import { Logger } from "../api/logger.js";
 import { formatCombo, isBindable } from "./keybind.js";
 import { getOverlayKeybind, setOverlayKeybind } from "./Overlay.js";
-import { useSettingsSnapshot } from "./hooks.js";
+import { useRefreshCounter, useSettingsSnapshot } from "./hooks.js";
 import { s } from "./theme.js";
+import { BrandMark, Icon } from "./Brand.js";
 import type { PageProps, SettingsPageId } from "./types.js";
+import { LAUNCHER_POSITION_KEY } from "./launcherPosition.js";
 
 export function SettingsHomePage({
   settings,
@@ -18,57 +14,60 @@ export function SettingsHomePage({
   onNavigate,
 }: PageProps & { onNavigate: (page: SettingsPageId) => void }): JSX.Element {
   const [confirming, setConfirming] = useState(false);
+  const [resetting, setResetting] = useState(false);
+  const snapshot = useSettingsSnapshot(settings);
+  const { refresh } = useRefreshCounter();
+  useEffect(() => plugins.subscribe?.(refresh), [plugins, refresh]);
   const total = plugins.list().length;
   const enabled = plugins.list().filter((p) => p.enabled).length;
   const css = settings.getCustomCss();
 
-  const reset = (): void => {
+  const reset = async (): Promise<void> => {
     if (!confirming) {
       setConfirming(true);
       return;
     }
+    setResetting(true);
     try {
+      for (const entry of plugins.list()) await plugins.disable(entry.definition.name);
       settings.reset();
+      for (const entry of plugins.list()) {
+        if (entry.definition.enabledByDefault) await plugins.enable(entry.definition.name);
+      }
     } catch (err: unknown) {
       Logger.captureError(err, "SettingsUI:reset");
     }
     setConfirming(false);
+    setResetting(false);
   };
 
   return (
     <section data-vestra-page="settings">
-      <div style={s.header}>
-        <h2 style={s.title}>{VESTRA_BRANDING.name} Settings</h2>
-        <p style={s.subtitle}>{VESTRA_BRANDING.tagline}</p>
+      <div style={s.header}><h2 style={s.title}>A little more you.</h2><p style={s.subtitle}>Your space, with the finishing touches that make it yours.</p></div>
+      <div className="vs-home-hero">
+        <BrandMark size={210}/><small><span className="vs-status-dot"/> Made for your Discord</small>
+        <h3>Same friends.<br/>Different atmosphere.</h3>
+        <p>Find your palette. Set the mood. Make yourself at home.</p>
+        <button type="button" style={s.button} onClick={() => onNavigate("themes")}>Explore themes <Icon name="arrow" size={14}/></button>
       </div>
-      <div style={s.card} className="vs-overview-card">
-        <div>
-          Plugins <span style={s.code}>{enabled}/{total} enabled</span>
-        </div>
-        <div style={{ marginTop: 6 }}>
-          QuickCSS{" "}
-          <span style={s.code}>{css.enabled ? "on" : "off"}</span>
-        </div>
-        <div style={{ marginTop: 6 }}>
-          Storage <span style={s.code}>{VESTRA_STORAGE_KEY}</span>
-        </div>
-        <div style={{ ...s.row, marginTop: 10 }}>
-          <button type="button" style={s.button} onClick={() => void onNavigate("plugins")}>
-            Manage plugins
-          </button>
-          <button type="button" style={s.navButton} onClick={() => void onNavigate("quickcss")}>
-            Edit QuickCSS
-          </button>
-        </div>
+      <div className="vs-stat-grid">
+        <div className="vs-stat"><span><Icon name="plugins" size={12}/>Plugins</span><strong>{enabled}<small>/ {total} enabled</small></strong></div>
+        <div className="vs-stat"><span><Icon name="themes" size={12}/>Themes</span><strong>{snapshot.themes.length}<small>in your library</small></strong></div>
+        <div className="vs-stat"><span><Icon name="code" size={12}/>QuickCSS</span><strong style={{fontSize:18}}>{css.enabled && css.css.trim() && plugins.list().some(p => p.definition.name === "QuickCSS" && p.started) ? "Live" : "Off"}<small>custom styling</small></strong></div>
       </div>
+      <h3 className="vs-section-label">Make it yours</h3>
+      <div className="vs-setting-row"><div><strong>Plugins</strong><p>Small additions. A better everyday experience.</p></div><button type="button" style={s.navButton} onClick={() => onNavigate("plugins")}>Manage plugins</button></div>
+      <div className="vs-setting-row"><div><strong>Custom styling</strong><p>The last word on how your Discord looks.</p></div><button type="button" style={s.navButton} onClick={() => onNavigate("quickcss")}>Open editor</button></div>
       <KeybindCard settings={settings} />
-      <div style={s.card} className="vs-danger-card">
-        <strong>Danger zone</strong>
-        <p style={s.muted}>Reset every Vestra setting (plugins, toggles, QuickCSS) to defaults.</p>
-        <button type="button" style={s.dangerButton} onClick={reset}>
+      <div className="vs-setting-row"><div><strong>Floating Vestra button</strong><p>Drag it anywhere. Its position follows your window size.</p></div><button type="button" style={s.navButton} onClick={() => settings.setPluginSetting("Vestra", LAUNCHER_POSITION_KEY, null)}>Reset position</button></div>
+      <details className="vs-advanced" style={{marginTop:24,color:"#82768F",fontSize:11}}><summary style={{cursor:"pointer",padding:"10px 0"}}>Advanced preferences</summary>
+      <div className="vs-setting-row">
+        <div><strong>Start fresh</strong><p>Reset settings, plugins, themes and custom CSS.</p></div>
+        <button type="button" style={s.dangerButton} disabled={resetting} onClick={() => void reset()}>
           {confirming ? "Click again to confirm reset" : "Reset all settings"}
         </button>
       </div>
+      </details>
     </section>
   );
 }
@@ -111,10 +110,9 @@ function KeybindCard({ settings }: { settings: PageProps["settings"] }): JSX.Ele
   }, [recording, settings]);
 
   return (
-    <div style={s.card} className="vs-keybind-card">
-      <strong>Overlay keybind</strong>
-      <p style={s.muted}>Toggle the Vestra panel from anywhere in Discord.</p>
-      <div style={s.row}>
+    <div className="vs-setting-row vs-keybind-card">
+      <div><strong>Keyboard shortcut</strong><p>A familiar way back to your workspace.</p></div>
+      <div style={{...s.row,flex:0}}>
         <span style={s.code}>{current}</span>
         <button
           type="button"
