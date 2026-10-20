@@ -1,8 +1,3 @@
-// Vestra Installer — thin CLI adapter over the installer service.
-// Parses argv, validates usage, builds service options, invokes
-// createInstallerService(), formats console output, chooses exit codes.
-// All installation logic lives in service.ts / operations.ts — never here.
-
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type { DiscordChannel } from "@vestra/injector";
