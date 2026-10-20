@@ -2,7 +2,8 @@ import { VESTRA_BRANDING } from "@vestra/shared";
 import { Logger, type ScopedLogger } from "./logger.js";
 
 /** Tag placed on every Vestra-managed `<style>` element: `data-vestra-style="<id>"`. */
-export const STYLE_DATA_ATTRIBUTE = `${VESTRA_BRANDING.dataAttributePrefix}style` as const;
+export const STYLE_DATA_ATTRIBUTE =
+  `${VESTRA_BRANDING.dataAttributePrefix}style` as const;
 
 /** Element id prefix for Vestra-managed style elements (`vs-<sanitized-id>`). */
 export const STYLE_ELEMENT_PREFIX = VESTRA_BRANDING.cssPrefix;
@@ -10,6 +11,7 @@ export const STYLE_ELEMENT_PREFIX = VESTRA_BRANDING.cssPrefix;
 /** Minimal style-element surface. Real DOM elements satisfy this structurally. */
 export interface ManagedStyleElement {
   textContent: string | null;
+  readonly isConnected?: boolean;
   remove(): void;
 }
 
@@ -17,7 +19,9 @@ export interface ManagedStyleElement {
 export interface StyleDocument {
   head?: { appendChild(node: unknown): unknown } | undefined;
   createElement(tag: string): ManagedStyleElement & Record<string, unknown>;
-  querySelector?(selector: string): (ManagedStyleElement & Record<string, unknown>) | null;
+  querySelector?(
+    selector: string,
+  ): (ManagedStyleElement & Record<string, unknown>) | null;
 }
 
 export interface StylesManagerOptions {
@@ -33,7 +37,8 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function resolveDocument(): StyleDocument | undefined {
   try {
     const doc = (globalThis as Record<string, unknown>)["document"];
-    if (!isRecord(doc) || typeof doc["createElement"] !== "function") return undefined;
+    if (!isRecord(doc) || typeof doc["createElement"] !== "function")
+      return undefined;
     return doc as unknown as StyleDocument;
   } catch {
     return undefined;
@@ -46,7 +51,11 @@ export function sanitizeStyleId(id: string): string {
   return `${STYLE_ELEMENT_PREFIX}${cleaned === "" ? "style" : cleaned}`;
 }
 
-function setAttribute(el: Record<string, unknown>, name: string, value: string): void {
+function setAttribute(
+  el: Record<string, unknown>,
+  name: string,
+  value: string,
+): void {
   const fn = el["setAttribute"];
   if (typeof fn === "function") {
     (fn as (n: string, v: string) => unknown).call(el, name, value);
@@ -89,22 +98,46 @@ export class StylesManager {
       return;
     }
     if (doc === undefined) {
-      this.logger.debug(`Styles: no document — tracking "${id}" in memory only.`);
+      this.logger.debug(
+        `Styles: no document — tracking "${id}" in memory only.`,
+      );
       return;
     }
     try {
-      const existing = this.elements.get(id) ?? this.adoptExisting(doc, id);
+      let existing = this.elements.get(id);
+      if (existing?.isConnected === false) {
+        this.elements.delete(id);
+        existing = undefined;
+      }
+      existing ??= this.adoptExisting(doc, id);
       if (existing !== undefined) {
-        existing.textContent = css;
+        if (existing.textContent !== css) existing.textContent = css;
         return;
       }
       const el = doc.createElement("style");
-      setAttribute(el as unknown as Record<string, unknown>, "type", "text/css");
-      setAttribute(el as unknown as Record<string, unknown>, STYLE_DATA_ATTRIBUTE, id);
-      setAttribute(el as unknown as Record<string, unknown>, "id", sanitizeStyleId(id));
+      setAttribute(
+        el as unknown as Record<string, unknown>,
+        "type",
+        "text/css",
+      );
+      setAttribute(
+        el as unknown as Record<string, unknown>,
+        STYLE_DATA_ATTRIBUTE,
+        id,
+      );
+      setAttribute(
+        el as unknown as Record<string, unknown>,
+        "id",
+        sanitizeStyleId(id),
+      );
       el.textContent = css;
-      if (doc.head === undefined || typeof doc.head.appendChild !== "function") {
-        this.logger.warn(`Styles: document has no head — tracking "${id}" in memory only.`);
+      if (
+        doc.head === undefined ||
+        typeof doc.head.appendChild !== "function"
+      ) {
+        this.logger.warn(
+          `Styles: document has no head — tracking "${id}" in memory only.`,
+        );
         return;
       }
       doc.head.appendChild(el);
@@ -131,7 +164,8 @@ export class StylesManager {
     // document has one (e.g. placed before reload or by another instance).
     try {
       const doc = this.getDocument();
-      const adopted = doc === undefined ? undefined : this.adoptExisting(doc, id);
+      const adopted =
+        doc === undefined ? undefined : this.adoptExisting(doc, id);
       adopted?.remove();
       if (adopted !== undefined) this.elements.delete(id);
     } catch (err: unknown) {
@@ -189,6 +223,8 @@ export class StylesManager {
 export const Styles = new StylesManager();
 
 /** Create an isolated manager (tests, alternate documents). */
-export function createStylesManager(options?: StylesManagerOptions): StylesManager {
+export function createStylesManager(
+  options?: StylesManagerOptions,
+): StylesManager {
   return new StylesManager(options);
 }
