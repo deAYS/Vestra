@@ -1,8 +1,3 @@
-// Vestra Manager — renderer-safe DTOs.
-// Structural mirrors of the installer-service contract
-// (apps/installer/src/service.ts). Main imports the real service types;
-// renderer + preload use these so the browser bundle never pulls Node code.
-
 import type { DiscordChannel } from "./channels.js";
 
 export type InstallHealth = "healthy" | "not-installed" | "drifted" | "stale" | "error";
