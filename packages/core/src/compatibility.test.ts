@@ -134,7 +134,7 @@ test("old overlapping theme selections migrate and stay exclusive after reload",
         .getThemes()
         .filter((theme) => theme.enabled)
         .map((theme) => theme.id),
-      ["old-3"],
+      [`old-${THEME_LIBRARY.length - 1}`],
     );
     assert.equal(
       JSON.parse(raw).themes.filter(
@@ -158,7 +158,7 @@ test("old overlapping theme selections migrate and stay exclusive after reload",
   }
 });
 
-test("local theme refresh preserves selection and identity, updates CSS and removes missing files", async () => {
+test("local theme refresh preserves selection and identity and keeps missing files recoverable", async () => {
   const settings = new SettingsStore();
   applyThemePreset(settings, THEME_LIBRARY[0]!);
   let files = [
@@ -215,9 +215,11 @@ test("local theme refresh preserves selection and identity, updates CSS and remo
   );
   files = [];
   await refreshLocalThemes(settings, native);
-  assert.equal(settings.getThemes().length, 1);
-  assert.equal(settings.getThemes()[0]?.sourceFile, undefined);
-  assert.equal(settings.getThemes()[0]?.enabled, false);
+  assert.equal(settings.getThemes().length, 2);
+  const missing = settings.getThemes().find(theme => theme.id === local.id)!;
+  assert.equal(missing.enabled, true);
+  assert.equal(missing.sourceMissing, true);
+  assert.ok(missing.css.includes("lime"));
 });
 
 test("shortcut identity ignores modifier order while plugin schema rejects unusable defaults", () => {
