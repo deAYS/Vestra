@@ -43,18 +43,26 @@ export class NativeDeniedError extends Error {
   }
 }
 
-function rejectUnserializable(value: unknown, path: string, seen?: Set<unknown>): void {
+function rejectUnserializable(
+  value: unknown,
+  path: string,
+  seen?: Set<unknown>,
+): void {
   if (
     typeof value === "function" ||
     typeof value === "symbol" ||
     typeof value === "bigint"
   ) {
-    throw new NativeDeniedError(`Native args must be serializable (bad value at ${path}).`);
+    throw new NativeDeniedError(
+      `Native args must be serializable (bad value at ${path}).`,
+    );
   }
   if (typeof value === "object" && value !== null) {
     const visited = seen ?? new Set<unknown>();
     if (visited.has(value)) {
-      throw new NativeDeniedError(`Native args must be serializable (circular at ${path}).`);
+      throw new NativeDeniedError(
+        `Native args must be serializable (circular at ${path}).`,
+      );
     }
     visited.add(value);
     if (Array.isArray(value)) {
@@ -76,13 +84,20 @@ function assertSerializable(args: readonly unknown[]): void {
   try {
     JSON.stringify(args);
   } catch {
-    throw new NativeDeniedError("Native args must be serializable (circular structure?).");
+    throw new NativeDeniedError(
+      "Native args must be serializable (circular structure?).",
+    );
   }
 }
 
-function assertNonEmptyString(value: unknown, what: string): asserts value is string {
+function assertNonEmptyString(
+  value: unknown,
+  what: string,
+): asserts value is string {
   if (typeof value !== "string" || value === "" || value.includes("\0")) {
-    throw new TypeError(`Native.${what}() requires a non-empty string without NUL bytes.`);
+    throw new TypeError(
+      `Native.${what}() requires a non-empty string without NUL bytes.`,
+    );
   }
 }
 
@@ -110,7 +125,9 @@ export class NativeBridge {
       transport === null ||
       typeof (transport as { invoke?: unknown }).invoke !== "function"
     ) {
-      throw new TypeError("Native.connect() requires a transport with invoke().");
+      throw new TypeError(
+        "Native.connect() requires a transport with invoke().",
+      );
     }
     this.transport = transport;
     this.logger.info(
@@ -141,7 +158,9 @@ export class NativeBridge {
    */
   async invoke(channel: NativeChannel, ...args: unknown[]): Promise<unknown> {
     if (!isChannel(channel)) {
-      throw new NativeDeniedError(`Native channel "${String(channel)}" is not allowlisted.`);
+      throw new NativeDeniedError(
+        `Native channel "${String(channel)}" is not allowlisted.`,
+      );
     }
     const transport = this.transport;
     if (transport === undefined) {
@@ -164,7 +183,9 @@ export class NativeBridge {
     const raw = await this.invoke("settings:read");
     if (raw === undefined || raw === null) return undefined;
     if (typeof raw !== "string") {
-      this.logger.warn("Native settings:read returned a non-string — ignoring.");
+      this.logger.warn(
+        "Native settings:read returned a non-string — ignoring.",
+      );
       return undefined;
     }
     return raw;
@@ -203,6 +224,37 @@ export class NativeBridge {
     return typeof raw === "string" && raw !== "" ? raw : undefined;
   }
 
+  async openAddonFolder(kind: "plugins" | "themes"): Promise<void> {
+    await this.invoke("addons:openFolder", kind);
+  }
+
+  async readThemeFiles(): Promise<Array<{ filename: string; source: string }>> {
+    const files = await this.invoke("addons:readThemes");
+    if (!Array.isArray(files))
+      throw new TypeError("Invalid theme folder response.");
+    return files.map((file: unknown) => {
+      if (
+        !file ||
+        typeof file !== "object" ||
+        typeof (file as Record<string, unknown>).filename !== "string" ||
+        typeof (file as Record<string, unknown>).source !== "string"
+      )
+        throw new TypeError("Invalid theme file.");
+      return file as { filename: string; source: string };
+    });
+  }
+
+  async writeThemeFile(filename: string, css: string): Promise<string> {
+    const saved = await this.invoke("addons:writeTheme", filename, css);
+    if (typeof saved !== "string")
+      throw new TypeError("Invalid theme filename returned.");
+    return saved;
+  }
+
+  async removeThemeFile(filename: string): Promise<void> {
+    await this.invoke("addons:removeTheme", filename);
+  }
+
   /** Ask the updater whether a release is available. Never throws on shape drift. */
   async checkForUpdates(): Promise<UpdateCheckResult> {
     const raw: unknown = await this.invoke("updater:check");
@@ -215,7 +267,9 @@ export class NativeBridge {
           : { available };
       }
     }
-    this.logger.warn("Native updater:check returned an unexpected shape — assuming none.");
+    this.logger.warn(
+      "Native updater:check returned an unexpected shape — assuming none.",
+    );
     return { available: false };
   }
 
@@ -229,6 +283,8 @@ export class NativeBridge {
 export const Native = new NativeBridge();
 
 /** Create an isolated bridge (tests, alternate transports). Disconnected. */
-export function createNativeBridge(options?: NativeBridgeOptions): NativeBridge {
+export function createNativeBridge(
+  options?: NativeBridgeOptions,
+): NativeBridge {
   return new NativeBridge(options);
 }
