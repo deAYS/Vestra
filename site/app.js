@@ -39,7 +39,44 @@ const palettes = {
     input: "#1b3029",
     accent: "#62bda4",
   },
+  afterglow: {
+    name: "Afterglow", label: "AFTERGLOW / MOLTEN COPPER",
+    base: "#100b0b", chat: "#1d1414", side: "#160e10",
+    raised: "#302020", input: "#2b1d1e", accent: "#e6ad83",
+  },
 };
+const product = document.querySelector(".product-window");
+const motion = window.matchMedia("(prefers-reduced-motion: reduce)");
+let productFrame = 0;
+let productPoint = null;
+function resetProduct() {
+  cancelAnimationFrame(productFrame);
+  productFrame = 0;
+  productPoint = null;
+  for (const key of ["--tilt-x", "--tilt-y", "--light-x", "--light-y"]) product?.style.removeProperty(key);
+  product?.removeAttribute("data-pointing");
+}
+product?.addEventListener("pointermove", event => {
+  if (motion.matches || event.pointerType !== "mouse") return;
+  productPoint = { x: event.clientX, y: event.clientY };
+  if (productFrame) return;
+  productFrame = requestAnimationFrame(() => {
+    productFrame = 0;
+    if (!productPoint) return;
+    const rect = product.getBoundingClientRect();
+    const x = Math.max(0, Math.min(1, (productPoint.x - rect.left) / rect.width));
+    const y = Math.max(0, Math.min(1, (productPoint.y - rect.top) / rect.height));
+    product.style.setProperty("--tilt-x", `${(0.5 - y) * 5}deg`);
+    product.style.setProperty("--tilt-y", `${(x - 0.5) * 7}deg`);
+    product.style.setProperty("--light-x", `${x * 100}%`);
+    product.style.setProperty("--light-y", `${y * 100}%`);
+    product.setAttribute("data-pointing", "true");
+  });
+});
+product?.addEventListener("pointerleave", resetProduct);
+product?.addEventListener("pointercancel", resetProduct);
+window.addEventListener("blur", resetProduct);
+motion.addEventListener("change", resetProduct);
 const demo = document.getElementById("client-demo");
 document.querySelectorAll("[data-theme]").forEach((button) =>
   button.addEventListener("click", () => {
