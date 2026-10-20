@@ -45,7 +45,7 @@ const { THEME_LIBRARY } = await import(
   `data:text/javascript;base64,${Buffer.from(result.outputFiles[0].text).toString("base64")}`
 );
 for (const theme of THEME_LIBRARY) {
-  const id = theme.name.replace("Vestra ", "").toLowerCase();
+  const id = theme.name.replace("Vestra ", "").toLowerCase().replace(/\s+/g, "-");
   await fs.writeFile(path.join(out, "themes", `${id}.theme.css`), theme.css);
 }
 console.log(
