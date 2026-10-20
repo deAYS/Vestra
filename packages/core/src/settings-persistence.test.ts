@@ -58,4 +58,27 @@ test("a failed settings read never replaces the saved desktop file with defaults
   settings.setEnabled("FocusMode", true);
   await settings.flush();
   assert.equal(writes, 0);
+  assert.match(settings.getPersistenceStatus().error!, /permission denied/);
+});
+
+test("disk write failures remain visible until a later write succeeds", async () => {
+  const settings = new SettingsStore();
+  let fail = false;
+  await settings.connectStorage({
+    async readSettingsFile() {
+      return undefined;
+    },
+    async writeSettingsFile() {
+      if (fail) throw new Error("fixture disk full");
+    },
+  });
+  fail = true;
+  settings.setEnabled("FocusMode", true);
+  await assert.rejects(() => settings.flush(), /disk full/);
+  assert.equal(settings.getPersistenceStatus().backend, "file");
+  assert.match(settings.getPersistenceStatus().error!, /disk full/);
+  fail = false;
+  settings.setEnabled("FocusMode", false);
+  await settings.flush();
+  assert.equal(settings.getPersistenceStatus().error, undefined);
 });
