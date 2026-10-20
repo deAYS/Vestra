@@ -1,7 +1,28 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { SettingsStore } from "./api/settings.js";
-import { applyThemePreset, THEME_LIBRARY } from "./themes.js";
+import { applyThemePreset, THEME_LIBRARY, refreshLocalThemes } from "./themes.js";
+
+test("local CSS survives a new desktop session and an unavailable folder without disappearing", async () => {
+  let disk: string | undefined;
+  const backend = { async readSettingsFile() { return disk; }, async writeSettingsFile(text: string) { disk = text; } };
+  const first = new SettingsStore();
+  await first.connectStorage(backend);
+  const source = "/** @name Saved glass */\n:root{--text-link:#abc}";
+  await refreshLocalThemes(first, { readThemeFiles: async () => [{ filename: "glass.css", source }] });
+  first.activateTheme(first.getThemes()[0]!.id);
+  await first.flush();
+  const second = new SettingsStore();
+  await second.connectStorage(backend);
+  assert.equal(second.getThemes()[0]?.css, source);
+  await refreshLocalThemes(second, { readThemeFiles: async () => [] });
+  assert.equal(second.getThemes()[0]?.enabled, true);
+  assert.equal(second.getThemes()[0]?.sourceMissing, true);
+  assert.equal(second.getThemes()[0]?.css, source);
+  await refreshLocalThemes(second, { readThemeFiles: async () => [{ filename: "glass.css", source }] });
+  assert.equal(second.getThemes()[0]?.sourceMissing, false);
+  await second.flush();
+});
 
 test("a fresh Discord runtime restores theme, shortcuts and plugin settings from its own file", async () => {
   let disk: string | undefined;
