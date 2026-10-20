@@ -87,7 +87,9 @@ export interface DiscordInstallation {
   isActive: boolean;
 }
 
-export function toDiscordInstallation(install: DiscordInstall): DiscordInstallation {
+export function toDiscordInstallation(
+  install: DiscordInstall,
+): DiscordInstallation {
   return {
     channel: install.channel,
     version: install.version === "" ? null : install.version,
@@ -116,17 +118,31 @@ export type InstallerErrorCode =
  */
 export function toErrorCode(detail: string | undefined): InstallerErrorCode {
   if (detail === undefined || detail === "") return "unknown";
-  if (/Refusing (destructive test write|test registry write)/.test(detail)) return "safety-refusal";
-  if (/real Discord install|real Vestra home|outside sandbox home|fixture identity|VESTRA_ALLOW_LIVE_TESTS/.test(detail)) {
+  if (/Refusing (destructive test write|test registry write)/.test(detail))
+    return "safety-refusal";
+  if (
+    /real Discord install|real Vestra home|outside sandbox home|fixture identity|VESTRA_ALLOW_LIVE_TESTS/.test(
+      detail,
+    )
+  ) {
     return "safety-refusal";
   }
-  if (/EACCES|EPERM|permission denied/i.test(detail)) return "permission-denied";
-  if (/asar unreadable|invalid asar|not a valid asar|bad asar/i.test(detail)) return "invalid-asar";
+  if (/EACCES|EPERM|permission denied/i.test(detail))
+    return "permission-denied";
+  if (/asar unreadable|invalid asar|not a valid asar|bad asar/i.test(detail))
+    return "invalid-asar";
   if (/receipt/i.test(detail)) return "receipt-invalid";
   if (/backup/i.test(detail)) return "backup-missing";
-  if (/drifted|mismatch|verification|corrupt|hash/i.test(detail)) return "verification-failed";
-  if (/failed|inject|patch|repair|uninstall/i.test(detail)) return "patch-failed";
-  if (/no .*install|not found|no longer present|installation-missing/i.test(detail)) return "discord-not-found";
+  if (/drifted|mismatch|verification|corrupt|hash/i.test(detail))
+    return "verification-failed";
+  if (/failed|inject|patch|repair|uninstall/i.test(detail))
+    return "patch-failed";
+  if (
+    /no .*install|not found|no longer present|installation-missing/i.test(
+      detail,
+    )
+  )
+    return "discord-not-found";
   return "unknown";
 }
 
@@ -186,6 +202,8 @@ export type InstallerOperation =
 export type InstallerPhase =
   | "discovering"
   | "staging"
+  | "stopping"
+  | "restarting"
   | "patching"
   | "verifying"
   | "complete";
@@ -227,10 +245,17 @@ export interface PruneOptions extends ChannelScope {
   onProgress?: InstallerProgressListener | undefined;
 }
 
-function emit(listener: InstallerProgressListener | undefined, event: InstallerProgressEvent): void {
+function emit(
+  listener: InstallerProgressListener | undefined,
+  event: InstallerProgressEvent,
+): void {
   if (listener === undefined) return;
   // A closed GUI/progress consumer must not interrupt an archive transaction.
-  try { listener(event); } catch { /* observer failure is isolated */ }
+  try {
+    listener(event);
+  } catch {
+    /* observer failure is isolated */
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -302,19 +327,28 @@ export interface InstallerService {
   pruneRegistry(options?: PruneOptions): Promise<PruneSummary>;
 }
 
-export function createInstallerService(ctx: InstallerServiceContext): InstallerService {
+export function createInstallerService(
+  ctx: InstallerServiceContext,
+): InstallerService {
   const opCtx = (): OperationContext => toOperationContext(ctx);
 
   return {
     context: ctx,
 
     async discover(options?: DiscoverOptions): Promise<DiscordInstallation[]> {
-      emit(options?.onProgress, { operation: "discover", phase: "discovering" });
+      emit(options?.onProgress, {
+        operation: "discover",
+        phase: "discovering",
+      });
       const found = listInstalls(ctx.discovery).filter((i) =>
         channelMatches(options?.channels, i.channel),
       );
       const out = found.map(toDiscordInstallation);
-      emit(options?.onProgress, { operation: "discover", phase: "complete", total: out.length });
+      emit(options?.onProgress, {
+        operation: "discover",
+        phase: "complete",
+        total: out.length,
+      });
       return out;
     },
 
@@ -325,7 +359,11 @@ export function createInstallerService(ctx: InstallerServiceContext): InstallerS
       const discovered = listInstalls(c.discovery).filter((i) =>
         channelMatches(options?.channels, i.channel),
       );
-      emit(onProgress, { operation: "status", phase: "verifying", total: discovered.length });
+      emit(onProgress, {
+        operation: "status",
+        phase: "verifying",
+        total: discovered.length,
+      });
       const { registryPath } = layoutHome(c.homeDir);
       const registry = await loadRegistry(registryPath);
       const statuses: InstallStatus[] = discovered.map((install, index) => {
@@ -368,9 +406,15 @@ export function createInstallerService(ctx: InstallerServiceContext): InstallerS
       });
       const present = new Set(discovered.map((i) => i.asarPath));
       const stale = Object.keys(registry).filter(
-        (p) => !present.has(p) && channelMatches(options?.channels, registry[p]?.channel ?? "unknown"),
+        (p) =>
+          !present.has(p) &&
+          channelMatches(options?.channels, registry[p]?.channel ?? "unknown"),
       );
-      emit(onProgress, { operation: "status", phase: "complete", total: statuses.length });
+      emit(onProgress, {
+        operation: "status",
+        phase: "complete",
+        total: statuses.length,
+      });
       return { statuses, stale };
     },
 
@@ -409,7 +453,11 @@ export function createInstallerService(ctx: InstallerServiceContext): InstallerS
       }
       // Reuse the engine's stale-record semantics (filtered discovery set).
       const { stale } = await statusAll(c, { channels: options?.channels });
-      emit(onProgress, { operation: "check", phase: "complete", total: statuses.length });
+      emit(onProgress, {
+        operation: "check",
+        phase: "complete",
+        total: statuses.length,
+      });
       return { statuses, stale };
     },
 
@@ -423,8 +471,14 @@ export function createInstallerService(ctx: InstallerServiceContext): InstallerS
       const filtered =
         options?.only === undefined || options.only.length === 0
           ? targets
-          : targets.filter((t) => (options.only as string[]).includes(t.asarPath));
-      emit(onProgress, { operation: "install", phase: "staging", total: filtered.length });
+          : targets.filter((t) =>
+              (options.only as string[]).includes(t.asarPath),
+            );
+      emit(onProgress, {
+        operation: "install",
+        phase: "staging",
+        total: filtered.length,
+      });
       for (let index = 0; index < filtered.length; index++) {
         const t = filtered[index] as DiscordInstall;
         emit(onProgress, {
@@ -441,9 +495,17 @@ export function createInstallerService(ctx: InstallerServiceContext): InstallerS
         stage: options?.stage,
         only: options?.only,
       });
-      emit(onProgress, { operation: "install", phase: "verifying", total: batch.results.length });
+      emit(onProgress, {
+        operation: "install",
+        phase: "verifying",
+        total: batch.results.length,
+      });
       const summary = summarize(batch);
-      emit(onProgress, { operation: "install", phase: "complete", total: summary.results.length });
+      emit(onProgress, {
+        operation: "install",
+        phase: "complete",
+        total: summary.results.length,
+      });
       return summary;
     },
 
@@ -465,9 +527,17 @@ export function createInstallerService(ctx: InstallerServiceContext): InstallerS
         });
       }
       const batch = await repairAll(c, { channels: options?.channels });
-      emit(onProgress, { operation: "repair", phase: "verifying", total: batch.results.length });
+      emit(onProgress, {
+        operation: "repair",
+        phase: "verifying",
+        total: batch.results.length,
+      });
       const summary = summarize(batch);
-      emit(onProgress, { operation: "repair", phase: "complete", total: summary.results.length });
+      emit(onProgress, {
+        operation: "repair",
+        phase: "complete",
+        total: summary.results.length,
+      });
       return summary;
     },
 
@@ -478,9 +548,17 @@ export function createInstallerService(ctx: InstallerServiceContext): InstallerS
         channels: options?.channels,
         purge: options?.purge,
       });
-      emit(onProgress, { operation: "uninstall", phase: "verifying", total: batch.results.length });
+      emit(onProgress, {
+        operation: "uninstall",
+        phase: "verifying",
+        total: batch.results.length,
+      });
       const summary = summarize(batch);
-      emit(onProgress, { operation: "uninstall", phase: "complete", total: summary.results.length });
+      emit(onProgress, {
+        operation: "uninstall",
+        phase: "complete",
+        total: summary.results.length,
+      });
       return summary;
     },
 
