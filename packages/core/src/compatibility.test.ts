@@ -20,6 +20,21 @@ import { launcherBounds, readLauncherPosition } from "./ui/launcherPosition.js";
 
 const legacyRose = `/** @name Vestra Rose\n * @author Vestra\n */\n:root,.theme-dark{--background-primary:#241622;--background-secondary:#1c111b;--background-secondary-alt:#180e16;--background-tertiary:#160d14;--background-floating:#30202e;--channeltextarea-background:#332131;--brand-500:#c985a9;--brand-560:#b47296;--brand-600:#a46388;--text-link:#efb3d0}`;
 
+test("Glass spacing upgrade preserves selection and appearance without replacing edited CSS", () => {
+  const preset = THEME_LIBRARY.find(theme => theme.name === "Vestra Liquid Glass")!;
+  const previous = preset.css.replace("@version 2.0.1", "@version 2.0.0").replace("padding-top:12px!important;box-sizing:border-box;", "");
+  const settings = new SettingsStore();
+  settings.setThemes([
+    { id: "glass", name: preset.name, author: "Vestra", css: previous, enabled: true, customization: { opacity: 42, blur: 20, saturation: 90, brightness: 100, radius: 22, backgroundColor: "", backgroundImage: "" } },
+    { id: "edited", name: preset.name, author: "Vestra", css: previous + "\nbody{color:red}", enabled: false },
+  ]);
+  upgradeBuiltinThemes(settings);
+  assert.equal(settings.getThemes()[0]?.css, preset.css);
+  assert.equal(settings.getThemes()[0]?.enabled, true);
+  assert.equal(settings.getThemes()[0]?.customization?.opacity, 42);
+  assert.equal(settings.getThemes()[1]?.css, previous + "\nbody{color:red}");
+});
+
 test("saved old presets migrate without changing identity, toggles or custom CSS", () => {
   const settings = new SettingsStore();
   settings.setThemes([
