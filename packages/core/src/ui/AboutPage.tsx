@@ -9,6 +9,7 @@ export function AboutPage({ plugins, version }: PageProps): JSX.Element {
     <div className="vs-setting-row"><div><strong>Vestra Client</strong><p>A more personal place to hang out.</p></div><span style={s.code}>{version}</span></div>
     <div className="vs-setting-row"><div><strong>Built to be yours</strong><p>Open source. MIT licensed. Made for the community.</p></div><span style={{color:"#C5BAF8",fontSize:11}}>Independent</span></div>
     <div className="vs-setting-row"><div><strong>Plugin API</strong><p>{plugins.list().length} plugins in your workspace.</p></div><span style={s.code}>v{VESTRA_API_VERSION}</span></div>
+    <div className="vs-setting-row"><div><strong>Join the community</strong><p>Share your setup, suggest plugins and get help.</p></div><a href="https://discord.gg/jKf2RGesRK" target="_blank" rel="noopener noreferrer" style={{...s.button,textDecoration:"none",flexShrink:0}}>Discord <span aria-hidden="true">↗</span></a></div>
     <p style={{...s.muted,fontSize:11,marginTop:30}}>Vestra is an independent project and is not affiliated with Discord.</p>
   </section>;
 }
