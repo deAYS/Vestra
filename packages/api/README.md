@@ -14,7 +14,9 @@ export default definePlugin({
     Styles.inject("MyThemeHelper", "a { text-underline-offset: 3px; }");
     Toasts.success("MyThemeHelper", "Plugin started");
   },
-  stop() { Styles.remove("MyThemeHelper"); },
+  stop() {
+    Styles.remove("MyThemeHelper");
+  },
 });
 ```
 
@@ -28,6 +30,54 @@ node packages/api/scripts/build-plugin.mjs plugins/example/src/index.ts plugins/
 The packaged SDK also exposes `vestra-plugin src/index.ts dist/index.js`. The generated IIFE registers
 the default export against the existing host. New store plugins are disabled
 until the user enables their store entry. Renderer toggles persist independently.
+
+For a local installation, build directly to a `.plugin.js` file:
+
+```sh
+node packages/api/scripts/build-plugin.mjs plugins/example/src/index.ts dist/Example.plugin.js
+```
+
+Open **Vestra → Plugins → Open plugin folder**, copy the built file there and fully
+restart Discord. Local builds use their saved enabled state or `enabledByDefault`;
+the builder defaults it to `true`. Only install plugin files whose source you trust.
+
+## Settings
+
+Declare `settingsSchema` to get a Configure panel. Supported field types are
+`boolean`, `number`, `select`, `text` and `keybind`. Every plugin also gets an
+optional enable/disable shortcut. Defaults are displayed without overwriting
+saved values; `Settings.subscribe()` lets running plugins react to changes.
+
+```ts
+import { definePlugin, Settings } from "@vestra/api";
+
+export default definePlugin({
+  name: "MyPlugin",
+  description: "A plugin with preferences.",
+  authors: ["Your name"],
+  settingsSchema: {
+    intensity: {
+      type: "number",
+      label: "Intensity",
+      default: 2,
+      min: 1,
+      max: 8,
+      step: 1,
+    },
+  },
+  start() {
+    const intensity = Settings.getPluginSetting("MyPlugin", "intensity") ?? 2;
+    console.log("Intensity:", intensity);
+  },
+});
+```
+
+Settings changes do not restart a plugin. Read them when handling an action or
+subscribe in `start()` and unsubscribe in `stop()`. Validate values before use;
+preferences can also be edited outside the panel. Keybind fields store a combo
+string; the plugin implements its action. The host handles the common plugin
+toggle shortcut. `Settings.activateTheme(id)` selects a single theme; `null`
+returns to Discord's appearance.
 
 Use the exact plugin name as the patch owner. Stop must undo every timer, event
 listener, style and subscription created by start. The host removes owned patches
