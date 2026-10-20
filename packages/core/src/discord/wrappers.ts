@@ -1,10 +1,3 @@
-// @vestra/core discord — wrapper implementations.
-// Phase 8. Each wrapper resolves its module through `WebpackFinder` with
-// conservative prop filters, validates the shape structurally (so a Discord
-// update degrades to `undefined` instead of a crash), then delegates through
-// facades whose methods capture errors and return fallbacks. Raw module
-// access stays in `webpack/`; plugins consume these facades.
-
 import { Logger, type ScopedLogger } from "../api/logger.js";
 import { Webpack, type WebpackFinder, type WebpackExports } from "../webpack/index.js";
 import type {
