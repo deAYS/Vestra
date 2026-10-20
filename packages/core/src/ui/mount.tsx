@@ -53,7 +53,7 @@ export function mountVestraSettings(
         settings={resolved.settings}
         plugins={resolved.plugins}
         version={resolved.version}
-        initialPage={options?.initialPage ?? "settings"}
+        {...options}
       />,
     );
     return () => {
