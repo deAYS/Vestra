@@ -1,12 +1,8 @@
-// Vestra Updater — release envelope.
-// Phase 12. A release artifact is one JSON envelope carrying the payload
-// files as base64 plus the payload manifest. Download verifies the envelope
-// hash (from the feed) and then every inner file hash (from the manifest) —
-// a corrupt or tampered artifact never reaches the payload dir.
-
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { PAYLOAD_FILES, sha256Hex } from "@vestra/installer";
+import { assertSafeVersion } from "@vestra/shared";
+import { verifyFileManifest } from "@vestra/shared/node/integrity.js";
 
 export interface UpdateEnvelope {
   tool: "vestra-update-envelope";
@@ -72,6 +68,8 @@ export function parseEnvelope(bytes: Buffer, expectedSha256: string): UpdateEnve
     throw new Error("Envelope has an unexpected shape.");
   }
   const envelope = parsed as UpdateEnvelope;
+  assertSafeVersion(envelope.payloadVersion);
+  verifyFileManifest(envelope.files, envelope.manifest?.files, PAYLOAD_FILES, true);
   // Inner integrity: every file must match the embedded manifest.
   for (const [name, hash] of Object.entries(envelope.manifest.files)) {
     const b64 = envelope.files[name];
@@ -94,6 +92,8 @@ export async function writeEnvelopePayload(
   payloadRoot: string,
   envelope: UpdateEnvelope,
 ): Promise<string> {
+  assertSafeVersion(envelope.payloadVersion);
+  verifyFileManifest(envelope.files, envelope.manifest?.files, PAYLOAD_FILES, true);
   const dir = path.join(payloadRoot, envelope.payloadVersion);
   await fs.promises.mkdir(dir, { recursive: true });
   for (const name of PAYLOAD_FILES) {
