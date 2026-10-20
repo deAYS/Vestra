@@ -4,3 +4,11 @@ bun.lockb
 *.local
 .DS_Store
 Thumbs.db
+release/
+*.tgz
+.env
+.env.*
+!.env.example
+*.log
+coverage/
+*.tsbuildinfo
