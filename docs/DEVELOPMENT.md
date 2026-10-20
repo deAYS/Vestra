@@ -32,6 +32,8 @@ IPC, a separately built SDK plugin, modern theme surface colors, all built-in
 utility actions and cleanup, startup masking, launcher input and persistence.
 The fixture uses illustrative content and its own clipboard stub. It never signs
 in to Discord or patches a real installation.
+The suite runs with both full and reduced motion, independently of the host's
+Windows accessibility preferences.
 
 The fixture does not establish compatibility with every future Discord build.
 After a compatibility change, check the real target channel separately. Keep a
