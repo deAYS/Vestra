@@ -1,9 +1,3 @@
-// @vestra/core webpack — raw access layer.
-// Phase 6. This is the ONLY module allowed to touch Discord's bundle globals.
-// Everything else consumes `RequireSource` / enumerated exports. All functions
-// are best-effort: outside Discord (or after a bundle change) they return
-// undefined / empty results and log, never throw.
-
 import { Logger, type ScopedLogger } from "../api/logger.js";
 import type { RequireSource, WebpackExports } from "./types.js";
 
@@ -39,16 +33,39 @@ export function getWebpackRequire(logger?: ScopedLogger): unknown {
     const stashed = g["__VESTRA_WEBPACK_REQUIRE__"];
     if (looksLikeRequire(stashed)) return stashed;
 
-    for (const value of Object.values(g)) {
+    // Window contains accessors that can throw (e.g. blocked storage). Inspect
+    // data properties individually so one getter cannot abort discovery.
+    const values = Object.getOwnPropertyNames(g).flatMap(key => {
+      try {
+        const descriptor = Object.getOwnPropertyDescriptor(g, key);
+        return descriptor && "value" in descriptor ? [[key, descriptor.value] as const] : [];
+      } catch { return []; }
+    });
+    for (const [, value] of values) {
       if (looksLikeRequire(value)) {
         g["__VESTRA_WEBPACK_REQUIRE__"] = value;
         return value;
       }
     }
 
-    for (const [key, value] of Object.entries(g)) {
+    for (const [key, value] of values) {
       if (!key.startsWith("webpackChunk")) continue;
       if (isRecord(value)) {
+        // Real Webpack 5 keeps require private. An empty synthetic chunk calls
+        // its runtime callback with require without executing any app module.
+        if (Array.isArray(value) && Object.hasOwn(value, "push")) {
+          const length = value.length;
+          let captured: unknown;
+          try {
+            value.push([[`vestra-${Date.now()}-${Math.random().toString(36).slice(2)}`], {}, (req: unknown) => { captured = req; }]);
+          } finally {
+            if (value.length > length) value.splice(length, 1);
+          }
+          if (looksLikeRequire(captured)) {
+            g["__VESTRA_WEBPACK_REQUIRE__"] = captured;
+            return captured;
+          }
+        }
         for (const inner of Object.values(value)) {
           if (looksLikeRequire(inner)) {
             g["__VESTRA_WEBPACK_REQUIRE__"] = inner;
