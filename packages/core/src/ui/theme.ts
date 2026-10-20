@@ -1,6 +1,6 @@
 import type { CSSProperties } from "react";
 
-export const palette = { bg: "#17161C", sidebar: "#121116", surface: "#1E1D25", border: "#302E39", text: "#F2F0F7", muted: "#9894A6", accent: "#C5BAF8" };
+export const palette = { bg: "var(--vs-bg,#17161C)", sidebar: "var(--vs-sidebar,#121116)", surface: "var(--vs-surface,#1E1D25)", border: "var(--vs-border,#302E39)", text: "var(--vs-text,#F2F0F7)", muted: "var(--vs-muted,#9894A6)", accent: "var(--vs-accent,#C5BAF8)" };
 export const vs = { page: "vs-settings-page", nav: "vs-settings-nav", card: "vs-plugin-card" } as const;
 
 export const s: Record<string, CSSProperties> = {
@@ -9,7 +9,7 @@ export const s: Record<string, CSSProperties> = {
   title: { fontSize: 27, fontWeight: 650, letterSpacing: "-.035em", lineHeight: 1.2, margin: 0, color: palette.text },
   subtitle: { color: palette.muted, fontSize: 13, margin: 0, lineHeight: 1.6 },
   nav: { display: "flex", flexDirection: "column", gap: 5 },
-  navButton: { background: "#25232D", color: "#DEDAE8", border: "1px solid #383440", borderRadius: 9, padding: "9px 14px", cursor: "pointer", fontSize: 12, fontWeight: 500, lineHeight: "18px" },
+  navButton: { background: "var(--vs-control,#25232D)", color: palette.text, border: `1px solid ${palette.border}`, borderRadius: 9, padding: "9px 14px", cursor: "pointer", fontSize: 12, fontWeight: 500, lineHeight: "18px" },
   navButtonActive: { background: "#C5BAF814", color: palette.accent, border: "1px solid #C5BAF81A", borderRadius: 9, padding: "9px 14px", cursor: "pointer" },
   card: { background: palette.surface, border: `1px solid ${palette.border}`, borderRadius: 13, padding: 20, marginBottom: 12 },
   row: { display: "flex", alignItems: "center", gap: 10 },
