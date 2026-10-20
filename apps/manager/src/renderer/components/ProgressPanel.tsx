@@ -1,5 +1,3 @@
-// Vestra Manager — progress indicator. Phase labels only, never percentages.
-
 export function ProgressPanel({ text }: { text: string }): JSX.Element {
   return (
     <div className="vs-progress" data-testid="progress-panel" role="status">
