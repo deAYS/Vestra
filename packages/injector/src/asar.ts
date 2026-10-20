@@ -1,9 +1,6 @@
-// @vestra/injector — asar driver.
-// Phase 10. Thin wrapper over @electron/asar with Vestra-shaped errors.
-// All functions operate on real paths; tests exercise them with fake asars.
-
 import * as fs from "node:fs";
 import * as asar from "@electron/asar";
+import * as path from "node:path";
 
 export class AsarError extends Error {
   constructor(message: string) {
@@ -57,7 +54,8 @@ export function readAsarMain(asarPath: string): string {
     throw new AsarError(`package.json unreadable in "${asarPath}": ${describe(err)}`);
   }
   const main = typeof pkg.main === "string" && pkg.main !== "" ? pkg.main : "index.js";
-  return main.startsWith("./") ? main.slice(2) : main;
+  if (main.includes("\\") || main.includes("\0") || main.includes(":") || path.posix.isAbsolute(main) || main.split("/").includes("..")) throw new AsarError("Unsafe archive main entry.");
+  return path.posix.normalize(main);
 }
 
 function describe(err: unknown): string {
