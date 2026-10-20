@@ -44,6 +44,11 @@ const palettes = {
     base: "#100b0b", chat: "#1d1414", side: "#160e10",
     raised: "#302020", input: "#2b1d1e", accent: "#e6ad83",
   },
+  "liquid-glass": {
+    name: "Liquid Glass", label: "LIQUID GLASS / PEARL LIGHT",
+    base: "#262132", chat: "#ffffff09", side: "#ffffff0c",
+    raised: "#ffffff15", input: "#ffffff13", accent: "#ddd2ff",
+  },
 };
 const product = document.querySelector(".product-window");
 const motion = window.matchMedia("(prefers-reduced-motion: reduce)");
@@ -82,6 +87,7 @@ document.querySelectorAll("[data-theme]").forEach((button) =>
   button.addEventListener("click", () => {
     const id = button.dataset.theme;
     const palette = palettes[id];
+    demo.dataset.palette = id;
     document
       .querySelectorAll("[data-theme]")
       .forEach((item) =>
