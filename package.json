@@ -1,22 +1,33 @@
 {
   "name": "vestra-client",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.1.0-alpha.1",
   "description": "Vestra — Your Discord. Your rules.",
+  "license": "MIT",
+  "repository": { "type": "git", "url": "https://github.com/deAYS/Vestra.git" },
+  "homepage": "https://deays.github.io/Vestra/",
+  "bugs": { "url": "https://github.com/deAYS/Vestra/issues" },
   "workspaces": [
     "apps/*",
     "packages/*",
     "plugins/*"
   ],
   "scripts": {
+    "test": "bun test",
     "typecheck": "tsc --noEmit",
     "build": "bun run --filter './packages/*' --filter './apps/*' build",
-    "dev": "bun --watch packages/core/src/index.ts",
-    "manager:dev": "bun --cwd apps/manager dev",
+    "dev": "bun run manager:dev",
+    "preview": "node scripts/preview.mjs",
+    "site:build": "node scripts/build-site.mjs",
+    "site:preview": "node scripts/build-site.mjs && node scripts/serve-site.mjs",
+    "test:electron": "node scripts/smoke-electron.mjs",
+    "manager:dev": "bun run --cwd packages/core build && bun --cwd apps/manager dev",
     "manager:build": "bun --cwd apps/manager build",
+    "manager:package": "bun run --cwd packages/core build && bun run manager:build && bun --cwd apps/manager package",
     "manager:test": "bun test apps/manager"
   },
   "devDependencies": {
+    "happy-dom": "^17.4.0",
     "@types/node": "^26.4.1",
     "@types/react": "^18.3.3",
     "@types/react-dom": "^18.3.0",
