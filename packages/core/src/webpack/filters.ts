@@ -1,7 +1,3 @@
-// @vestra/core webpack — module filters.
-// Phase 6. Pure predicates; every filter tolerates non-objects by returning
-// false so a Discord update can only cause misses, never crashes.
-
 import type { FluxStoreLike, ModuleFilter, WebpackExports } from "./types.js";
 
 /** Objects and functions both carry matchable props (see raw.ts). */
