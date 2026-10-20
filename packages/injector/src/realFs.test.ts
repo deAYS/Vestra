@@ -1,10 +1,3 @@
-// @vestra/injector — realFs regression tests.
-// Proves the Electron ASAR-shim fix without requiring Electron:
-//   - fallback (no original-fs) uses node:fs semantics
-//   - simulated patched fs misreports app.asar (isFile=false) → discovery fails
-//   - simulated original fs reports correctly → Stable + Canary discovered
-// Fixture/temp directories only — never touches real Discord installs.
-
 import { describe, test, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import * as fs from "node:fs";
