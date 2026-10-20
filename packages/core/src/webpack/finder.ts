@@ -1,10 +1,3 @@
-// @vestra/core webpack — high-level finder.
-// Phase 6. `find*` scan Discord's module cache through an injected
-// `RequireSource` (real bundle in production, fakes in tests). Successful
-// finds are cached by filter identity; misses are never cached so lazily
-// loaded modules appear on later scans. Nothing here throws at lookup time:
-// misses and Discord bundle changes surface as undefined / empty arrays.
-
 import { Logger, type ScopedLogger } from "../api/logger.js";
 import { filters } from "./filters.js";
 import { defaultRequireSource, enumerateModules } from "./raw.js";
