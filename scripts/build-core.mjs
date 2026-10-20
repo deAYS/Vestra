@@ -11,6 +11,7 @@ await build({
   absWorkingDir: root,
   entryPoints: ["packages/core/src/index.ts"],
   bundle: true,
+  loader: { ".css": "text" },
   platform: "browser",
   format: "iife",
   globalName: "Vestra",
