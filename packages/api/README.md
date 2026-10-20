@@ -1,6 +1,6 @@
 # @vestra/api
 
-Vestra's own typed plugin API. Package version `0.1.0`, host API `1.0.0`.
+Vestra's own typed plugin API. Package version `0.1.1`, host API `1.0.0`.
 Requires Vestra; this package does not inject Discord or create a second runtime.
 
 ```ts
@@ -91,3 +91,11 @@ modules and never assume Vencord or BetterDiscord APIs are available.
 All third-party code runs with Discord renderer access. Install trusted source.
 The npm scope must be owned by the maintainer before publishing. Nothing in the
 build commands publishes automatically.
+
+Theme appearance is available on Vestra 0.1.0-alpha.2 and newer through
+`Settings.setThemeCustomization(id, appearance)`. Pass `undefined` to restore the
+authored theme. `ThemeCustomization` contains `opacity` (5–100), `blur` (0–48),
+`saturation` (0–200), `brightness` (35–120), `radius` (0–30), `backgroundColor`
+(empty or hex), and `backgroundImage` (empty, an HTTPS image URL, or a supported
+base64 image). These preferences belong to each theme and are preserved when its
+local CSS file refreshes. Older hosts do not expose this additive method.
