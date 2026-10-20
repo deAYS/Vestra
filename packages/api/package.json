@@ -1,21 +1,44 @@
 {
   "name": "@vestra/api",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Typed plugin SDK for the Vestra Discord modification framework",
-  "repository": { "type": "git", "url": "https://github.com/deAYS/Vestra.git", "directory": "packages/api" },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/deAYS/Vestra.git",
+    "directory": "packages/api"
+  },
   "homepage": "https://github.com/deAYS/Vestra/tree/main/packages/api",
-  "bugs": { "url": "https://github.com/deAYS/Vestra/issues" },
+  "bugs": {
+    "url": "https://github.com/deAYS/Vestra/issues"
+  },
   "type": "module",
   "license": "MIT",
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
-    ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js", "require": "./dist/index.cjs" }
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
   },
-  "bin": { "vestra-plugin": "./scripts/build-plugin.mjs" },
-  "files": ["dist", "scripts/build-plugin.mjs", "README.md", "LICENSE"],
-  "publishConfig": { "access": "public" },
-  "scripts": { "build": "node scripts/build.mjs" },
-  "dependencies": { "esbuild": "^0.23.0" }
+  "bin": {
+    "vestra-plugin": "./scripts/build-plugin.mjs"
+  },
+  "files": [
+    "dist",
+    "scripts/build-plugin.mjs",
+    "README.md",
+    "LICENSE"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "node scripts/build.mjs"
+  },
+  "dependencies": {
+    "esbuild": "^0.23.0"
+  }
 }
