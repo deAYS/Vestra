@@ -1,18 +1,7 @@
-// QuickCSS — apply user-defined CSS (built-in, critical).
-// Phase 4. Real plugin definition: `start()` reflects the current
-// `Settings.customCss` snapshot through the Styles API, `stop()` removes it
-// (every injection must be removable). Live sync while running is owned by the
-// core QuickCSS service (`startQuickCss`, wired in the runtime); this plugin
-// stays a thin declarative wrapper so enabling/disabling it is idempotent and
-// safe to register as a built-in once Phase 5 lands builtin registration.
+import { definePlugin } from "../../../packages/core/src/api/plugins.js";
+import { startQuickCss } from "../../../packages/core/src/quickCss.js";
 
-import {
-  definePlugin,
-  Settings,
-  Styles,
-  QUICKCSS_STYLE_ID,
-  applyQuickCssState,
-} from "@vestra/api";
+let stop: (() => void) | undefined;
 
 export const QuickCSS = definePlugin({
   name: "QuickCSS",
@@ -20,10 +9,12 @@ export const QuickCSS = definePlugin({
   authors: ["Vestra"],
   enabledByDefault: true,
   start: () => {
-    applyQuickCssState(Settings.getCustomCss(), Styles);
+    stop?.();
+    stop = startQuickCss();
   },
   stop: () => {
-    Styles.remove(QUICKCSS_STYLE_ID);
+    stop?.();
+    stop = undefined;
   },
 });
 
