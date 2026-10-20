@@ -1,0 +1,50 @@
+name: Draft release
+on:
+  push:
+    tags: ["v*"]
+permissions:
+  contents: write
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.3
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+      - name: Verify tag
+        shell: pwsh
+        run: |
+          $taskVersion = (Get-Content -Raw package.json | ConvertFrom-Json).version
+          if ($env:GITHUB_REF_NAME -ne "v$taskVersion") { throw "The release tag must match package.json." }
+      - run: bun install --frozen-lockfile
+      - run: bun run typecheck
+      - run: bun test
+      - run: bun run build
+      - run: bun run test:electron
+      - run: bun run manager:package
+      - run: npm pack ./packages/api
+      - name: Write checksums
+        shell: pwsh
+        run: |
+          $taskFiles = @(Get-ChildItem apps/manager/release/*.exe) + @(Get-ChildItem vestra-api-*.tgz)
+          $taskLines = $taskFiles | ForEach-Object { "$((Get-FileHash -Algorithm SHA256 -LiteralPath $_.FullName).Hash.ToLowerInvariant())  $($_.Name)" }
+          Set-Content -LiteralPath SHA256SUMS.txt -Value $taskLines -Encoding utf8NoBOM
+      - name: Create or update draft
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          files=(apps/manager/release/*.exe vestra-api-*.tgz SHA256SUMS.txt)
+          if gh release view "$GITHUB_REF_NAME" --json isDraft --jq .isDraft > draft-state.txt 2>/dev/null; then
+            test "$(cat draft-state.txt)" = true || { echo "An already published release will not be overwritten."; exit 1; }
+            gh release upload "$GITHUB_REF_NAME" "${files[@]}" --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" "${files[@]}" --draft --prerelease --verify-tag --title "Vestra $GITHUB_REF_NAME" --notes-file .github/RELEASE_NOTES.md
+          fi
