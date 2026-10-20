@@ -1,8 +1,3 @@
-// @vestra/injector — bootstrap/injection layer.
-// Phase 10 (roadmap #10). Discovers Discord installs, builds the native
-// payload (preload, main hook, renderer loader), and patches app.asar to load
-// Vestra automatically. `uninject()` restores the pristine backup.
-
 export { listInstalls } from "./paths.js";
 export type { DiscordChannel, DiscordInstall, DiscoveryOptions } from "./paths.js";
 
