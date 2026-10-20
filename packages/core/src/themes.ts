@@ -286,7 +286,14 @@ export const MIDNIGHT_THEME = THEME_LIBRARY[0]!.css;
 /** Exact shipped CSS only: a custom theme sharing our name is never replaced. */
 export function upgradeBuiltinThemes(store: SettingsStore): void {
   let changed = false;
+  const previousGlass = glassCss
+    .replace("@version 2.0.1", "@version 2.0.0")
+    .replace("padding-top:12px!important;box-sizing:border-box;", "");
   const next = store.getThemes().map((theme) => {
+    if (theme.name === "Vestra Liquid Glass" && theme.author === "Vestra" && theme.css.replace(/\r\n/g, "\n") === previousGlass) {
+      changed = true;
+      return { ...theme, css: glassCss };
+    }
     const index = LEGACY_THEME_LIBRARY.findIndex(
       (preset, index) =>
         (preset.css === theme.css ||
