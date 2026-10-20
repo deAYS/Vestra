@@ -251,6 +251,7 @@ export class SettingsStore {
   private nativeStorage: SettingsFileStorage | undefined;
   private nativeRaw: string | undefined;
   private nativeWrites: Promise<void> = Promise.resolve();
+  private persistenceError: string | undefined;
   private state: VestraSettings = cloneSettings(DEFAULT_SETTINGS);
   private readonly listeners = new Set<SettingsListener>();
   private readonly logger: ScopedLogger;
@@ -278,13 +279,30 @@ export class SettingsStore {
       return true;
     } catch (error) {
       this.nativeStorage = undefined;
+      this.persistenceError =
+        error instanceof Error ? error.message : String(error);
       this.logger.captureError(error, "Settings.connectStorage");
+      this.emit();
       return false;
     }
   }
 
   async flush(): Promise<void> {
     await this.nativeWrites;
+  }
+
+  getPersistenceStatus(): {
+    backend: "file" | "browser" | "memory";
+    error?: string | undefined;
+  } {
+    return {
+      backend: this.nativeStorage
+        ? "file"
+        : this.useLocalStorage
+          ? "browser"
+          : "memory",
+      error: this.persistenceError,
+    };
   }
 
   /** Load persisted state into memory. Never throws; corrupt data resets with a log. */
@@ -455,8 +473,19 @@ export class SettingsStore {
         this.nativeWrites = this.nativeWrites
           .catch(() => {})
           .then(() => storage.writeSettingsFile(raw));
-        void this.nativeWrites.catch((error) =>
-          this.logger.captureError(error, "Settings.saveFile"),
+        void this.nativeWrites.then(
+          () => {
+            if (this.persistenceError) {
+              this.persistenceError = undefined;
+              this.emit();
+            }
+          },
+          (error) => {
+            this.persistenceError =
+              error instanceof Error ? error.message : String(error);
+            this.logger.captureError(error, "Settings.saveFile");
+            this.emit();
+          },
         );
         this.memoryRaw.raw = raw;
         return;
