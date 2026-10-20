@@ -53,6 +53,11 @@ export const DEFAULT_SETTINGS: VestraSettings = {
 
 export type SettingsListener = (snapshot: Readonly<VestraSettings>) => void;
 
+interface SettingsFileStorage {
+  readSettingsFile(): Promise<string | undefined>;
+  writeSettingsFile(text: string): Promise<void>;
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -243,6 +248,9 @@ function normalizeParsed(parsed: unknown, logger: ScopedLogger): LoadResult {
 }
 
 export class SettingsStore {
+  private nativeStorage: SettingsFileStorage | undefined;
+  private nativeRaw: string | undefined;
+  private nativeWrites: Promise<void> = Promise.resolve();
   private state: VestraSettings = cloneSettings(DEFAULT_SETTINGS);
   private readonly listeners = new Set<SettingsListener>();
   private readonly logger: ScopedLogger;
@@ -254,10 +262,39 @@ export class SettingsStore {
     this.useLocalStorage = canUseLocalStorage();
   }
 
+  /** Connect before plugin registration; desktop preferences live outside Discord storage. */
+  async connectStorage(storage: SettingsFileStorage): Promise<boolean> {
+    if (this.nativeStorage) return true;
+    try {
+      const saved = await storage.readSettingsFile();
+      this.nativeRaw =
+        saved ??
+        (this.useLocalStorage ? readRaw() : this.memoryRaw.raw) ??
+        undefined;
+      this.nativeStorage = storage;
+      this.load();
+      this.persist();
+      await this.flush();
+      return true;
+    } catch (error) {
+      this.nativeStorage = undefined;
+      this.logger.captureError(error, "Settings.connectStorage");
+      return false;
+    }
+  }
+
+  async flush(): Promise<void> {
+    await this.nativeWrites;
+  }
+
   /** Load persisted state into memory. Never throws; corrupt data resets with a log. */
   load(): void {
-    const raw = this.useLocalStorage ? readRaw() : this.memoryRaw.raw;
-    if (raw === null) {
+    const raw = this.nativeStorage
+      ? this.nativeRaw
+      : this.useLocalStorage
+        ? readRaw()
+        : this.memoryRaw.raw;
+    if (raw === null || raw === undefined) {
       this.state = cloneSettings(DEFAULT_SETTINGS);
       this.emit();
       return;
@@ -412,6 +449,18 @@ export class SettingsStore {
           theme.sourceFile ? { ...theme, css: "" } : theme,
         ),
       });
+      if (this.nativeStorage) {
+        this.nativeRaw = raw;
+        const storage = this.nativeStorage;
+        this.nativeWrites = this.nativeWrites
+          .catch(() => {})
+          .then(() => storage.writeSettingsFile(raw));
+        void this.nativeWrites.catch((error) =>
+          this.logger.captureError(error, "Settings.saveFile"),
+        );
+        this.memoryRaw.raw = raw;
+        return;
+      }
       if (this.useLocalStorage) {
         writeRaw(raw);
       } else {
