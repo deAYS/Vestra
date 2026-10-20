@@ -1,10 +1,3 @@
-// Vestra Manager — esbuild pipeline.
-// main:    platform=node, ESM, external electron + workspace libs (resolved at runtime).
-// preload: platform=node, CJS, external electron (preload must be CJS).
-// renderer: platform=browser, IIFE, React bundled.
-// __VESTRA_MANAGER_DEV__ is baked per --dev flag (or VESTRA_MANAGER_DEV=1).
-// Output: apps/manager/dist/{main,preload,renderer}/ + index.html + css.
-
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -17,7 +10,7 @@ const dist = path.join(root, "dist");
 const dev =
   process.argv.includes("--dev") || process.env["VESTRA_MANAGER_DEV"] === "1";
 
-const define = { __VESTRA_MANAGER_DEV__: dev ? "true" : "false" };
+const define = { __VESTRA_MANAGER_DEV__: dev ? "true" : "false", "process.env.NODE_ENV": dev ? '"development"' : '"production"' };
 
 await fs.promises.rm(dist, { recursive: true, force: true });
 await fs.promises.mkdir(path.join(dist, "main"), { recursive: true });
@@ -61,6 +54,7 @@ await build({
   format: "iife",
   define,
   loader: { ".js": "jsx" },
+  minify: !dev,
   outfile: path.join(dist, "renderer", "renderer.js"),
   logLevel: "info",
 });
