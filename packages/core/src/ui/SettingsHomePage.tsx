@@ -140,6 +140,11 @@ export function SettingsHomePage({
       </div>
       <KeybindCard settings={settings} plugins={plugins} />
       <div className="vs-setting-row">
+        <div><strong>Match your Discord theme</strong><p>Use your theme’s surfaces and accent for Vestra settings, the floating button and its menu. Turn off to keep Vestra purple.</p></div>
+        <input type="checkbox" aria-label="Match your Discord theme" checked={snapshot.plugins.Vestra?.settings.followTheme !== false}
+          onChange={event => settings.setPluginSetting("Vestra", "followTheme", event.target.checked)} />
+      </div>
+      <div className="vs-setting-row">
         <div>
           <strong>Floating Vestra button</strong>
           <p>
