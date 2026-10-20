@@ -6,7 +6,10 @@ import {
   THEME_LIBRARY,
   applyThemePreset,
   upgradeBuiltinThemes,
+  refreshLocalThemes,
 } from "./themes.js";
+import { combosEqual } from "./ui/keybind.js";
+import { PluginDefinitionSchema } from "./api/plugins.js";
 import {
   cleanLink,
   formatTimestamp,
@@ -71,6 +74,183 @@ test("a custom theme sharing a preset name is not silently treated as that prese
   assert.equal(settings.getThemes()[0]?.css, "body{color:red}");
   assert.equal(settings.getThemes()[0]?.enabled, false);
   assert.equal(settings.getThemes()[1]?.enabled, true);
+});
+
+test("theme switches are exclusive across preset and library entry points", () => {
+  const settings = new SettingsStore();
+  for (const preset of THEME_LIBRARY) applyThemePreset(settings, preset);
+  assert.equal(settings.getThemes().filter((theme) => theme.enabled).length, 1);
+  const first = settings.getThemes()[0]!;
+  settings.setThemes(
+    settings
+      .getThemes()
+      .map((theme) =>
+        theme.id === first.id ? { ...theme, enabled: true } : theme,
+      ),
+  );
+  assert.deepEqual(
+    settings
+      .getThemes()
+      .filter((theme) => theme.enabled)
+      .map((theme) => theme.id),
+    [first.id],
+  );
+  settings.activateTheme(null);
+  assert.equal(
+    settings.getThemes().some((theme) => theme.enabled),
+    false,
+  );
+  assert.throws(() => settings.activateTheme("missing"), /not found/);
+});
+
+test("old overlapping theme selections migrate and stay exclusive after reload", () => {
+  const descriptor = Object.getOwnPropertyDescriptor(
+    globalThis,
+    "localStorage",
+  );
+  let raw = JSON.stringify({
+    themes: THEME_LIBRARY.map((preset, index) => ({
+      id: `old-${index}`,
+      name: preset.name,
+      author: "Vestra",
+      css: preset.css,
+      enabled: true,
+    })),
+  });
+  Object.defineProperty(globalThis, "localStorage", {
+    configurable: true,
+    value: {
+      getItem: () => raw,
+      setItem: (_key: string, value: string) => {
+        raw = value;
+      },
+    },
+  });
+  try {
+    const settings = new SettingsStore();
+    settings.load();
+    assert.deepEqual(
+      settings
+        .getThemes()
+        .filter((theme) => theme.enabled)
+        .map((theme) => theme.id),
+      ["old-3"],
+    );
+    assert.equal(
+      JSON.parse(raw).themes.filter(
+        (theme: { enabled: boolean }) => theme.enabled,
+      ).length,
+      1,
+    );
+    settings.activateTheme("old-0");
+    settings.load();
+    assert.deepEqual(
+      settings
+        .getThemes()
+        .filter((theme) => theme.enabled)
+        .map((theme) => theme.id),
+      ["old-0"],
+    );
+  } finally {
+    if (descriptor)
+      Object.defineProperty(globalThis, "localStorage", descriptor);
+    else Reflect.deleteProperty(globalThis, "localStorage");
+  }
+});
+
+test("local theme refresh preserves selection and identity, updates CSS and removes missing files", async () => {
+  const settings = new SettingsStore();
+  applyThemePreset(settings, THEME_LIBRARY[0]!);
+  let files = [
+    {
+      filename: "forest.theme.css",
+      source: "/** @name Forest */\nbody{color:green}",
+    },
+  ];
+  const native = { readThemeFiles: async () => files };
+  await refreshLocalThemes(settings, native);
+  const local = settings.getThemes().find((theme) => theme.sourceFile)!;
+  settings.activateTheme(local.id);
+  settings.load();
+  assert.equal(
+    settings.getThemes().find((theme) => theme.id === local.id)?.css,
+    "",
+  );
+  await refreshLocalThemes(settings, native);
+  assert.equal(
+    settings.getThemes().find((theme) => theme.id === local.id)?.enabled,
+    true,
+  );
+  assert.equal(
+    settings.getThemes().find((theme) => theme.id === local.id)?.css,
+    files[0]!.source,
+  );
+  files = [
+    {
+      filename: "forest.theme.css",
+      source: "/** @name New forest */\nbody{color:lime}",
+    },
+  ];
+  await refreshLocalThemes(settings, native);
+  assert.equal(
+    settings.getThemes().find((theme) => theme.id === local.id)?.name,
+    "New forest",
+  );
+  assert.equal(
+    settings.getThemes().find((theme) => theme.id === local.id)?.enabled,
+    true,
+  );
+  await assert.rejects(
+    () =>
+      refreshLocalThemes(settings, {
+        readThemeFiles: async () => {
+          throw Error("Disk unavailable");
+        },
+      }),
+    /unavailable/,
+  );
+  assert.equal(
+    settings.getThemes().find((theme) => theme.id === local.id)?.enabled,
+    true,
+  );
+  files = [];
+  await refreshLocalThemes(settings, native);
+  assert.equal(settings.getThemes().length, 1);
+  assert.equal(settings.getThemes()[0]?.sourceFile, undefined);
+  assert.equal(settings.getThemes()[0]?.enabled, false);
+});
+
+test("shortcut identity ignores modifier order while plugin schema rejects unusable defaults", () => {
+  assert.equal(combosEqual("Alt+Ctrl+G", "ctrl+alt+g"), true);
+  assert.equal(combosEqual("Ctrl+Alt+G", "Ctrl+Shift+G"), false);
+  const definition = {
+    name: "Options",
+    description: "Options test",
+    authors: ["Test"],
+  };
+  assert.equal(
+    PluginDefinitionSchema.safeParse({
+      ...definition,
+      settingsSchema: {
+        size: { type: "number", label: "Size", default: 20, min: 50, max: 100 },
+      },
+    }).success,
+    false,
+  );
+  assert.equal(
+    PluginDefinitionSchema.safeParse({
+      ...definition,
+      settingsSchema: {
+        color: {
+          type: "select",
+          label: "Color",
+          default: "missing",
+          options: [{ label: "Blue", value: "blue" }],
+        },
+      },
+    }).success,
+    false,
+  );
 });
 
 test("launcher geometry survives tiny windows, resizing and corrupt saved positions", () => {
