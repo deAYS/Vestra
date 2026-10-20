@@ -6,9 +6,10 @@ const splashSource = require("node:fs").readFileSync(path.join(__dirname,"splash
 const presets = require("./theme-fixture.json");
 const utilityNames = ["ImageZoom", "QuickMessageCopy", "CleanLinkCopy", "FullTimestamps", "CodeBlockCopy", "FocusMode"];
 
-app.setPath("userData", path.join(__dirname, "user-data"));
+const motion = process.env.VESTRA_TEST_MOTION;
+app.setPath("userData", path.join(__dirname, `user-data-${motion}`));
 app.setPath("appData", path.join(__dirname, "app-data"));
-app.setPath("sessionData", path.join(__dirname, "session-data"));
+app.setPath("sessionData", path.join(__dirname, `session-data-${motion}`));
 const timer = setTimeout(() => { console.error("Electron smoke timed out"); app.exit(1); }, 45000);
 
 // Simulate only the host identity; use real Electron sessions, frames, IPC,
@@ -69,22 +70,26 @@ app.whenReady().then(async () => {
       const el = document.getElementById('vestra-splash');
       const mountedAt = performance.now();
       const visible = getComputedStyle(el).opacity === '1';
+      const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
       const timeout = setTimeout(() => { observer.disconnect(); reject(new Error('Splash never completed')); },5000);
       const observer = new MutationObserver(() => {
         if (!el.classList.contains('vs-done')) return;
         observer.disconnect(); clearTimeout(timeout);
         const animation = el.getAnimations().find(item => item.animationName === 'vs-unveil');
-        if (!animation) { reject(new Error('Radial reveal animation missing')); return; }
-        animation.pause(); animation.currentTime = 450;
+        if (!animation && !reduced) { reject(new Error('Radial reveal animation missing: '+getComputedStyle(el).animationName)); return; }
+        if (animation) { animation.pause(); animation.currentTime = 450; }
         const style = getComputedStyle(el);
-        resolve({visible,lifetime:performance.now()-mountedAt,mask:style.maskImage,progress:parseFloat(style.getPropertyValue('--vs-reveal'))});
+        resolve({visible,reduced,opacity:style.opacity,lifetime:performance.now()-mountedAt,mask:style.maskImage,progress:parseFloat(style.getPropertyValue('--vs-reveal'))});
       });
       observer.observe(el,{attributes:true,attributeFilter:['class']});
       splash.set(100,'Ready');
     })`);
     assert.equal(reveal.visible, true, 'fast completion stays visible before dismissal');
+    assert.equal(reveal.reduced, motion === 'reduced', 'fixture uses its requested motion preference');
     assert.ok(reveal.lifetime >= 1000, 'minimum visual lifetime is preserved without blocking startup');
-    assert.ok(reveal.mask.includes('radial-gradient') && reveal.progress > 0 && reveal.progress < 125, 'the radial transparency actually interpolates in Chromium');
+    if (reveal.reduced) assert.equal(reveal.opacity,'0','reduced motion dismisses without a reveal animation');
+    else assert.ok(reveal.mask.includes('radial-gradient') && reveal.progress > 0 && reveal.progress < 125, 'the radial transparency actually interpolates in Chromium');
+    console.log('Electron motion preference:',reveal.reduced ? 'reduced' : 'full');
     await waitFor("document.getElementById('vestra-splash') === null", 'reveal cleans up even when its animation is paused');
     assert.equal(await evaluate("Boolean(document.querySelector('[aria-modal=true]'))"), true);
     assert.equal(await evaluate("document.getElementById('vestra-splash') === null"), true);
@@ -160,8 +165,10 @@ app.whenReady().then(async () => {
     await evaluate("(() => {const button=document.querySelector('.vs-settings-launcher');const animate=button.animate.bind(button);button.animate=(...args)=>{const animation=animate(...args);window.__fixturePressAnimation=animation;return animation;};})()");
     win.webContents.sendInputEvent({type:'mouseDown',button:'left',clickCount:1,modifiers:['leftButtonDown'],x:Math.round(launcher.x),y:Math.round(launcher.y)});
     win.webContents.sendInputEvent({type:'mouseUp',button:'left',clickCount:1,x:Math.round(launcher.x),y:Math.round(launcher.y)});
-    await waitFor("Boolean(window.__fixturePressAnimation)", 'launcher creates an actual Web Animation');
-    assert.equal(await evaluate("window.__fixturePressAnimation.effect.getKeyframes().some(frame => frame.transform.includes('scale'))"), true, 'button plays a press and rebound animation');
+    if (!reveal.reduced) {
+      await waitFor("Boolean(window.__fixturePressAnimation)", 'launcher creates an actual Web Animation');
+      assert.equal(await evaluate("window.__fixturePressAnimation.effect.getKeyframes().some(frame => frame.transform.includes('scale'))"), true, 'button plays a press and rebound animation');
+    } else assert.equal(await evaluate("Boolean(window.__fixturePressAnimation)"),false,'reduced motion skips the launcher animation');
     await waitFor("Boolean(document.querySelector('[aria-modal=true]'))", 'normal click opens settings');
     assert.equal(await evaluate("Boolean(document.querySelector('[aria-modal=true]'))"), true, 'normal click opens settings after dragging and reloading');
     await win.loadURL("https://example.test/app");
