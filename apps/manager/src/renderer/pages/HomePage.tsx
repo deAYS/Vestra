@@ -1,9 +1,14 @@
-import { applyDeepResult, cardFromShallow, type CardModel } from "../../shared/statusModel.js";
+import {
+  applyDeepResult,
+  cardFromShallow,
+  type CardModel,
+} from "../../shared/statusModel.js";
 import type { ManagerState } from "../hooks/useManager.js";
 import { ConfirmDialog } from "../components/ConfirmDialog.js";
 import { DiscordInstallList } from "../components/DiscordInstallList.js";
 import { ErrorPanel } from "../components/ErrorPanel.js";
 import { Header } from "../components/Header.js";
+import { RecoverySettings } from "../components/RecoverySettings.js";
 
 export function HomePage({ manager }: { manager: ManagerState }): JSX.Element {
   const cards: CardModel[] = manager.installations.map((installation) => {
@@ -16,7 +21,10 @@ export function HomePage({ manager }: { manager: ManagerState }): JSX.Element {
             version: installation.version,
             state: "not-installed",
           };
-    if (manager.checking.includes(installation.channel) && base.state !== "not-installed") {
+    if (
+      manager.checking.includes(installation.channel) &&
+      base.state !== "not-installed"
+    ) {
       return { ...base, state: "installed-checking" as const };
     }
     const deep = manager.deep[installation.channel];
@@ -30,16 +38,27 @@ export function HomePage({ manager }: { manager: ManagerState }): JSX.Element {
 
   return (
     <div>
-      <Header refreshing={manager.refreshing} onRefresh={() => void manager.refresh()} />
+      <Header
+        refreshing={manager.refreshing}
+        onRefresh={() => void manager.refresh()}
+      />
       <section>
         <h2 className="vs-section-title">Discord installations</h2>
+        <p className="vs-operation-hint">
+          Install and Repair close the selected Discord, replace Vestra, verify
+          the files and reopen Discord. Active calls and streams will
+          disconnect.
+        </p>
         {!manager.booted ? (
-          <div data-testid="boot-loading">Discovering Discord installations...</div>
+          <div data-testid="boot-loading">
+            Discovering Discord installations...
+          </div>
         ) : manager.discoveryError !== null ? (
           <div className="vs-error" data-testid="discovery-error" role="alert">
             <div className="vs-error__title">Discord discovery failed.</div>
             <div className="vs-error__hint">
-              {manager.discoveryError.detail ?? "Could not reach the installer bridge."}
+              {manager.discoveryError.detail ??
+                "Could not reach the installer bridge."}
             </div>
             <div className="vs-error__actions">
               <button
@@ -66,11 +85,16 @@ export function HomePage({ manager }: { manager: ManagerState }): JSX.Element {
           />
         )}
       </section>
+      <RecoverySettings busy={busy} />
 
       {manager.notice !== null ? (
         <div className="vs-notice" data-testid="notice" role="status">
           {manager.notice}
-          <button type="button" onClick={manager.dismissNotice} data-testid="notice-dismiss">
+          <button
+            type="button"
+            onClick={manager.dismissNotice}
+            data-testid="notice-dismiss"
+          >
             Dismiss
           </button>
         </div>
