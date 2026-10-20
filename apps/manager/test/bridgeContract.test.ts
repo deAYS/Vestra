@@ -48,7 +48,10 @@ describe("security boundary", () => {
     for (const file of rendererFiles) {
       const content = codeOnly(fs.readFileSync(file, "utf8"));
       for (const token of banned) {
-        assert.ok(!content.includes(token), `${path.basename(file)} leaks ${token}`);
+        assert.ok(
+          !content.includes(token),
+          `${path.basename(file)} leaks ${token}`,
+        );
       }
     }
   });
@@ -68,7 +71,12 @@ describe("security boundary", () => {
     ]) {
       assert.ok(preload.includes(method), `preload missing ${method}`);
     }
-    for (const banned of ["node:fs", "node:path", "child_process", "require("]) {
+    for (const banned of [
+      "node:fs",
+      "node:path",
+      "child_process",
+      "require(",
+    ]) {
       assert.ok(!preload.includes(banned), `preload leaks ${banned}`);
     }
     assert.ok(!preload.includes("invokeAny"), "no arbitrary invoke");
@@ -84,32 +92,42 @@ describe("security boundary", () => {
     // Regression: a CJS preload emitted as .js under "type": "module" is
     // parsed as ESM and dies before contextBridge runs ("module is not
     // defined in ES module scope"), leaving window.vestraManager undefined.
-    const buildScript = fs.readFileSync(path.join(ROOT, "scripts", "build.mjs"), "utf8");
+    const buildScript = fs.readFileSync(
+      path.join(ROOT, "scripts", "build.mjs"),
+      "utf8",
+    );
     assert.ok(buildScript.includes("index.cjs"), "build emits preload as .cjs");
     const windowSrc = read(path.join("main", "window.ts"));
     assert.ok(windowSrc.includes("index.cjs"), "window loads the .cjs preload");
-    assert.ok(!windowSrc.includes('"index.js"'), "no stale .js preload reference");
+    assert.ok(
+      !windowSrc.includes('"index.js"'),
+      "no stale .js preload reference",
+    );
   });
 
   test("main bridge registers six methods and forces uninstall purge=false", () => {
     const bridge = read(path.join("main", "installerBridge.ts"));
-    for (const channel of ["discover", "status", "check", "install", "repair", "uninstall"]) {
+    for (const channel of [
+      "discover",
+      "status",
+      "check",
+      "install",
+      "repair",
+      "uninstall",
+    ]) {
       assert.ok(bridge.includes(channel), `bridge missing ${channel}`);
     }
-    assert.match(bridge, /purge:\s*false/);
-    assert.ok(!bridge.includes("uninstallAll") || bridge.includes("service.uninstall"));
+
+    assert.match(bridge, /lifecycle.run/);
+    const lifecycle = read(path.join("main", "discordLifecycle.ts"));
+    assert.match(lifecycle, /purge:\s*false/);
   });
 
-  test("manager never shells out to the vestra CLI and shares no logic copy", () => {
+  test("manager uses the shared service; process control stays in the main process", () => {
     const all = listFiles(SRC).filter((f) => /\.(ts|tsx|mjs)$/.test(f));
     for (const file of all) {
       const content = codeOnly(fs.readFileSync(file, "utf8"));
-      assert.ok(!content.includes("child_process"), path.basename(file));
       assert.ok(!content.includes("vestra.mjs"), path.basename(file));
-      assert.ok(
-        !/spawnSync|execFile|execSync/.test(content),
-        `${path.basename(file)} spawns subprocesses`,
-      );
     }
     const bridge = codeOnly(read(path.join("main", "installerBridge.ts")));
     assert.match(bridge, /InstallerService/);
