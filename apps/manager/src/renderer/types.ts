@@ -1,6 +1,3 @@
-// Vestra Manager (renderer) — window API typings.
-// The narrow preload bridge is the only native surface available here.
-
 import type { DiscordChannel } from "../shared/channels.js";
 import type {
   CheckSummary,
