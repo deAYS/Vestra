@@ -116,6 +116,12 @@ async function startRuntime(): Promise<void> {
     // enabled flags (and per-plugin settings) apply. Never blocks on corrupt
     // data — Settings.load() resets/salvages with logs.
     try {
+      if (Native.isAvailable() && !(await Settings.connectStorage(Native))) {
+        Toasts.error(
+          "Preferences could not be saved",
+          "Vestra cannot access its settings file. Check file permissions before restarting Discord.",
+        );
+      }
       Settings.load();
     } catch (err: unknown) {
       Logger.captureError(err, "Vestra.start.Settings.load");
@@ -211,6 +217,7 @@ async function stopRuntime(): Promise<void> {
     }
     try {
       Settings.save();
+      await Settings.flush();
     } catch (err: unknown) {
       Logger.captureError(err, "Vestra.stop.Settings.save");
     }
