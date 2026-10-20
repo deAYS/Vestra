@@ -2,7 +2,7 @@
  * @name Vestra Liquid Glass
  * @author Vestra
  * @description Pearl glass, translucent floating panels and soft prismatic light.
- * @version 2.0.0
+ * @version 2.0.1
  */
 :root,body,:is(.theme-dark,.theme-darker,.theme-midnight,.theme-light,.custom-theme-background):not(.custom-user-profile-theme){
   color-scheme:dark;
@@ -144,7 +144,7 @@ html,body{background:#262132!important;}
   box-shadow:var(--glass-shadow)!important;
   overflow:hidden;
 }
-#app-mount [class*="guilds_"]:not(.custom-user-profile-theme *){margin:0 8px 10px 8px;border-radius:24px!important;}
+#app-mount [class*="guilds_"]:not(.custom-user-profile-theme *){margin:0 8px 10px 8px;border-radius:24px!important;padding-top:12px!important;box-sizing:border-box;}
 #app-mount :is([class*="sidebarList_"],[class*="privateChannels_"]):not(.custom-user-profile-theme *){margin:0 8px 8px 0;}
 #app-mount [class*="chat_"]:not(.custom-user-profile-theme):not(.custom-user-profile-theme *):not([data-vestra-root]){margin:0 10px 10px 0;background:var(--glass-pane),#16121e33!important;}
 #app-mount :is([class*="chatContent_"],[class*="messagesWrapper_"],[class*="scrollerContent_"],[class*="members_"],[class*="member_"],[class*="nowPlayingColumn_"]):not(.custom-user-profile-theme):not(.custom-user-profile-theme *){background:transparent!important;}
