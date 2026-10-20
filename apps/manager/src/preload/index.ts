@@ -6,6 +6,7 @@ import type {
   InstallerProgressEvent,
   OperationSummary,
   StatusSummary,
+  MaintenanceStatus,
 } from "../shared/types.js";
 import type { DiscordChannel } from "../shared/channels.js";
 
@@ -20,6 +21,8 @@ export interface VestraManagerApi {
   uninstall(args: { channels: DiscordChannel[] }): Promise<OperationSummary>;
   onProgress(listener: (event: InstallerProgressEvent) => void): () => void;
   isDevelopmentBuild(): boolean;
+  maintenanceStatus(): Promise<MaintenanceStatus>;
+  setMaintenance(enabled: boolean): Promise<MaintenanceStatus>;
 }
 
 const api: VestraManagerApi = {
@@ -29,6 +32,9 @@ const api: VestraManagerApi = {
   install: (args) => ipcRenderer.invoke(MANAGER_IPC.install, args),
   repair: (args) => ipcRenderer.invoke(MANAGER_IPC.repair, args),
   uninstall: (args) => ipcRenderer.invoke(MANAGER_IPC.uninstall, args),
+  maintenanceStatus: () => ipcRenderer.invoke(MANAGER_IPC.maintenanceStatus),
+  setMaintenance: (enabled) =>
+    ipcRenderer.invoke(MANAGER_IPC.maintenanceSet, enabled),
   onProgress: (listener) => {
     const wrapped = (_event: unknown, event: InstallerProgressEvent): void => {
       listener(event);
@@ -39,7 +45,9 @@ const api: VestraManagerApi = {
     };
   },
   isDevelopmentBuild: () =>
-    typeof __VESTRA_MANAGER_DEV__ !== "undefined" ? __VESTRA_MANAGER_DEV__ : false,
+    typeof __VESTRA_MANAGER_DEV__ !== "undefined"
+      ? __VESTRA_MANAGER_DEV__
+      : false,
 };
 
 // TEMPORARY dev-only diagnostics (validation phase): trace preload boot.
