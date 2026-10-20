@@ -1,12 +1,3 @@
-// @vestra/core — Styles API.
-// Phase 4. Safe CSS injection where every injection is removable.
-// `Styles.inject(id, css)` creates or updates a single `<style>` element per id,
-// `Styles.remove(id)` takes it back out, `Styles.clear()` removes everything
-// Vestra manages. Works degraded without a DOM (Bun/Node): css is still
-// tracked in memory so `has`/`get`/`list` behave, DOM errors are captured via
-// Logger and never thrown. Validation errors (empty id, non-string css) throw
-// because they are programmer bugs.
-
 import { VESTRA_BRANDING } from "@vestra/shared";
 import { Logger, type ScopedLogger } from "./logger.js";
 
