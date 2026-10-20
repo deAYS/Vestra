@@ -1,9 +1,3 @@
-// Vestra Installer — product home directory.
-// Phase 11. The installed product lives here (locked decision): %AppData% on
-// Windows, ~/Library/Application Support on macOS, ~/.config elsewhere.
-// Payloads, manifests and the install registry live under it — never inside
-// Discord's own directories (those hold only the asar patch + receipt).
-
 import * as os from "node:os";
 import * as path from "node:path";
 
