@@ -5,6 +5,7 @@ import type {
   InstallerProgressEvent,
   OperationSummary,
   StatusSummary,
+  MaintenanceStatus,
 } from "../shared/types.js";
 
 export interface VestraManagerApi {
@@ -16,6 +17,8 @@ export interface VestraManagerApi {
   uninstall(args: { channels: DiscordChannel[] }): Promise<OperationSummary>;
   onProgress(listener: (event: InstallerProgressEvent) => void): () => void;
   isDevelopmentBuild(): boolean;
+  maintenanceStatus(): Promise<MaintenanceStatus>;
+  setMaintenance(enabled: boolean): Promise<MaintenanceStatus>;
 }
 
 declare global {
