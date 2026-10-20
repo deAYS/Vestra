@@ -253,6 +253,9 @@ em {
   margin: 0 7px 2px 0;
 }
 .product-window {
+  position: relative;
+  transform: perspective(1200px) rotateX(var(--tilt-x,0deg)) rotateY(var(--tilt-y,0deg));
+  transition: transform .25s ease-out;
   border: 1px solid #ffffff20;
   border-radius: 12px;
   overflow: hidden;
@@ -261,6 +264,9 @@ em {
     0 35px 90px #0006,
     0 0 0 5px #ffffff02;
 }
+.product-window::after{content:"";position:absolute;inset:0;pointer-events:none;background:radial-gradient(ellipse at var(--light-x,50%) var(--light-y,50%),#d8cbff19,transparent 60%);opacity:0;transition:opacity .3s}
+.product-window[data-pointing=true]::after{opacity:1}
+@media(prefers-reduced-motion:reduce){.product-window{transform:none;transition:none}.product-window::after{display:none}}
 .window-bar {
   display: flex;
   justify-content: space-between;
