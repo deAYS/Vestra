@@ -6,7 +6,6 @@ import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 import type { DiscordChannel } from "../src/shared/channels.js";
 import {
-  ALREADY_HEALTHY_MESSAGE,
   runInstallFlow,
   runRepairFlow,
   runUninstallFlow,
@@ -52,7 +51,9 @@ function makeStatus(channel: DiscordChannel, state: FakeState): InstallStatus {
     health: state.healthy ? "healthy" : "drifted",
     vestraInstalled: true,
     repairable: !state.healthy,
-    detail: state.healthy ? "healthy" : "asar drifted (hook or bundle mismatch)",
+    detail: state.healthy
+      ? "healthy"
+      : "asar drifted (hook or bundle mismatch)",
     code: state.healthy ? undefined : "verification-failed",
   };
 }
@@ -73,15 +74,16 @@ function makeFake(initial: Partial<Record<DiscordChannel, FakeState>> = {}) {
   const service: ServiceLike = {
     check: async (args) => {
       calls.push({ method: "check", channels: args.channels });
-      const statuses = (args.channels ?? (["stable", "canary"] as DiscordChannel[])).map((c) =>
-        makeStatus(c, state[c] as FakeState),
-      );
+      const statuses = (
+        args.channels ?? (["stable", "canary"] as DiscordChannel[])
+      ).map((c) => makeStatus(c, state[c] as FakeState));
       const summary: CheckSummary = { statuses, stale: [] };
       return summary;
     },
     install: async (args) => {
       calls.push({ method: "install", channels: args.channels });
-      for (const c of args.channels) state[c] = { installed: true, healthy: true };
+      for (const c of args.channels)
+        state[c] = { installed: true, healthy: true };
       const summary: OperationSummary = {
         ok: true,
         results: args.channels.map((c) => ({
@@ -95,7 +97,8 @@ function makeFake(initial: Partial<Record<DiscordChannel, FakeState>> = {}) {
     },
     repair: async (args) => {
       calls.push({ method: "repair", channels: args.channels });
-      for (const c of args.channels) state[c] = { installed: true, healthy: true };
+      for (const c of args.channels)
+        state[c] = { installed: true, healthy: true };
       const summary: OperationSummary = {
         ok: true,
         results: args.channels.map((c) => ({
@@ -108,8 +111,13 @@ function makeFake(initial: Partial<Record<DiscordChannel, FakeState>> = {}) {
       return summary;
     },
     uninstall: async (args) => {
-      calls.push({ method: "uninstall", channels: args.channels, purge: args.purge });
-      for (const c of args.channels) state[c] = { installed: false, healthy: false };
+      calls.push({
+        method: "uninstall",
+        channels: args.channels,
+        purge: args.purge,
+      });
+      for (const c of args.channels)
+        state[c] = { installed: false, healthy: false };
       const summary: OperationSummary = {
         ok: true,
         results: args.channels.map((c) => ({
@@ -143,7 +151,9 @@ describe("operation flows", () => {
     const broken: ServiceLike = {
       ...service,
       check: async (args) => ({
-        statuses: args.channels.map((c) => makeStatus(c, { installed: true, healthy: false })),
+        statuses: args.channels.map((c) =>
+          makeStatus(c, { installed: true, healthy: false }),
+        ),
         stale: [],
       }),
     };
@@ -152,14 +162,19 @@ describe("operation flows", () => {
     if (!result.ok) assert.equal(result.code, "verification-failed");
   });
 
-  test("12. repair checks first; healthy installs are never rewritten", async () => {
-    const { service, calls } = makeFake({ canary: { installed: true, healthy: true } });
+  test("12. explicit repair rewrites healthy installs and verifies afterwards", async () => {
+    const { service, calls } = makeFake({
+      canary: { installed: true, healthy: true },
+    });
     const result = await runRepairFlow(service, "canary");
     assert.equal(result.ok, true);
-    if (result.ok) assert.equal(result.repaired, false);
-    assert.equal(calls.filter((c) => c.method === "repair").length, 0);
+    if (result.ok) assert.equal(result.repaired, true);
+    assert.equal(calls.filter((c) => c.method === "repair").length, 1);
     assert.ok(calls.some((c) => c.method === "check"));
-    assert.equal(ALREADY_HEALTHY_MESSAGE, "Vestra is already healthy.");
+    assert.deepEqual(
+      calls.map((call) => call.method),
+      ["repair", "check"],
+    );
   });
 
   test("13. drifted repair touches only the selected channel", async () => {
@@ -178,7 +193,9 @@ describe("operation flows", () => {
   });
 
   test("15. uninstall always uses purge=false", async () => {
-    const { service, calls } = makeFake({ canary: { installed: true, healthy: true } });
+    const { service, calls } = makeFake({
+      canary: { installed: true, healthy: true },
+    });
     const result = await runUninstallFlow(service, "canary");
     assert.equal(result.ok, true);
     const uninstalls = calls.filter((c) => c.method === "uninstall");
