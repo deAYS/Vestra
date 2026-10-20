@@ -1,7 +1,3 @@
-// @vestra/api — public entry re-exported from core.
-// Phase 9: Logger + Plugins + Settings + Styles (+ QuickCSS) + UI + Webpack
-// + Patcher + Discord + Native are live.
-
 export { Logger, createLogger } from "./logger.js";
 export type { LogLevel, RootLogger, ScopedLogger } from "./logger.js";
 
@@ -18,6 +14,9 @@ export {
   DEFAULT_SETTINGS,
 } from "./settings.js";
 export type { VestraSettings, PluginSettingsEntry, CustomCss, SettingsListener } from "./settings.js";
+export { ThemeSchema } from "./settings.js";
+export type { Theme } from "./settings.js";
+export { importTheme, startThemes, MIDNIGHT_THEME, THEME_LIBRARY } from "../themes.js";
 
 export {
   PluginManager,
