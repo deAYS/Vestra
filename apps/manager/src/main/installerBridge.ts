@@ -1,71 +1,13 @@
-import * as fs from "node:fs";
 import * as path from "node:path";
 import { ipcMain, type IpcMainInvokeEvent, type WebContents } from "electron";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { isManagerSender } from "./sender.js";
-import { listInstalls, getRealFs, type DiscordChannel } from "@vestra/injector";
+import type { DiscordChannel } from "@vestra/injector";
+import { DiscordLifecycle } from "./discordLifecycle.js";
+import { MaintenanceController, withInstallLock } from "./maintenance.js";
 import type { InstallerService } from "@vestra/installer";
 import { MANAGER_IPC } from "../shared/channels.js";
 import type { InstallerProgressEvent } from "../shared/types.js";
-
-declare const __VESTRA_MANAGER_DEV__: boolean;
-
-function isDevBuild(): boolean {
-  return typeof __VESTRA_MANAGER_DEV__ !== "undefined" && __VESTRA_MANAGER_DEV__;
-}
-
-// TEMPORARY dev-only diagnostics (validation phase): read-only discovery
-// inputs. No filesystem writes; discovery algorithm untouched.
-function logDiscoveryInputs(): void {
-  const platform = process.platform;
-  const localAppData = process.env["LOCALAPPDATA"];
-  const appData = process.env["APPDATA"];
-  console.log(`[Vestra Manager] platform: ${platform}`);
-  console.log(`[Vestra Manager] LOCALAPPDATA: ${localAppData ?? "<undefined>"}`);
-  console.log(`[Vestra Manager] APPDATA: ${appData ?? "<undefined>"}`);
-  const base = localAppData ?? appData;
-  if (base === undefined || base === "") {
-    console.log("[Vestra Manager] candidate roots: <no base>");
-  } else {
-    for (const dir of ["Discord", "DiscordCanary", "DiscordPTB"]) {
-      const root = path.join(base, dir);
-      console.log(`[Vestra Manager] candidate root: ${root} exists=${fs.existsSync(root)}`);
-      try {
-        const entries = fs.readdirSync(root);
-        const appDirs = entries.filter((e) => e.startsWith("app-"));
-        console.log(`[Vestra Manager] readdir ${dir}: entries=${entries.length} appDirs=[${appDirs.join(",")}]`);
-        for (const appDir of appDirs) {
-          const asar = path.join(root, appDir, "resources", "app.asar");
-          try {
-            console.log(`[Vestra Manager] stat ${dir}/${appDir}: asarIsFile=${getRealFs().statSync(asar).isFile()}`);
-          } catch (err: unknown) {
-            console.log(
-              `[Vestra Manager] stat ${dir}/${appDir}: asarError=${err instanceof Error ? err.message : String(err)}`,
-            );
-          }
-        }
-      } catch (err: unknown) {
-        console.log(
-          `[Vestra Manager] readdir ${dir} failed: ${err instanceof Error ? err.message : String(err)}`,
-        );
-      }
-    }
-  }
-  try {
-    const installs = listInstalls();
-    for (const channel of ["stable", "ptb", "canary"] as const) {
-      const found = installs.find((i) => i.channel === channel);
-      console.log(
-        `[Vestra Manager] channel ${channel}: found=${found !== undefined}` +
-          (found ? ` version=${found.version}` : ""),
-      );
-    }
-  } catch (err: unknown) {
-    console.error(
-      `[Vestra Manager] channel probe failed: ${err instanceof Error ? err.message : String(err)}`,
-    );
-  }
-}
 
 const CHANNELS: readonly string[] = ["stable", "ptb", "canary"];
 
@@ -77,7 +19,8 @@ function parseChannels(value: unknown): DiscordChannel[] | undefined {
     if (typeof entry !== "string" || !CHANNELS.includes(entry)) {
       throw new TypeError(`Unknown channel "${String(entry)}".`);
     }
-    if (!out.includes(entry as DiscordChannel)) out.push(entry as DiscordChannel);
+    if (!out.includes(entry as DiscordChannel))
+      out.push(entry as DiscordChannel);
   }
   return out;
 }
@@ -97,11 +40,26 @@ function singleChannel(raw: unknown): DiscordChannel[] {
   return channels;
 }
 
-export function registerManagerIpc(service: InstallerService): void {
-  const rendererUrl = pathToFileURL(path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "renderer", "index.html")).href;
-  const handle = (channel: string, listener: (event: IpcMainInvokeEvent, raw: unknown) => unknown): void => {
+export function registerManagerIpc(
+  service: InstallerService,
+  lifecycle: DiscordLifecycle,
+  maintenance: MaintenanceController,
+): void {
+  const rendererUrl = pathToFileURL(
+    path.join(
+      path.dirname(fileURLToPath(import.meta.url)),
+      "..",
+      "renderer",
+      "index.html",
+    ),
+  ).href;
+  const handle = (
+    channel: string,
+    listener: (event: IpcMainInvokeEvent, raw: unknown) => unknown,
+  ): void => {
     ipcMain.handle(channel, (event, raw: unknown) => {
-      if (!isManagerSender(event, rendererUrl)) throw new Error("Untrusted Manager IPC sender.");
+      if (!isManagerSender(event, rendererUrl))
+        throw new Error("Untrusted Manager IPC sender.");
       return listener(event, raw);
     });
   };
@@ -111,54 +69,49 @@ export function registerManagerIpc(service: InstallerService): void {
       if (!sender.isDestroyed()) sender.send(MANAGER_IPC.progress, event);
     };
 
-  // TEMPORARY dev-only diagnostics (validation phase): trace discover
-  // requests through the real InstallerService. Production remains quiet.
-  if (isDevBuild()) {
-    console.log("[Vestra Manager] installer IPC handlers registered");
-  }
-
-  handle(MANAGER_IPC.discover, async () => {
-    if (isDevBuild()) {
-      console.log("[Vestra Manager] discover request received");
-      logDiscoveryInputs();
-    }
-    try {
-      const result = await service.discover();
-      if (isDevBuild()) {
-        console.log(`[Vestra Manager] discover result count: ${result.length}`);
-      }
-      return result;
-    } catch (err: unknown) {
-      if (isDevBuild()) {
-        console.error(
-          `[Vestra Manager] discover failed: ${err instanceof Error ? err.message : String(err)}`,
-        );
-      }
-      throw err;
-    }
-  });
+  handle(MANAGER_IPC.discover, () => service.discover());
 
   handle(MANAGER_IPC.status, (event, raw: unknown) =>
-    service.status({ ...argsOf(raw), onProgress: forwardProgress(event.sender) }),
-  );
-
-  handle(MANAGER_IPC.check, (event, raw: unknown) =>
-    service.check({ ...argsOf(raw), onProgress: forwardProgress(event.sender) }),
-  );
-
-  handle(MANAGER_IPC.install, (event, raw: unknown) =>
-    service.install({ channels: singleChannel(raw), onProgress: forwardProgress(event.sender) }),
-  );
-
-  handle(MANAGER_IPC.repair, (event, raw: unknown) =>
-    service.repair({ channels: singleChannel(raw), onProgress: forwardProgress(event.sender) }),
-  );
-
-  handle(MANAGER_IPC.uninstall, (event, raw: unknown) =>
-    service.uninstall({
-      channels: singleChannel(raw),
-      purge: false,
+    service.status({
+      ...argsOf(raw),
       onProgress: forwardProgress(event.sender),
     }),
   );
+
+  handle(MANAGER_IPC.check, (event, raw: unknown) =>
+    service.check({
+      ...argsOf(raw),
+      onProgress: forwardProgress(event.sender),
+    }),
+  );
+
+  const mutate = (
+    kind: "install" | "repair" | "uninstall",
+    event: IpcMainInvokeEvent,
+    raw: unknown,
+  ) => {
+    const channel = singleChannel(raw)[0]!;
+    return withInstallLock(service.context.homeDir, async () => {
+      const result = await lifecycle.run(
+        kind,
+        channel,
+        forwardProgress(event.sender),
+      );
+      if (result.ok) await maintenance.track(channel, kind !== "uninstall");
+      return result;
+    });
+  };
+  handle(MANAGER_IPC.install, (event, raw) => mutate("install", event, raw));
+  handle(MANAGER_IPC.repair, (event, raw) => mutate("repair", event, raw));
+  handle(MANAGER_IPC.uninstall, (event, raw) =>
+    mutate("uninstall", event, raw),
+  );
+  handle(MANAGER_IPC.maintenanceStatus, () => maintenance.status());
+  handle(MANAGER_IPC.maintenanceSet, (_event, raw) => {
+    if (typeof raw !== "boolean")
+      throw new TypeError("Recovery enabled must be a boolean.");
+    return withInstallLock(service.context.homeDir, () =>
+      maintenance.setEnabled(raw),
+    );
+  });
 }
