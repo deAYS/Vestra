@@ -18,7 +18,7 @@ const utilityNames = [
 
 const motion = process.env.VESTRA_TEST_MOTION;
 app.setPath("userData", path.join(__dirname, `user-data-${motion}`));
-app.setPath("appData", path.join(__dirname, "app-data"));
+app.setPath("appData", path.join(__dirname, "app-data-" + motion));
 app.setPath("sessionData", path.join(__dirname, `session-data-${motion}`));
 const timer = setTimeout(() => {
   console.error("Electron smoke timed out");
@@ -381,6 +381,42 @@ app
           "custom profile backgrounds keep their own styling",
         );
       }
+      await evaluate(
+        "document.querySelector('[data-vestra-style=theme-palette]').remove()",
+      );
+      await waitFor(
+        "Boolean(document.querySelector('[data-vestra-style=theme-palette]'))",
+        "removed theme CSS recovers",
+      );
+      await evaluate(
+        "(() => {const style=document.createElement('style');style.id='late-native';style.textContent=':root {--background-base-lowest:#999!important}';document.head.appendChild(style)})()",
+      );
+      await waitFor(
+        "document.querySelector('[data-vestra-style=theme-palette]') === document.head.lastChild",
+        "theme follows late Discord styles",
+      );
+      assert.equal(
+        await evaluate(
+          "getComputedStyle(document.getElementById('fixture-chat')).backgroundColor",
+        ),
+        "rgb(16, 31, 28)",
+        "Aurora survives native stylesheet insertion",
+      );
+      await evaluate("document.getElementById('late-native').remove()");
+      await evaluate(
+        "(() => {const head=document.head.cloneNode(true);head.querySelector('[data-vestra-style=theme-palette]').remove();document.head.replaceWith(head)})()",
+      );
+      await waitFor(
+        "Boolean(document.querySelector('[data-vestra-style=theme-palette]'))",
+        "selected theme survives a replaced head",
+      );
+      assert.equal(
+        await evaluate(
+          "getComputedStyle(document.getElementById('fixture-chat')).backgroundColor",
+        ),
+        "rgb(16, 31, 28)",
+        "Aurora is restored after head replacement",
+      );
       await evaluate("window.Vestra.Settings.setThemes([])");
       assert.equal(
         await evaluate(
@@ -415,16 +451,14 @@ app
       }, utilityNames);
       const copied = await page(async () => {
         const click = (id, shiftKey = false) =>
-          document
-            .getElementById(id)
-            .dispatchEvent(
-              new MouseEvent("click", {
-                bubbles: true,
-                cancelable: true,
-                altKey: true,
-                shiftKey,
-              }),
-            );
+          document.getElementById(id).dispatchEvent(
+            new MouseEvent("click", {
+              bubbles: true,
+              cancelable: true,
+              altKey: true,
+              shiftKey,
+            }),
+          );
         click("fixture-message");
         click("fixture-message", true);
         click("fixture-link");
@@ -603,10 +637,33 @@ app
         "real mouse dragging persists the launcher position",
       );
       assert.equal(moved.open, "false", "dragging does not open settings");
+      await page(
+        (preset) =>
+          window.Vestra.Settings.setThemes([
+            {
+              id: "restart-theme",
+              name: preset.name,
+              author: "Vestra",
+              css: preset.css,
+              enabled: true,
+            },
+          ]),
+        presets[3],
+      );
+      await evaluate(
+        "window.Vestra.Settings.flush().then(() => { localStorage.clear(); delete window.localStorage; })",
+      );
       await win.loadURL("https://discord.com/channels/789/123");
       await waitFor(
         "Boolean(window.Vestra?.started && document.querySelector('.vs-settings-launcher')) && document.getElementById('vestra-splash') === null",
         "runtime and launcher restore after navigation",
+      );
+      assert.equal(
+        await evaluate(
+          "getComputedStyle(document.getElementById('fixture-chat')).backgroundColor",
+        ),
+        "rgb(16, 31, 28)",
+        "selected Aurora survives a new renderer and late native startup CSS",
       );
       assert.deepEqual(
         await evaluate(
