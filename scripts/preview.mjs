@@ -32,7 +32,7 @@ createServer(async (request, response) => {
     if (request.url === "/brand.svg") { response.setHeader("Content-Type","image/svg+xml"); response.end(await fs.readFile(path.join(root,"assets/vestra-logo/logo-icon.svg"))); return; }
     const entry = entries.find(([url])=>url===request.url);
     if (entry) {
-      const result=await build({absWorkingDir:root,entryPoints:[entry[1]],bundle:true,platform:"browser",format:"iife",globalName:entry[2],define:{"process.env.NODE_ENV":'"development"'},write:false});
+      const result=await build({absWorkingDir:root,entryPoints:[entry[1]],bundle:true,loader:{".css":"text"},platform:"browser",format:"iife",globalName:entry[2],define:{"process.env.NODE_ENV":'"development"'},write:false});
       response.setHeader("Content-Type","application/javascript; charset=utf-8");response.end(result.outputFiles[0].text);return;
     }
     response.setHeader("Content-Type","text/html; charset=utf-8");response.end(html);
