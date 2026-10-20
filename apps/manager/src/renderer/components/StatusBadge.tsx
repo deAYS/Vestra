@@ -1,5 +1,3 @@
-// Vestra Manager — status badge. Shallow "installed" never renders Healthy.
-
 import type { CardState } from "../../shared/statusModel.js";
 
 const LABELS: Record<CardState, string> = {
