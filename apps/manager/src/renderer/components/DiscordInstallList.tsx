@@ -1,6 +1,3 @@
-// Vestra Manager — installation card list. Only discovered installs render;
-// missing channels never get fake entries.
-
 import type { DiscordChannel } from "../../shared/channels.js";
 import type { CardModel } from "../../shared/statusModel.js";
 import type { OperationKind } from "../hooks/useManager.js";
