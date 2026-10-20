@@ -1,10 +1,3 @@
-// @vestra/core — QuickCSS service.
-// Phase 4. Applies `Settings.customCss ({ enabled, css })` to the document via
-// the Styles API and keeps it in sync. Owns a single `Styles` id (`quickcss`)
-// so updates never duplicate elements. `startQuickCss()` subscribes to Settings
-// and returns a stop function that unsubscribes + removes the element — the
-// runtime wires it in `start()`/`stop()`.
-
 import { Logger, type ScopedLogger } from "./api/logger.js";
 import { Settings, type SettingsStore } from "./api/settings.js";
 import { Styles, type StylesManager } from "./api/styles.js";
