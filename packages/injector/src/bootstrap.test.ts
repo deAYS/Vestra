@@ -66,7 +66,7 @@ test("sandboxed preload uses only Electron; bundle, plugin registration and runt
       async invoke(channel: string) {
         assert.equal(channel, "vestra:native:bootstrap");
         return {
-          bundle: `window.Vestra = { Vestra: { Settings: { load() { order.push('settings'); } }, Native: { connect() { order.push('native'); } }, async start() { order.push('start'); } } };`,
+          bundle: `window.Vestra = { Vestra: { Settings: { async connectStorage() { order.push('file-settings'); }, load() { order.push('settings'); } }, Native: { connect() { order.push('native'); } }, async start() { order.push('start'); } } };`,
           plugins: [
             {
               name: "Example",
@@ -99,7 +99,13 @@ test("sandboxed preload uses only Electron; bundle, plugin registration and runt
   });
   vm.runInContext(buildPreloadSource({ splash: false }), context);
   await new Promise((resolve) => setTimeout(resolve, 20));
-  assert.deepEqual(order, ["settings", "plugin", "native", "start"]);
+  assert.deepEqual(order, [
+    "file-settings",
+    "settings",
+    "plugin",
+    "native",
+    "start",
+  ]);
   vm.runInContext(buildPreloadSource({ splash: false }), context);
   await new Promise((resolve) => setTimeout(resolve, 5));
   assert.equal(order.filter((s) => s === "start").length, 1);
