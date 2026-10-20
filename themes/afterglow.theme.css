@@ -1,0 +1,185 @@
+/**
+ * @name Vestra Afterglow
+ * @author Vestra
+ * @description Dumanlı siyah, erimiş bakır ve sıcak ufuk çizgileri.
+ * @version 1.0.0
+ */
+:root,body,:is(.theme-dark,.theme-darker,.theme-midnight,.theme-light,.custom-theme-background):not(.custom-user-profile-theme){
+  color-scheme:dark;
+  --app-frame-background:#100b0b!important;
+  --app-frame-border:#ffffff12!important;
+  --background-primary:#1d1414!important;
+  --background-secondary:#160e10!important;
+  --background-secondary-alt:#191011!important;
+  --background-tertiary:#100b0b!important;
+  --background-floating:#302020!important;
+  --background-base-lowest:#100b0b!important;
+  --background-base-lower:#160e10!important;
+  --background-base-low:#1d1414!important;
+  --background-surface-high:#302020!important;
+  --background-surface-higher:#2b1d1e!important;
+  --background-surface-highest:#2b1d1e!important;
+  --background-accent:#2b1d1e!important;
+  --background-code:#191011!important;
+  --background-mod-normal:#302020!important;
+  --background-mod-subtle:#ffffff08!important;
+  --background-mod-muted:#ffffff0b!important;
+  --background-mod-strong:#ffffff14!important;
+  --background-modifier-hover:#ffffff09!important;
+  --background-modifier-active:#ffffff12!important;
+  --background-modifier-selected:#ffffff16!important;
+  --background-modifier-accent:#ffffff12!important;
+  --background-brand:#e6ad83!important;
+  --bg-base-primary:#1d1414!important;
+  --bg-base-secondary:#160e10!important;
+  --bg-base-tertiary:#100b0b!important;
+  --bg-surface-overlay:#302020!important;
+  --bg-surface-raised:#302020!important;
+  --bg-surface-overlay-tmp:#302020!important;
+  --chat-background:#1d1414!important;
+  --chat-background-default:#1d1414!important;
+  --chat-background-selected:#160e10!important;
+  --home-background:#1d1414!important;
+  --channeltextarea-background:#2b1d1e!important;
+  --input-background:#2b1d1e!important;
+  --input-background-default:#2b1d1e!important;
+  --input-text-default:#eeeaf4!important;
+  --input-placeholder-text-default:#a49aaa!important;
+  --modal-background:#302020!important;
+  --modal-footer-background:#160e10!important;
+  --card-primary-bg:#302020!important;
+  --card-background-default:#302020!important;
+  --activity-card-background:#160e10!important;
+  --custom-channel-members-bg:#160e10!important;
+  --brand-500:#e6ad83!important;
+  --brand-560:#d09970!important;
+  --brand-600:#b5805c!important;
+  --brand-experiment:#e6ad83!important;
+  --text-normal:#e3dfea!important;
+  --text-primary:#e3dfea!important;
+  --text-default:#e3dfea!important;
+  --text-secondary:#b5acbf!important;
+  --text-muted:#a49aaa!important;
+  --header-primary:#f5f1fa!important;
+  --header-secondary:#b5acbf!important;
+  --text-link:#f2c6a5!important;
+  --text-link-low-saturation:#f2c6a5!important;
+  --channels-default:#b5acbf!important;
+  --interactive-normal:#b5acbf!important;
+  --interactive-hover:#f5f1fa!important;
+  --interactive-active:#ffffff!important;
+  --interactive-muted:#7c7387!important;
+  --interactive-text-default:#b5acbf!important;
+  --interactive-text-hover:#f5f1fa!important;
+  --interactive-text-active:#ffffff!important;
+  --interactive-icon-default:#b5acbf!important;
+  --interactive-icon-hover:#f5f1fa!important;
+  --interactive-icon-active:#ffffff!important;
+  --interactive-background-hover:#ffffff09!important;
+  --interactive-background-selected:#ffffff16!important;
+  --interactive-background-active:#ffffff12!important;
+  --icon-default:#b5acbf!important;
+  --icon-muted:#8d8399!important;
+  --icon-strong:#f5f1fa!important;
+  --icon-subtle:#b5acbf!important;
+  --border-subtle:#ffffff0d!important;
+  --border-normal:#ffffff18!important;
+  --border-strong:#ffffff26!important;
+  --border-faint:#ffffff08!important;
+  --mention-background:#e6ad8324!important;
+  --mention-foreground:#f2c6a5!important;
+  --background-mentioned:#e6ad8318!important;
+  --background-mentioned-hover:#e6ad8326!important;
+  --message-mentioned-background-default:#e6ad8318!important;
+  --message-mentioned-background-hover:#e6ad8326!important;
+  --message-background-hover:#ffffff05!important;
+  --scrollbar-auto-track:#160e10!important;
+  --scrollbar-auto-thumb:#2b1d1e!important;
+  --scrollbar-thin-thumb:#2b1d1e!important;
+  --scrollbar-thin-track:transparent!important;
+  --control-primary-background-default:#e6ad83!important;
+  --control-primary-background-hover:#d09970!important;
+  --control-primary-background-active:#b5805c!important;
+  --control-primary-text-default:#ffffff!important;
+  --control-primary-text-hover:#ffffff!important;
+  --control-primary-text-active:#ffffff!important;
+  --control-primary-icon-default:#ffffff!important;
+  --control-primary-icon-hover:#ffffff!important;
+  --control-primary-icon-active:#ffffff!important;
+  --control-secondary-background-default:#2b1d1e!important;
+  --control-secondary-background-hover:#302020!important;
+  --control-secondary-background-active:#160e10!important;
+  --background-gradient-app-frame:initial!important;
+  --background-gradient-chat:initial!important;
+  --background-gradient-chat-preview:initial!important;
+  --background-gradient-low:initial!important;
+  --background-gradient-lower:initial!important;
+  --background-gradient-lowest:initial!important;
+  --background-gradient-high:initial!important;
+  --background-gradient-higher:initial!important;
+  --background-gradient-highest:initial!important;
+  --vestra-theme-base:#100b0b!important;
+  --vestra-theme-chat:#1d1414!important;
+  --vestra-theme-side:#160e10!important;
+  --vestra-theme-input:#2b1d1e!important;
+}
+:is(#app-mount,[class*="appMount_"]){background:var(--vestra-theme-base)!important;}
+:is(#app-mount,[class*="appMount_"]) :is([class*="bg_"],[class*="guilds_"]):not(.custom-user-profile-theme):not(.custom-user-profile-theme *){background:var(--vestra-theme-base)!important;}
+:is(#app-mount,[class*="appMount_"]) :is([class*="chat_"],[class*="chatContent_"]):not(.custom-user-profile-theme):not(.custom-user-profile-theme *){background:var(--vestra-theme-chat)!important;}
+:is(#app-mount,[class*="appMount_"]) :is([class*="sidebarList_"],[class*="privateChannels_"],[class*="members_"],[class*="membersWrap_"]):not(.custom-user-profile-theme):not(.custom-user-profile-theme *){background:var(--vestra-theme-side)!important;}
+:is(#app-mount,[class*="appMount_"]) :is([class*="channelTextArea_"],[class*="scrollableContainer_"]):not(.custom-user-profile-theme):not(.custom-user-profile-theme *){background:var(--vestra-theme-input)!important;}
+
+:root,body,:is(.theme-dark,.theme-darker,.theme-midnight,.theme-light,.custom-theme-background):not(.custom-user-profile-theme){
+  --vestra-private-accent:#e6ad83;
+  --vestra-private-secondary:#c980a7;
+  --background-modifier-selected:#e6ad8319!important;
+  --background-modifier-hover:#e6ad830c!important;
+  --interactive-background-selected:#e6ad8319!important;
+  --control-primary-text-default:#100b0b!important;
+  --control-primary-text-hover:#100b0b!important;
+  --control-primary-text-active:#100b0b!important;
+  --control-primary-icon-default:#100b0b!important;
+  --control-primary-icon-hover:#100b0b!important;
+  --control-primary-icon-active:#100b0b!important;
+  --button-filled-brand-text:#100b0b!important;
+  --border-subtle:#e6ad8313!important;
+  --border-normal:#e6ad8325!important;
+  --border-strong:#e6ad8342!important;
+}
+:is(#app-mount,[class*="appMount_"]) :is([class*="chatContent_"]):not(.custom-user-profile-theme):not(.custom-user-profile-theme *){background:radial-gradient(ellipse at 100% 100%, #db724d14, transparent 60%), linear-gradient(160deg, #1d1414, #201518)!important;}
+:is(#app-mount,[class*="appMount_"]) :is([class*="sidebarList_"],[class*="privateChannels_"],[class*="members_"]):not(.custom-user-profile-theme):not(.custom-user-profile-theme *){background:linear-gradient(180deg, #1c1214, #160e10 70%)!important;}
+:is(#app-mount,[class*="appMount_"]) :is([class*="subtitleContainer_"] > section,[class*="title_"][role="region"],[class*="chat_"] > section[aria-label]):not(.custom-user-profile-theme):not(.custom-user-profile-theme *){
+  background:linear-gradient(100deg, #1a1013, #3b2425 55%, #25171a)!important;
+  border-bottom:1px solid #e6ad8320!important;
+  box-shadow:0 1px 0 #e6ad8308,inset 0 1px 0 #ffffff04;
+  background-size:180% 100%!important;
+  animation:vestra-afterglow-light 24s ease-in-out infinite alternate;
+}
+:is(#app-mount,[class*="appMount_"]) :is([class*="channelTextArea_"]):not(.custom-user-profile-theme):not(.custom-user-profile-theme *){
+  border:1px solid #e6ad8330!important;
+  border-radius:10px!important;
+  box-shadow:0 8px 32px #00000020,inset 0 1px 0 #e6ad8309;
+  transition:border-color 180ms ease,box-shadow 180ms ease;
+}
+:is(#app-mount,[class*="appMount_"]) :is([class*="channelTextArea_"]):not(.custom-user-profile-theme):not(.custom-user-profile-theme *):focus-within{border-color:#e6ad8378!important;box-shadow:0 0 0 3px #e6ad830c,0 10px 32px #00000030;}
+:is(#app-mount,[class*="appMount_"]) :is([class*="link_"][role="link"],[data-list-item-id^="channels___"] > [class*="interactive_"]):not(.custom-user-profile-theme):not(.custom-user-profile-theme *){border-radius:8px!important;transition:background-color 160ms ease,box-shadow 160ms ease;}
+:is(#app-mount,[class*="appMount_"]) :is([class*="link_"][aria-selected="true"],[class*="modeSelected_"] [class*="link_"],[class*="interactiveSelected_"]):not(.custom-user-profile-theme):not(.custom-user-profile-theme *){
+  background:linear-gradient(90deg,#e6ad8324,#c980a710)!important;
+  box-shadow:inset 2px 0 0 #e6ad83,inset 0 0 0 1px #e6ad8315;
+}
+:is(#app-mount,[class*="appMount_"]) :is([role="dialog"]):not(.custom-user-profile-theme):not(.custom-user-profile-theme *){border:1px solid #e6ad832b;border-radius:12px;box-shadow:0 24px 100px #00000070;}
+:is(#app-mount,[class*="appMount_"]) :is([class*="embedFull_"]):not(.custom-user-profile-theme):not(.custom-user-profile-theme *){border-radius:8px!important;border-top:1px solid #e6ad8313;border-right:1px solid #e6ad8313;border-bottom:1px solid #e6ad8313;}
+:is(#app-mount,[class*="appMount_"]) :is([class*="chat_"] > [class*="content_"]):not(.custom-user-profile-theme):not(.custom-user-profile-theme *){border-top:1px solid #e6ad8309;}
+:is(#app-mount,[class*="appMount_"]) a[href]:focus-visible,:is(#app-mount,[class*="appMount_"]) button:focus-visible{outline:2px solid #e6ad83;outline-offset:2px;}
+:is(#app-mount,[class*="appMount_"]) :is([class*="guilds_"]):not(.custom-user-profile-theme):not(.custom-user-profile-theme *){background:radial-gradient(ellipse at 50% 0%,#e6ad830c,transparent 65%),#100b0b!important;}
+:is(#app-mount,[class*="appMount_"]) :is([class*="sidebarList_"]):not(.custom-user-profile-theme):not(.custom-user-profile-theme *){border-right:1px solid #e6ad8312;}
+:is(#app-mount,[class*="appMount_"]) :is([class*="membersWrap_"]):not(.custom-user-profile-theme):not(.custom-user-profile-theme *){border-left:1px solid #e6ad8312;}
+:is(#app-mount,[class*="appMount_"]) :is([class*="emptyChannelIcon_"]):not(.custom-user-profile-theme):not(.custom-user-profile-theme *){background-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2064%2064%22%3E%3Cpath%20fill%3D%22%23e6ad83%22%20fill-opacity%3D%22.06%22%20fill-rule%3D%22evenodd%22%20d%3D%22M8.5%2014.2C10.2%2012.5%2012.4%2012.8%2014.5%2014.5L27.1%2024.1C30%2026.3%2034%2026.3%2036.9%2024.1L49.5%2014.5C51.6%2012.8%2053.8%2012.5%2055.5%2014.2C56.8%2015.5%2057%2017.2%2056.7%2019.5L54.5%2034.2C53.9%2038.3%2052.3%2040.9%2048.6%2043.7L36.3%2053.1C33.7%2055.1%2030.3%2055.1%2027.7%2053.1L15.4%2043.7C11.7%2040.9%2010.1%2038.3%209.5%2034.2L7.3%2019.5C7%2017.2%207.2%2015.5%208.5%2014.2ZM17.2%2028.2C16.1%2027.8%2015.4%2028.5%2015.8%2029.6L17.3%2033.6C17.6%2034.4%2018.2%2035%2019%2035.3L25%2037.5C26.2%2037.9%2027.1%2036.5%2026.3%2035.5L22.2%2030.7C21.8%2030.2%2021.4%2030%2020.8%2029.7L17.2%2028.2ZM46.8%2028.2L43.2%2029.7C42.6%2030%2042.2%2030.2%2041.8%2030.7L37.7%2035.5C36.9%2036.5%2037.8%2037.9%2039%2037.5L45%2035.3C45.8%2035%2046.4%2034.4%2046.7%2033.6L48.2%2029.6C48.6%2028.5%2047.9%2027.8%2046.8%2028.2Z%22%2F%3E%3C%2Fsvg%3E")!important;background-size:contain!important;}
+@keyframes vestra-afterglow-light{from{background-position:0% 50%;}to{background-position:100% 50%;}}
+@media(prefers-reduced-motion:reduce){
+  :is(#app-mount,[class*="appMount_"]) :is([class*="subtitleContainer_"] > section,[class*="title_"][role="region"],[class*="chat_"] > section[aria-label]):not(.custom-user-profile-theme):not(.custom-user-profile-theme *){animation:none!important;}
+  :is(#app-mount,[class*="appMount_"]) :is([class*="channelTextArea_"]):not(.custom-user-profile-theme):not(.custom-user-profile-theme *),:is(#app-mount,[class*="appMount_"]) :is([class*="link_"][role="link"],[data-list-item-id^="channels___"] > [class*="interactive_"]):not(.custom-user-profile-theme):not(.custom-user-profile-theme *){transition:none!important;}
+}
+
+:root{--vestra-profile-activity-bg:var(--background-surface-high,var(--background-floating))}
+:is(.custom-user-profile-theme,[class*="userPopout_"],[class*="userProfile_"]) :is([class*="biteSize_"],[class*="activityBiteSizePopout_"],[class*="activityCard_"],[class*="activity_"]){background-color:var(--vestra-profile-activity-bg)!important;--background-surface-high:var(--vestra-profile-activity-bg)!important;--background-base-low:var(--vestra-profile-activity-bg)!important}
