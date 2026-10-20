@@ -1,6 +1,4 @@
-# Vestra Manager — packaging scaffold (Phase: NOT executed).
-# Future artifact: VestraSetup.exe / Vestra.exe.
-# Signing + installer configuration deferred. Do not run electron-builder yet.
+# Unsigned local/release artifacts. Building never publishes a release.
 appId: dev.vestra.manager
 productName: Vestra
 directories:
@@ -9,10 +7,21 @@ directories:
 files:
   - dist/**/*
   - package.json
+extraResources:
+  - from: ../../packages/core/dist/vestra.js
+    to: payload/vestra.js
+npmRebuild: false
+asar: true
 win:
+  icon: ../../assets/vestra-logo/app-icon.ico
+  signExecutable: false
+  artifactName: Vestra-${version}-${arch}-Setup.${ext}
   target:
     - nsis
+    - portable
 nsis:
-  oneClicker: false
+  oneClick: false
   allowToChangeInstallationDirectory: true
   shortcutName: Vestra
+portable:
+  artifactName: Vestra-${version}-${arch}-Portable.${ext}
