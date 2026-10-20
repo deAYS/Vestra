@@ -4,6 +4,7 @@ on:
     branches: [main]
     paths:
       - site/**
+      - themes/**
       - scripts/build-site.mjs
       - packages/core/src/themes.ts
       - packages/injector/src/splash.ts
