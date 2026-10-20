@@ -1,17 +1,3 @@
-// @vestra/core — PluginManager.
-// Phase 2. Owns registration, enable/disable lifecycle, enabled-state tracking
-// and persistence. One broken plugin must never crash Vestra: start/stop
-// exceptions are captured via Logger and reported as `false` returns +
-// `getLastError`, never rethrown.
-//
-// Persistence: enabled states live in the centralized Settings store (Phase 3)
-// under VESTRA_STORAGE_KEY in the shape
-// `{ plugins: { [name]: { enabled, settings } }, customCss: { enabled, css } }`.
-// This manager only depends on the narrow `EnabledStateStorage` interface below;
-// the default instance uses `createSettingsEnabledStateStorage()`. The legacy
-// `createDefaultEnabledStateStorage()` (direct localStorage merge) is kept for
-// tests and backward compatibility.
-
 import { VESTRA_STORAGE_KEY } from "@vestra/shared";
 import {
   PluginDefinitionSchema,
@@ -144,11 +130,34 @@ export class PluginManager {
   private readonly storage: EnabledStateStorage;
   private readonly logger: ScopedLogger;
   private readonly patcher: Patcher;
+  private readonly operations = new Map<string, Promise<unknown>>();
+  private readonly listeners = new Set<() => void>();
+
+  subscribe(listener: () => void): () => void {
+    this.listeners.add(listener);
+    return () => { this.listeners.delete(listener); };
+  }
+
+  private emit(): void {
+    for (const listener of this.listeners) {
+      try { listener(); } catch (err) { this.logger.captureError(err, "PluginManager.listener"); }
+    }
+  }
+
+  private enqueue<T>(name: string, operation: () => Promise<T>): Promise<T> {
+    const next = (this.operations.get(name) ?? Promise.resolve()).then(operation);
+    this.operations.set(name, next);
+    void next.finally(() => {
+      if (this.operations.get(name) === next) this.operations.delete(name);
+      this.emit();
+    }).catch(() => {});
+    return next;
+  }
 
   constructor(storage?: EnabledStateStorage, logger?: ScopedLogger, patcher?: Patcher) {
     this.storage = storage ?? createDefaultEnabledStateStorage();
     this.logger = logger ?? Logger.extend("PluginManager");
-    // Phase 7: disabling a plugin automatically removes its patches, so a
+    // Disabling a plugin removes its owned patches, so a
     // stopped plugin can never leave a modified function behind.
     this.patcher = patcher ?? sharedPatcher;
   }
@@ -160,7 +169,8 @@ export class PluginManager {
       this.logger.error(`Refusing invalid plugin: ${parsed.error.message}`);
       throw new Error(`Invalid plugin definition: ${parsed.error.message}`);
     }
-    const def = parsed.data;
+    // Validate without stripping plugin-specific fields or method `this` state.
+    const def = definition;
     if (this.plugins.has(def.name)) {
       this.logger.error(`Duplicate plugin name rejected: "${def.name}"`);
       throw new Error(`Duplicate plugin name: "${def.name}"`);
@@ -168,12 +178,16 @@ export class PluginManager {
     const persisted = this.safeLoadStates();
     const enabled = persisted[def.name] ?? def.enabledByDefault ?? false;
     this.plugins.set(def.name, { definition: def, enabled, started: false, lastError: undefined });
-    this.persist();
+    this.emit();
     this.logger.info(`Registered plugin "${def.name}" (enabled: ${enabled})`);
   }
 
   /** Enable + start a plugin. Returns false (never throws) if start fails. */
   async enable(name: string): Promise<boolean> {
+    return this.enqueue(name, () => this.enableNow(name));
+  }
+
+  private async enableNow(name: string): Promise<boolean> {
     const state = this.plugins.get(name);
     if (state === undefined) {
       this.logger.warn(`enable() called for unknown plugin "${name}"`);
@@ -194,6 +208,11 @@ export class PluginManager {
     } catch (err: unknown) {
       state.started = false;
       state.lastError = err;
+      // A partially started plugin may already own patches/listeners/styles.
+      try { await state.definition.stop?.(); } catch (cleanupError) { this.logger.captureError(cleanupError, `plugin "${name}" cleanup`); }
+      this.unpatchOwner(name);
+      state.enabled = false;
+      this.persist();
       this.logger.captureError(err, `plugin "${name}" start`);
       return false;
     }
@@ -201,6 +220,10 @@ export class PluginManager {
 
   /** Stop + disable a plugin. Stop errors are captured; state always cleans up. */
   async disable(name: string): Promise<boolean> {
+    return this.enqueue(name, () => this.disableNow(name));
+  }
+
+  private async disableNow(name: string): Promise<boolean> {
     const state = this.plugins.get(name);
     if (state === undefined) {
       this.logger.warn(`disable() called for unknown plugin "${name}"`);
@@ -234,19 +257,33 @@ export class PluginManager {
    */
   async shutdown(): Promise<void> {
     for (const [name, state] of [...this.plugins]) {
-      if (!state.started) continue;
-      if (state.definition.stop !== undefined) {
-        try {
-          await state.definition.stop();
-        } catch (err: unknown) {
-          state.lastError = err;
-          this.logger.captureError(err, `plugin "${name}" stop`);
+      await this.enqueue(name, async () => {
+        if (state.started && state.definition.stop !== undefined) {
+          try {
+            await state.definition.stop();
+          } catch (err: unknown) {
+            state.lastError = err;
+            this.logger.captureError(err, `plugin "${name}" stop`);
+          }
         }
-      }
-      state.started = false;
-      this.unpatchOwner(name);
+        state.started = false;
+        this.unpatchOwner(name);
+      });
     }
     this.persist();
+  }
+
+  /** Re-read settings after Settings.load(), then boot persisted/default flags. */
+  async startEnabled(): Promise<void> {
+    const saved = this.safeLoadStates();
+    for (const [name, state] of this.plugins) {
+      const desired = saved[name] ?? state.definition.enabledByDefault ?? false;
+      if (desired) await this.enable(name);
+      else if (state.started) await this.disable(name);
+      else state.enabled = false;
+    }
+    this.persist();
+    this.emit();
   }
 
   /** Remove one plugin's patches. Best-effort: patcher errors never fail lifecycle. */
@@ -305,7 +342,7 @@ export class PluginManager {
 }
 
 /**
- * Settings-backed storage adapter (Phase 3). Delegates enabled-state
+ * Settings-backed storage adapter. Delegates enabled-state
  * persistence to the centralized Settings store so per-plugin `settings` and
  * `customCss` survive enabled toggles. Public `EnabledStateStorage` API is
  * unchanged; storage errors are isolated by the Settings store itself.
@@ -325,7 +362,7 @@ export function createSettingsEnabledStateStorage(store?: SettingsStore): Enable
     saveEnabledStates(states: Readonly<Record<string, boolean>>): void {
       for (const [name, enabled] of Object.entries(states)) {
         try {
-          target.setEnabled(name, enabled);
+          if (target.getEnabled(name) !== enabled) target.setEnabled(name, enabled);
         } catch (err: unknown) {
           Logger.captureError(err, "PluginManager.settings.save");
         }
@@ -334,5 +371,5 @@ export function createSettingsEnabledStateStorage(store?: SettingsStore): Enable
   };
 }
 
-/** Default shared manager used by the renderer runtime (Phase 4+ built-ins register here). */
+/** Shared plugin manager for the renderer runtime. */
 export const pluginManager = new PluginManager(createSettingsEnabledStateStorage());
