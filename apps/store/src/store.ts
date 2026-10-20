@@ -1,17 +1,6 @@
-// Vestra Store — installed-plugin management.
-// Phase 13. Third-party plugins live under `{home}/plugins/<name>/<version>/`
-// with an `installed.json` registry carrying the enabled flag. Installed
-// plugins start DISABLED; the user enables explicitly. The renderer entry
-// convention (executed by the preload injector after Vestra.start):
-//
-//   Vestra.Plugins.register({ name: "...", description: "...", authors: [...] });
-//   Vestra.Plugins.enable("...");
-//
-// The preload only injects registry-enabled entries, so the entry above is
-// sufficient. Registry writes are atomic; corrupt registries read as empty.
-
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { assertSafeVersion } from "@vestra/shared";
 import { compareVersions, type FetchFn } from "@vestra/updater";
 import { fetchPluginFeed, searchFeed, type StorePluginEntry } from "./feed.js";
 import { parsePluginEnvelope, writePluginPayload } from "./envelope.js";
@@ -55,6 +44,7 @@ export async function loadInstalled(homeDir: string): Promise<InstalledRegistry>
     if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return {};
     const out: InstalledRegistry = {};
     for (const [name, value] of Object.entries(parsed as Record<string, unknown>)) {
+      try { assertPluginName(name); assertSafeVersion((value as InstalledPlugin)?.version); } catch { continue; }
       if (
         typeof value === "object" && value !== null &&
         typeof (value as { version?: unknown }).version === "string" &&
@@ -200,6 +190,7 @@ export async function installPlugin(ctx: StoreContext, name: string): Promise<In
   const entry = await findEntry(ctx, name);
   const bytes = await downloadEnvelope(ctx, entry);
   const envelope = parsePluginEnvelope(bytes, entry.sha256, name);
+  if (envelope.pluginVersion !== entry.version) throw new Error("Plugin envelope version does not match the feed entry.");
   const dir = await writePluginPayload(pluginsRootFor(ctx.homeDir), envelope);
   const registry = await loadInstalled(ctx.homeDir);
   const alreadyInstalled = registry[name]?.version === envelope.pluginVersion;
@@ -229,6 +220,7 @@ export async function updatePlugin(
   }
   const bytes = await downloadEnvelope(ctx, entry);
   const envelope = parsePluginEnvelope(bytes, entry.sha256, name);
+  if (envelope.pluginVersion !== entry.version) throw new Error("Plugin envelope version does not match the feed entry.");
   await writePluginPayload(pluginsRootFor(ctx.homeDir), envelope);
   registry[name] = {
     ...installed,
