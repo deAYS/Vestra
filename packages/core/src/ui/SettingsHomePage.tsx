@@ -7,6 +7,8 @@ import { s } from "./theme.js";
 import { BrandMark, Icon } from "./Brand.js";
 import type { PageProps, SettingsPageId } from "./types.js";
 import { LAUNCHER_POSITION_KEY } from "./launcherPosition.js";
+import { LAUNCHER_HIDDEN_KEY } from "./Launcher.js";
+import { shortcutConflict } from "./PluginOptions.js";
 
 export function SettingsHomePage({
   settings,
@@ -29,10 +31,12 @@ export function SettingsHomePage({
     }
     setResetting(true);
     try {
-      for (const entry of plugins.list()) await plugins.disable(entry.definition.name);
+      for (const entry of plugins.list())
+        await plugins.disable(entry.definition.name);
       settings.reset();
       for (const entry of plugins.list()) {
-        if (entry.definition.enabledByDefault) await plugins.enable(entry.definition.name);
+        if (entry.definition.enabledByDefault)
+          await plugins.enable(entry.definition.name);
       }
     } catch (err: unknown) {
       Logger.captureError(err, "SettingsUI:reset");
@@ -43,36 +47,159 @@ export function SettingsHomePage({
 
   return (
     <section data-vestra-page="settings">
-      <div style={s.header}><h2 style={s.title}>A little more you.</h2><p style={s.subtitle}>Your space, with the finishing touches that make it yours.</p></div>
+      <div style={s.header}>
+        <h2 style={s.title}>A little more you.</h2>
+        <p style={s.subtitle}>
+          Your space, with the finishing touches that make it yours.
+        </p>
+      </div>
       <div className="vs-home-hero">
-        <BrandMark size={210}/><small><span className="vs-status-dot"/> Made for your Discord</small>
-        <h3>Same friends.<br/>Different atmosphere.</h3>
+        <BrandMark size={210} />
+        <small>
+          <span className="vs-status-dot" /> Made for your Discord
+        </small>
+        <h3>
+          Same friends.
+          <br />
+          Different atmosphere.
+        </h3>
         <p>Find your palette. Set the mood. Make yourself at home.</p>
-        <button type="button" style={s.button} onClick={() => onNavigate("themes")}>Explore themes <Icon name="arrow" size={14}/></button>
-      </div>
-      <div className="vs-stat-grid">
-        <div className="vs-stat"><span><Icon name="plugins" size={12}/>Plugins</span><strong>{enabled}<small>/ {total} enabled</small></strong></div>
-        <div className="vs-stat"><span><Icon name="themes" size={12}/>Themes</span><strong>{snapshot.themes.length}<small>in your library</small></strong></div>
-        <div className="vs-stat"><span><Icon name="code" size={12}/>QuickCSS</span><strong style={{fontSize:18}}>{css.enabled && css.css.trim() && plugins.list().some(p => p.definition.name === "QuickCSS" && p.started) ? "Live" : "Off"}<small>custom styling</small></strong></div>
-      </div>
-      <h3 className="vs-section-label">Make it yours</h3>
-      <div className="vs-setting-row"><div><strong>Plugins</strong><p>Small additions. A better everyday experience.</p></div><button type="button" style={s.navButton} onClick={() => onNavigate("plugins")}>Manage plugins</button></div>
-      <div className="vs-setting-row"><div><strong>Custom styling</strong><p>The last word on how your Discord looks.</p></div><button type="button" style={s.navButton} onClick={() => onNavigate("quickcss")}>Open editor</button></div>
-      <KeybindCard settings={settings} />
-      <div className="vs-setting-row"><div><strong>Floating Vestra button</strong><p>Drag it anywhere. Its position follows your window size.</p></div><button type="button" style={s.navButton} onClick={() => settings.setPluginSetting("Vestra", LAUNCHER_POSITION_KEY, null)}>Reset position</button></div>
-      <details className="vs-advanced" style={{marginTop:24,color:"#82768F",fontSize:11}}><summary style={{cursor:"pointer",padding:"10px 0"}}>Advanced preferences</summary>
-      <div className="vs-setting-row">
-        <div><strong>Start fresh</strong><p>Reset settings, plugins, themes and custom CSS.</p></div>
-        <button type="button" style={s.dangerButton} disabled={resetting} onClick={() => void reset()}>
-          {confirming ? "Click again to confirm reset" : "Reset all settings"}
+        <button
+          type="button"
+          style={s.button}
+          onClick={() => onNavigate("themes")}
+        >
+          Explore themes <Icon name="arrow" size={14} />
         </button>
       </div>
+      <div className="vs-stat-grid">
+        <div className="vs-stat">
+          <span>
+            <Icon name="plugins" size={12} />
+            Plugins
+          </span>
+          <strong>
+            {enabled}
+            <small>/ {total} enabled</small>
+          </strong>
+        </div>
+        <div className="vs-stat">
+          <span>
+            <Icon name="themes" size={12} />
+            Themes
+          </span>
+          <strong>
+            {snapshot.themes.length}
+            <small>in your library</small>
+          </strong>
+        </div>
+        <div className="vs-stat">
+          <span>
+            <Icon name="code" size={12} />
+            QuickCSS
+          </span>
+          <strong style={{ fontSize: 18 }}>
+            {css.enabled &&
+            css.css.trim() &&
+            plugins
+              .list()
+              .some((p) => p.definition.name === "QuickCSS" && p.started)
+              ? "Live"
+              : "Off"}
+            <small>custom styling</small>
+          </strong>
+        </div>
+      </div>
+      <h3 className="vs-section-label">Make it yours</h3>
+      <div className="vs-setting-row">
+        <div>
+          <strong>Plugins</strong>
+          <p>Small additions. A better everyday experience.</p>
+        </div>
+        <button
+          type="button"
+          style={s.navButton}
+          onClick={() => onNavigate("plugins")}
+        >
+          Manage plugins
+        </button>
+      </div>
+      <div className="vs-setting-row">
+        <div>
+          <strong>Custom styling</strong>
+          <p>The last word on how your Discord looks.</p>
+        </div>
+        <button
+          type="button"
+          style={s.navButton}
+          onClick={() => onNavigate("quickcss")}
+        >
+          Open editor
+        </button>
+      </div>
+      <KeybindCard settings={settings} plugins={plugins} />
+      <div className="vs-setting-row">
+        <div>
+          <strong>Floating Vestra button</strong>
+          <p>
+            Drag to move. Right-click to hide. Your shortcut always opens
+            Vestra.
+          </p>
+        </div>
+        <input
+          type="checkbox"
+          aria-label="Show floating Vestra button"
+          checked={
+            snapshot.plugins.Vestra?.settings[LAUNCHER_HIDDEN_KEY] !== true
+          }
+          onChange={(event) =>
+            settings.setPluginSetting(
+              "Vestra",
+              LAUNCHER_HIDDEN_KEY,
+              !event.target.checked,
+            )
+          }
+        />
+        <button
+          type="button"
+          style={s.navButton}
+          onClick={() =>
+            settings.setPluginSetting("Vestra", LAUNCHER_POSITION_KEY, null)
+          }
+        >
+          Reset position
+        </button>
+      </div>
+      <details
+        className="vs-advanced"
+        style={{ marginTop: 24, color: "#82768F", fontSize: 11 }}
+      >
+        <summary style={{ cursor: "pointer", padding: "10px 0" }}>
+          Advanced preferences
+        </summary>
+        <div className="vs-setting-row">
+          <div>
+            <strong>Start fresh</strong>
+            <p>Reset settings, plugins, themes and custom CSS.</p>
+          </div>
+          <button
+            type="button"
+            style={s.dangerButton}
+            disabled={resetting}
+            onClick={() => void reset()}
+          >
+            {confirming ? "Click again to confirm reset" : "Reset all settings"}
+          </button>
+        </div>
       </details>
     </section>
   );
 }
 
-function KeybindCard({ settings }: { settings: PageProps["settings"] }): JSX.Element {
+function KeybindCard({
+  settings,
+  plugins,
+}: Pick<PageProps, "settings" | "plugins">): JSX.Element {
   // Subscribe so the shown combo refreshes when settings change elsewhere.
   useSettingsSnapshot(settings);
   const [recording, setRecording] = useState(false);
@@ -91,10 +218,23 @@ function KeybindCard({ settings }: { settings: PageProps["settings"] }): JSX.Ele
       }
       const combo = formatCombo(event);
       if (combo === "" || !isBindable(combo)) {
-        setError("Press a modifier combo (e.g. Ctrl+Shift+V) or a function key.");
+        setError(
+          "Press a modifier combo (e.g. Ctrl+Shift+V) or a function key.",
+        );
         return;
       }
       try {
+        const conflict = shortcutConflict(
+          combo,
+          "Vestra",
+          "overlayKeybind",
+          settings,
+          plugins,
+        );
+        if (conflict) {
+          setError(`Already used by ${conflict}. Choose another shortcut.`);
+          return;
+        }
         setOverlayKeybind(settings, combo);
         setError("");
       } catch (err: unknown) {
@@ -107,16 +247,20 @@ function KeybindCard({ settings }: { settings: PageProps["settings"] }): JSX.Ele
     return () => {
       window.removeEventListener("keydown", onKey, true);
     };
-  }, [recording, settings]);
+  }, [recording, settings, plugins]);
 
   return (
     <div className="vs-setting-row vs-keybind-card">
-      <div><strong>Keyboard shortcut</strong><p>A familiar way back to your workspace.</p></div>
-      <div style={{...s.row,flex:0}}>
+      <div>
+        <strong>Keyboard shortcut</strong>
+        <p>A familiar way back to your workspace.</p>
+      </div>
+      <div style={{ ...s.row, flex: 0 }}>
         <span style={s.code}>{current}</span>
         <button
           type="button"
           style={recording ? s.dangerButton : s.button}
+          data-vestra-keybind-recording={recording}
           onClick={() => {
             setError("");
             setRecording((r) => !r);
@@ -125,7 +269,11 @@ function KeybindCard({ settings }: { settings: PageProps["settings"] }): JSX.Ele
           {recording ? "Press keys… (Esc cancels)" : "Change"}
         </button>
       </div>
-      {error !== "" ? <div style={{ ...s.muted, color: "#ff8080", marginTop: 6 }}>{error}</div> : null}
+      {error !== "" ? (
+        <div style={{ ...s.muted, color: "#ff8080", marginTop: 6 }}>
+          {error}
+        </div>
+      ) : null}
     </div>
   );
 }
