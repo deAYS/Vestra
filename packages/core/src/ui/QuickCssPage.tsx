@@ -1,16 +1,15 @@
-// @vestra/core UI — QuickCSS page.
-// Phase 5. Edits `Settings.customCss`; the core QuickCSS service applies it
-// live, so toggling here takes effect without reload.
-
 import { useEffect, useState } from "react";
-import { useSettingsSnapshot } from "./hooks.js";
+import { useRefreshCounter, useSettingsSnapshot } from "./hooks.js";
 import { Logger } from "../api/logger.js";
 import { s } from "./theme.js";
 import type { PageProps } from "./types.js";
 
-export function QuickCssPage({ settings }: PageProps): JSX.Element {
+export function QuickCssPage({ settings, plugins }: PageProps): JSX.Element {
   const snapshot = useSettingsSnapshot(settings);
   const [text, setText] = useState(snapshot.customCss.css);
+  const { refresh } = useRefreshCounter();
+  useEffect(() => plugins.subscribe?.(refresh), [plugins, refresh]);
+  const running = plugins.list().some(plugin => plugin.definition.name === "QuickCSS" && plugin.started);
 
   // Sync external changes (another surface editing the same setting) without
   // clobbering in-progress typing: only overwrite when the values differ.
@@ -18,7 +17,7 @@ export function QuickCssPage({ settings }: PageProps): JSX.Element {
     if (snapshot.customCss.css !== text) setText(snapshot.customCss.css);
   });
 
-  const live = snapshot.customCss.enabled && snapshot.customCss.css.trim() !== "";
+  const live = running && snapshot.customCss.enabled && snapshot.customCss.css.trim() !== "";
 
   const setEnabled = (enabled: boolean): void => {
     try {
@@ -50,32 +49,36 @@ export function QuickCssPage({ settings }: PageProps): JSX.Element {
     <section data-vestra-page="quickcss">
       <div style={s.header}>
         <h2 style={s.title}>QuickCSS</h2>
-        <p style={s.subtitle}>{live ? "Applied live" : "Not applied"}</p>
+        <p style={s.subtitle}>The finishing touch, written by you.</p>
       </div>
-      <label style={{ ...s.row, marginBottom: 10, cursor: "pointer" }}>
+      {!running && <div style={{...s.card,display:"flex",alignItems:"center",gap:10,justifyContent:"space-between"}}><span style={s.muted}>The QuickCSS plugin is paused.</span><button type="button" style={s.navButton} onClick={()=>void plugins.enable("QuickCSS").then(refresh)}>Enable plugin</button></div>}
+      <label className="vs-setting-row" style={{cursor:"pointer",paddingTop:0,marginBottom:22}}>
+        <div style={{flex:1}}><strong>Custom styling</strong><p>Your changes are saved automatically.</p></div>
         <input
           type="checkbox"
+          aria-label="Enable custom styling"
           checked={snapshot.customCss.enabled}
           onChange={(e) => {
             setEnabled(e.target.checked);
           }}
         />
-        Enable custom CSS
       </label>
+      <div className="vs-editor"><div className="vs-editor-toolbar"><span style={{color:"#C5BAF8"}}>{"{ }"}</span><span>custom.css</span><span>{live?"● Applied live":"○ Not applied"}</span></div>
       <textarea
         style={s.textarea}
         value={text}
         onChange={(e) => {
           setTextLive(e.target.value);
         }}
-        placeholder={".my-selector {\n  color: red;\n}"}
+        placeholder={"/* Your space. Your styles. */\n\n:root {\n  --text-link: #c5baf8;\n}"}
         aria-label="Custom CSS"
         spellCheck={false}
       />
-      <div style={{ ...s.row, marginTop: 8 }}>
-        <span style={s.muted}>{text.length} characters</span>
-        <button type="button" style={s.dangerButton} onClick={clear}>
-          Clear
+      </div>
+      <div style={{ ...s.row, marginTop: 14,justifyContent:"space-between" }}>
+        <span style={{...s.muted,fontSize:10}}>{text.length} characters <span style={{margin:"0 7px"}}>·</span> CSS</span>
+        <button type="button" style={{...s.navButton,padding:"6px 11px",fontSize:10}} onClick={clear}>
+          Clear editor
         </button>
       </div>
     </section>
