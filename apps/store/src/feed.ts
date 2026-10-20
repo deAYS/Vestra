@@ -1,13 +1,6 @@
-// Vestra Store — plugin feed.
-// Phase 13 (final roadmap phase). Fetches and validates a plugin repository
-// feed. Fetch is injected (tests, custom agents). Trust model: the FEED URL
-// itself is trusted by explicit user action (`repos add`); every artifact is
-// then hash-pinned per entry, so a compromised mirror serving different bytes
-// fails verification. (No asymmetric signing yet — decided before any public
-// marketplace; see checkpoint.)
-
 import { compareVersions } from "@vestra/updater";
 import type { FetchFn } from "@vestra/updater";
+import { assertSafeVersion } from "@vestra/shared";
 
 export interface StorePluginEntry {
   name: string;
@@ -27,6 +20,7 @@ function isEntry(value: unknown): value is StorePluginEntry {
   const e = value as Record<string, unknown>;
   if (typeof e["name"] !== "string" || !/^[A-Za-z0-9_-]{1,64}$/.test(e["name"])) return false;
   if (typeof e["version"] !== "string" || e["version"] === "") return false;
+  try { assertSafeVersion(e["version"]); } catch { return false; }
   if (typeof e["description"] !== "string" || e["description"] === "") return false;
   if (!Array.isArray(e["authors"]) || e["authors"].length === 0 || e["authors"].some((a) => typeof a !== "string" || a === "")) {
     return false;
