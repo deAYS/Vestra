@@ -28,12 +28,19 @@ persistence and SDK contracts. Fixtures use disposable directories.
 
 `bun run test:electron` builds the production-minified runtime and runs it in a
 sandboxed Electron fixture with context isolation and strict CSP. It checks native
-IPC, a separately built SDK plugin, modern theme surface colors, all built-in
-utility actions and cleanup, startup masking, launcher input and persistence.
+IPC, separately built store and local-folder SDK plugins, CSS file reads/writes,
+modern/legacy theme surface colors, native gradient replacement/restoration,
+all built-in utility actions and cleanup, shortcut reassignment, startup masking,
+launcher input, hide/restore and persistence.
 The fixture uses illustrative content and its own clipboard stub. It never signs
 in to Discord or patches a real installation.
 The suite runs with both full and reduced motion, independently of the host's
 Windows accessibility preferences.
+
+The addon IPC endpoints only select fixed `plugins` and `themes` directories below
+the product home. File reads are bounded, symlink entries are ignored, and imports
+use exclusive creation. Theme removal uses the system Trash. Local plugin builds
+execute in the Discord renderer; loading one is a trust decision by the user.
 
 The fixture does not establish compatibility with every future Discord build.
 After a compatibility change, check the real target channel separately. Keep a
