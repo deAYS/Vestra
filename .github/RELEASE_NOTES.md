@@ -8,6 +8,7 @@ Vestra for Windows — an early alpha with its own plugin API and theme library.
 - Optional Windows sign-in recovery follows Discord updates into new version folders.
 - Theme CSS recovers after native stylesheet changes and removed style elements.
 - Desktop themes, shortcuts and plugin preferences persist in channel-specific files with atomic writes and backup recovery.
+- Theme selection waits for disk confirmation; storage failures are visible and retryable.
 - Midnight, Graphite, Rose and Aurora themes with modern Discord surface colors.
 - Nine built-in plugins, including image zoom, message/code copying and focus mode.
 - A movable settings button with saved position and keyboard access.
