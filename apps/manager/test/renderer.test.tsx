@@ -319,13 +319,13 @@ describe("manager renderer", () => {
     assert.equal(byTestId("badge-canary"), null);
   });
 
-  test("4. development mode: Canary selected + Development target", async () => {
+  test("4. development mode: Stable selected + Development target", async () => {
     fake.devMode = true;
     await mount();
-    const canary = byTestId("install-card-canary");
-    assert.ok(canary?.className.includes("vs-card--selected"), "canary selected");
-    assert.equal(byTestId("badge-canary")?.textContent, "Development target");
-    assert.equal(byTestId("badge-stable"), null);
+    const stable = byTestId("install-card-stable");
+    assert.ok(stable?.className.includes("vs-card--selected"), "stable selected");
+    assert.equal(byTestId("badge-stable")?.textContent, "Development target");
+    assert.equal(byTestId("badge-canary"), null);
   });
 
   test("5. one installation is automatically selected", async () => {
