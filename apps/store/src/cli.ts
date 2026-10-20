@@ -1,8 +1,3 @@
-// Vestra Store — minimal CLI.
-// Phase 13. `browse | search | install | update | remove | enable | disable |
-// list | prune | repos | repo-add | repo-remove`. Exits 0 (ok), 1 (failures),
-// 2 (usage).
-
 import { resolveHome } from "@vestra/installer";
 import { fetchPluginFeed } from "./feed.js";
 import * as store from "./store.js";
