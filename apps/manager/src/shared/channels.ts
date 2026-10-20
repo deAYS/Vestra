@@ -1,8 +1,3 @@
-// Vestra Manager — IPC channel names + channel helpers.
-// Renderer-safe: no Node imports. The "vestra-manager:" prefix namespaces
-// Manager traffic on the Electron ipc bus (distinct from VestraNative's
-// "vestra:native:" prefix used inside Discord).
-
 export const MANAGER_IPC_PREFIX = "vestra-manager:" as const;
 
 export const MANAGER_IPC = {
