@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   applyThemePreset,
   importTheme,
@@ -12,6 +12,9 @@ import { useSettingsSnapshot } from "./hooks.js";
 import { s } from "./theme.js";
 import { Icon } from "./Brand.js";
 import type { PageProps } from "./types.js";
+import { ThemePeek } from "./ThemePeek.js";
+import { ThemeCustomizer } from "./ThemeCustomizer.js";
+import { customizedThemeCss } from "../themeCustomization.js";
 
 function ThemePreview({ colors }: { colors: readonly string[] }): JSX.Element {
   return (
@@ -67,6 +70,16 @@ export function ThemesPage({ settings }: PageProps): JSX.Element {
   const filesAvailable =
     Native.isAvailable() &&
     Native.getCapabilities().includes("addons:readThemes");
+  useEffect(() => {
+    if (!filesAvailable) return;
+    let active = true;
+    void refreshLocalThemes(settings).catch((problem) => {
+      if (active) setError(`Could not refresh theme files: ${String(problem)}`);
+    });
+    return () => {
+      active = false;
+    };
+  }, [filesAvailable, settings]);
   const remove = async (theme: Theme): Promise<void> => {
     setPending(true);
     try {
@@ -136,9 +149,16 @@ export function ThemesPage({ settings }: PageProps): JSX.Element {
         pending={pending}
         refresh={() => refreshLocalThemes(settings)}
       />
+      {themes.find((theme) => theme.enabled) && (
+        <ThemeCustomizer
+          key={themes.find((theme) => theme.enabled)!.id}
+          theme={themes.find((theme) => theme.enabled)!}
+          settings={settings}
+        />
+      )}
       <div className="vs-collection-bar">
         <h3>Curated for Vestra</h3>
-        <span>04 collections</span>
+        <span>{String(THEME_LIBRARY.length).padStart(2, "0")} collections</span>
       </div>
       <div className="vs-theme-grid">
         {THEME_LIBRARY.map((preset) => {
@@ -173,6 +193,7 @@ export function ThemesPage({ settings }: PageProps): JSX.Element {
                     ))}
                     <span style={{ marginLeft: 4 }}>by Vestra</span>
                   </span>
+                  <ThemePeek name={preset.name} css={preset.css} />
                   <button
                     type="button"
                     style={active ? s.button : s.navButton}
@@ -279,6 +300,7 @@ export function ThemesPage({ settings }: PageProps): JSX.Element {
             <strong>{theme.name}</strong>
             <p>
               {theme.author} <span style={{ margin: "0 5px" }}>·</span>
+              {theme.sourceMissing ? "File unavailable · saved copy · " : ""}
               {theme.enabled
                 ? pending
                   ? "Saving…"
@@ -288,6 +310,7 @@ export function ThemesPage({ settings }: PageProps): JSX.Element {
                 : "Ready to apply"}
             </p>
           </div>
+          <ThemePeek name={theme.name} css={customizedThemeCss(theme)} />
           <input
             type="checkbox"
             checked={theme.enabled}
