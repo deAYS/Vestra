@@ -1,8 +1,14 @@
-import { VESTRA_API_VERSION, VESTRA_BRANDING, VESTRA_COLORS, VESTRA_VERSION } from "@vestra/shared";
+import {
+  VESTRA_API_VERSION,
+  VESTRA_BRANDING,
+  VESTRA_COLORS,
+  VESTRA_VERSION,
+} from "@vestra/shared";
 import { Logger } from "./api/logger.js";
 import { Settings, type SettingsStore } from "./api/settings.js";
 import { Styles, type StylesManager } from "./api/styles.js";
-import { startThemes } from "./themes.js";
+import { refreshLocalThemes, startThemes } from "./themes.js";
+import { startPluginShortcuts } from "./pluginShortcuts.js";
 import { BUILTIN_PLUGINS } from "./builtins.js";
 import { pluginManager, type PluginManager } from "./pluginManager.js";
 import { mountVestraSettings, unmountVestraSettings } from "./ui/mount.js";
@@ -12,7 +18,11 @@ import { patcher, type Patcher } from "./api/patcher.js";
 import { Discord, type DiscordAPI } from "./discord/index.js";
 import { Native, NativeBridge } from "./api/native.js";
 import { Toasts, type ToastManager } from "./api/toasts.js";
-import { mountOverlay, overlayController, startOverlayShortcuts } from "./ui/Overlay.js";
+import {
+  mountOverlay,
+  overlayController,
+  startOverlayShortcuts,
+} from "./ui/Overlay.js";
 
 export interface VestraUI {
   mountSettings(container: Element, deps?: VestraUIDeps): () => void;
@@ -45,6 +55,7 @@ let exposedGlobal = false;
 let stopThemes: (() => void) | undefined;
 let stopOverlay: (() => void) | undefined;
 let stopShortcuts: (() => void) | undefined;
+let stopPluginShortcuts: (() => void) | undefined;
 let lifecycle: Promise<void> = Promise.resolve();
 
 // Serialize the whole runtime lifecycle, including concurrent start/stop calls.
@@ -114,6 +125,13 @@ async function startRuntime(): Promise<void> {
       if (!pluginManager.get(plugin.name)) pluginManager.register(plugin);
     }
     stopThemes?.();
+    if (Native.isAvailable()) {
+      try {
+        await refreshLocalThemes();
+      } catch (error) {
+        Logger.captureError(error, "Local theme files");
+      }
+    }
     stopThemes = startThemes();
     await pluginManager.startEnabled();
     // Overlay host (toasts + keybind settings panel). Mounts into its own
@@ -121,8 +139,14 @@ async function startRuntime(): Promise<void> {
     try {
       stopOverlay?.();
       stopShortcuts?.();
-      stopOverlay = mountOverlay({ settings: Settings, plugins: pluginManager, version: VESTRA_VERSION });
+      stopPluginShortcuts?.();
+      stopOverlay = mountOverlay({
+        settings: Settings,
+        plugins: pluginManager,
+        version: VESTRA_VERSION,
+      });
       stopShortcuts = startOverlayShortcuts({ settings: Settings });
+      stopPluginShortcuts = startPluginShortcuts(Settings, pluginManager);
     } catch (err: unknown) {
       Logger.captureError(err, "Vestra.start.Overlay");
     }
@@ -145,6 +169,7 @@ async function startRuntime(): Promise<void> {
     stopThemes?.();
     stopOverlay?.();
     stopShortcuts?.();
+    stopPluginShortcuts?.();
     revokeGlobal();
     throw err;
   }
@@ -157,6 +182,8 @@ export async function stop(): Promise<void> {
 async function stopRuntime(): Promise<void> {
   if (!started) return;
   try {
+    stopPluginShortcuts?.();
+    stopPluginShortcuts = undefined;
     Logger.info("Stopping Vestra runtime…");
     // Suspend running plugins; enabled flags persist for next start().
     await pluginManager.shutdown();
