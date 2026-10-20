@@ -1,8 +1,3 @@
-// @vestra/core — Toast notifications.
-// Vestra-branded stacked toasts (bottom-right): `Toasts.success/info/warn/`
-// `error(...)`. Headless-safe: the manager tracks timers and subscribers with
-// no DOM; `ui/Toasts.tsx` renders them when mounted. Never throws on lookup.
-
 import { Logger, type ScopedLogger } from "./logger.js";
 
 export type ToastType = "info" | "success" | "warn" | "error";
