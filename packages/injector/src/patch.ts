@@ -5,7 +5,7 @@ import {
   assertDestructiveTestTargetAllowed,
   type SafetyOptions,
 } from "@vestra/shared/node/testSafety.js";
-import { packAsar, readAsarMain, unpackAsar } from "./asar.js";
+import { packAsar, readAsarFile, readAsarMain, unpackAsar } from "./asar.js";
 import type { DiscordInstall } from "./paths.js";
 import { getRealFs } from "./realFs.js";
 
@@ -55,11 +55,14 @@ function backupPathFor(install: DiscordInstall): string {
 }
 
 /** Read the current receipt, or undefined when not injected. */
-export function readReceipt(install: DiscordInstall): InjectReceipt | undefined {
+export function readReceipt(
+  install: DiscordInstall,
+): InjectReceipt | undefined {
   try {
     const raw = fs.readFileSync(receiptPathFor(install), "utf8");
     const parsed = JSON.parse(raw) as Partial<InjectReceipt>;
-    if (parsed.tool !== "vestra-injector" || parsed.version !== 1) return undefined;
+    if (parsed.tool !== "vestra-injector" || parsed.version !== 1)
+      return undefined;
     return parsed as InjectReceipt;
   } catch {
     return undefined;
@@ -97,7 +100,9 @@ export function planInject(
   try {
     mainEntry = readAsarMain(install.asarPath);
   } catch (err: unknown) {
-    throw new Error(`Cannot plan inject for ${install.asarPath}: ${describe(err)}`);
+    throw new Error(
+      `Cannot plan inject for ${install.asarPath}: ${describe(err)}`,
+    );
   }
   const plan: InjectPlan = {
     install,
@@ -144,20 +149,41 @@ export async function applyInject(
   assertDestructiveTestTargetAllowed(install.asarPath, options ?? {});
   requirePayload(payload);
   const workDir =
-    options?.keepWorkDir ?? (await fs.promises.mkdtemp(path.join(os.tmpdir(), "vestra-inject-")));
+    options?.keepWorkDir ??
+    (await fs.promises.mkdtemp(path.join(os.tmpdir(), "vestra-inject-")));
   let backedUp = false;
   try {
     // Physical archive copies: route through the unpatched filesystem.
-    await getRealFs().promises.copyFile(install.asarPath, plan.backupPath, fs.constants.COPYFILE_EXCL);
+    await getRealFs().promises.copyFile(
+      install.asarPath,
+      plan.backupPath,
+      fs.constants.COPYFILE_EXCL,
+    );
     backedUp = true;
     await unpackAsar(install.asarPath, workDir);
 
     const vestraDir = path.join(workDir, VESTRA_DIR);
     await fs.promises.mkdir(vestraDir, { recursive: true });
-    await fs.promises.writeFile(path.join(vestraDir, BUNDLE_FILE), payload.bundleSource, "utf8");
-    await fs.promises.writeFile(path.join(vestraDir, PRELOAD_FILE), payload.preloadSource, "utf8");
-    await fs.promises.writeFile(path.join(vestraDir, MAIN_HOOK_FILE), payload.mainHookSource, "utf8");
-    await fs.promises.writeFile(path.join(vestraDir, LOADER_FILE), payload.loaderSource, "utf8");
+    await fs.promises.writeFile(
+      path.join(vestraDir, BUNDLE_FILE),
+      payload.bundleSource,
+      "utf8",
+    );
+    await fs.promises.writeFile(
+      path.join(vestraDir, PRELOAD_FILE),
+      payload.preloadSource,
+      "utf8",
+    );
+    await fs.promises.writeFile(
+      path.join(vestraDir, MAIN_HOOK_FILE),
+      payload.mainHookSource,
+      "utf8",
+    );
+    await fs.promises.writeFile(
+      path.join(vestraDir, LOADER_FILE),
+      payload.loaderSource,
+      "utf8",
+    );
 
     const entryPath = path.join(workDir, plan.mainEntry);
     const original = await fs.promises.readFile(entryPath, "utf8");
@@ -165,11 +191,22 @@ export async function applyInject(
       throw new Error(`Main entry already hooked: ${plan.mainEntry}`);
     }
     // Keep hashbang and strict-mode directives at the start of the CJS module.
-    const prologue = original.match(/^(?:#![^\n]*\n)?\s*(?:(?:"use strict"|'use strict');?\s*)?/u)?.[0] ?? "";
-    await fs.promises.writeFile(entryPath, `${prologue}${plan.hookLines.join("\n")}\n${original.slice(prologue.length)}`, "utf8");
+    const prologue =
+      original.match(
+        /^(?:#![^\n]*\n)?\s*(?:(?:"use strict"|'use strict');?\s*)?/u,
+      )?.[0] ?? "";
+    await fs.promises.writeFile(
+      entryPath,
+      `${prologue}${plan.hookLines.join("\n")}\n${original.slice(prologue.length)}`,
+      "utf8",
+    );
 
     await packAsar(workDir, install.asarPath);
-    await fs.promises.writeFile(plan.receiptPath, JSON.stringify(plan.receipt, null, 2), "utf8");
+    await fs.promises.writeFile(
+      plan.receiptPath,
+      JSON.stringify(plan.receipt, null, 2),
+      "utf8",
+    );
   } catch (err: unknown) {
     if (backedUp) {
       try {
@@ -192,7 +229,10 @@ export async function applyInject(
  * Test-safety: the Discord-mutation guard runs first, so a test-mode call
  * against a real install throws even when the CLI layer is bypassed.
  */
-export async function uninject(install: DiscordInstall, safety?: SafetyOptions): Promise<void> {
+export async function uninject(
+  install: DiscordInstall,
+  safety?: SafetyOptions,
+): Promise<void> {
   assertDestructiveTestTargetAllowed(install.asarPath, safety ?? {});
   let backupIsFile = false;
   try {
@@ -203,13 +243,24 @@ export async function uninject(install: DiscordInstall, safety?: SafetyOptions):
   if (!backupIsFile) {
     throw new Error(`Not injected (no backup): ${install.asarPath}`);
   }
-  await getRealFs().promises.copyFile(backupPathFor(install), install.asarPath);
+  const main = readAsarMain(install.asarPath);
+  if (readAsarFile(install.asarPath, main).includes(HOOK_REQUIRE_PREFIX)) {
+    await getRealFs().promises.copyFile(
+      backupPathFor(install),
+      install.asarPath,
+    );
+  }
   await getRealFs().promises.rm(backupPathFor(install), { force: true });
   await fs.promises.rm(receiptPathFor(install), { force: true });
 }
 
 function requirePayload(payload: PayloadSources): void {
-  for (const key of ["bundleSource", "preloadSource", "mainHookSource", "loaderSource"] as const) {
+  for (const key of [
+    "bundleSource",
+    "preloadSource",
+    "mainHookSource",
+    "loaderSource",
+  ] as const) {
     const value = payload[key];
     if (typeof value !== "string" || value === "") {
       throw new Error(`Inject payload missing "${key}".`);
