@@ -1,8 +1,3 @@
-// Vestra Manager — shallow/deep UI state machine.
-// status() is cheap and NOT authoritative: a shallow "healthy" only means
-// injected + registered. Only check() (deep, byte-level) may render Healthy.
-// Shallow-installed cards must render "Installed / Checking", never Healthy.
-
 import type { DiscordChannel } from "./channels.js";
 import type { InstallHealth, InstallStatus } from "./types.js";
 
