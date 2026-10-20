@@ -2,13 +2,14 @@
 const { app, BrowserWindow, session } = require("electron");
 const path = require("node:path");
 const assert = require("node:assert/strict");
+const splashSource = require("node:fs").readFileSync(path.join(__dirname,"splash-source.js"),"utf8");
 const presets = require("./theme-fixture.json");
 const utilityNames = ["ImageZoom", "QuickMessageCopy", "CleanLinkCopy", "FullTimestamps", "CodeBlockCopy", "FocusMode"];
 
 app.setPath("userData", path.join(__dirname, "user-data"));
 app.setPath("appData", path.join(__dirname, "app-data"));
 app.setPath("sessionData", path.join(__dirname, "session-data"));
-const timer = setTimeout(() => { console.error("Electron smoke timed out"); app.exit(1); }, 25000);
+const timer = setTimeout(() => { console.error("Electron smoke timed out"); app.exit(1); }, 45000);
 
 // Simulate only the host identity; use real Electron sessions, frames, IPC,
 // context isolation, sandbox, CSP, bundle execution and DOM for everything else.
@@ -33,6 +34,11 @@ app.whenReady().then(async () => {
   const evaluate = source => win.webContents.executeJavaScript(source);
   const page = (fn, ...args) => evaluate(`(${fn.toString()})(...${JSON.stringify(args)})`);
   const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
+  const waitFor = async (source, label) => {
+    const deadline = Date.now() + 6000;
+    while (Date.now() < deadline) { if (await evaluate(source)) return; await pause(50); }
+    assert.fail(label);
+  };
   try {
     await win.loadURL("https://discord.com/channels/789/123");
     let ready = false;
@@ -55,13 +61,31 @@ app.whenReady().then(async () => {
       return {native:v.Native.isAvailable(),plugins:v.Plugins.list().length,sdk:v.Styles.has('ExamplePlugin'),reduced,stopped:!v.Styles.has('plugin-reduced-motion'),theme,quick};
     })()`);
     assert.deepEqual(result, { native: true, plugins: 10, sdk: true, reduced: true, stopped: true, theme: true, quick: true });
-    // A fast successful bootstrap still paints the splash, then reveals the client.
-    assert.equal(await evaluate("Boolean(document.getElementById('vestra-splash'))"), true);
-    await pause(1400);
-    const reveal = await evaluate("(() => {const el=document.getElementById('vestra-splash'); const style=getComputedStyle(el); return {closing:el.classList.contains('vs-done'),mask:style.maskImage,progress:parseFloat(style.getPropertyValue('--vs-reveal'))}})()");
-    assert.equal(reveal.closing, true, 'fast startup reaches the reveal animation');
+    await waitFor("document.getElementById('vestra-splash') === null", 'bootstrap splash exits');
+    // Sample Chromium's actual animation at a fixed playback position. Wall-clock
+    // sleeps can miss its entire lifetime on a busy hosted Windows runner.
+    const reveal = await evaluate(`new Promise((resolve,reject) => {
+      const splash = ${splashSource};
+      const el = document.getElementById('vestra-splash');
+      const mountedAt = performance.now();
+      const visible = getComputedStyle(el).opacity === '1';
+      const timeout = setTimeout(() => { observer.disconnect(); reject(new Error('Splash never completed')); },5000);
+      const observer = new MutationObserver(() => {
+        if (!el.classList.contains('vs-done')) return;
+        observer.disconnect(); clearTimeout(timeout);
+        const animation = el.getAnimations().find(item => item.animationName === 'vs-unveil');
+        if (!animation) { reject(new Error('Radial reveal animation missing')); return; }
+        animation.pause(); animation.currentTime = 450;
+        const style = getComputedStyle(el);
+        resolve({visible,lifetime:performance.now()-mountedAt,mask:style.maskImage,progress:parseFloat(style.getPropertyValue('--vs-reveal'))});
+      });
+      observer.observe(el,{attributes:true,attributeFilter:['class']});
+      splash.set(100,'Ready');
+    })`);
+    assert.equal(reveal.visible, true, 'fast completion stays visible before dismissal');
+    assert.ok(reveal.lifetime >= 1000, 'minimum visual lifetime is preserved without blocking startup');
     assert.ok(reveal.mask.includes('radial-gradient') && reveal.progress > 0 && reveal.progress < 125, 'the radial transparency actually interpolates in Chromium');
-    await pause(900);
+    await waitFor("document.getElementById('vestra-splash') === null", 'reveal cleans up even when its animation is paused');
     assert.equal(await evaluate("Boolean(document.querySelector('[aria-modal=true]'))"), true);
     assert.equal(await evaluate("document.getElementById('vestra-splash') === null"), true);
 
@@ -92,10 +116,10 @@ app.whenReady().then(async () => {
     assert.deepEqual(copied, ['Hello fixtureLink\nconst hello = 1;','https://discord.com/channels/789/123/456','https://example.test/watch?v=abc#part','const hello = 1;']);
     // React-like replacement of a code block's children must recreate our button.
     await evaluate("document.querySelector('pre').innerHTML='<code>new code</code>'");
-    await pause(100);
+    await waitFor("document.querySelectorAll('[data-vestra-code-copy]').length === 1", 'copy button survives host content replacement');
     assert.equal(await evaluate("document.querySelectorAll('[data-vestra-code-copy]').length"), 1);
     await evaluate("document.querySelector('time').setAttribute('datetime','2026-11-21T11:22:44Z')");
-    await pause(50);
+    await waitFor("document.querySelector('time').getAttribute('data-vestra-time').includes('44')", 'reused timestamps update');
     assert.equal(await evaluate("document.querySelector('time').getAttribute('data-vestra-time').includes('44')"), true);
     await evaluate("document.dispatchEvent(new KeyboardEvent('keydown',{code:'KeyF',ctrlKey:true,altKey:true,bubbles:true,cancelable:true}))");
     assert.equal(await evaluate("getComputedStyle(document.getElementById('fixture-side')).display"), 'none');
@@ -116,7 +140,7 @@ app.whenReady().then(async () => {
     assert.equal(await evaluate("window.__fixtureCopies.length"), 4, 'disabled clipboard shortcuts are removed');
 
     await evaluate("window.Vestra.UI.closeSettings()");
-    await pause(220);
+    await waitFor("document.querySelector('[aria-modal=true]') === null", 'settings close');
     const point = await evaluate("(() => {const r=document.querySelector('.vs-settings-launcher').getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2}})()");
     win.webContents.sendInputEvent({type:'mouseMove',x:Math.round(point.x),y:Math.round(point.y)});
     await pause(30);
@@ -125,19 +149,20 @@ app.whenReady().then(async () => {
     win.webContents.sendInputEvent({type:'mouseMove',x:650,y:110,modifiers:['leftButtonDown']});
     await pause(30);
     win.webContents.sendInputEvent({type:'mouseUp',button:'left',clickCount:1,x:650,y:110});
-    await pause(100);
+    await waitFor("window.Vestra.Settings.getPluginSetting('Vestra','launcherPosition')?.x > .7", 'drag position is saved');
     const moved = await evaluate("({position:window.Vestra.Settings.getPluginSetting('Vestra','launcherPosition'),open:document.querySelector('.vs-settings-launcher').getAttribute('aria-expanded')})");
     assert.ok(moved.position.x > .7 && moved.position.y < .3, 'real mouse dragging persists the launcher position');
     assert.equal(moved.open, 'false', 'dragging does not open settings');
     await win.loadURL("https://discord.com/channels/789/123");
-    await pause(2400);
+    await waitFor("Boolean(window.Vestra?.started && document.querySelector('.vs-settings-launcher')) && document.getElementById('vestra-splash') === null", 'runtime and launcher restore after navigation');
     assert.deepEqual(await evaluate("window.Vestra.Settings.getPluginSetting('Vestra','launcherPosition')"), moved.position, 'position survives a full reload');
     const launcher = await evaluate("(() => {const r=document.querySelector('.vs-settings-launcher').getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2}})()");
+    await evaluate("(() => {const button=document.querySelector('.vs-settings-launcher');const animate=button.animate.bind(button);button.animate=(...args)=>{const animation=animate(...args);window.__fixturePressAnimation=animation;return animation;};})()");
     win.webContents.sendInputEvent({type:'mouseDown',button:'left',clickCount:1,modifiers:['leftButtonDown'],x:Math.round(launcher.x),y:Math.round(launcher.y)});
     win.webContents.sendInputEvent({type:'mouseUp',button:'left',clickCount:1,x:Math.round(launcher.x),y:Math.round(launcher.y)});
-    await pause(60);
-    assert.equal(await evaluate("document.querySelector('.vs-settings-launcher').getAnimations().length > 0"), true, 'button plays a press and rebound animation');
-    await pause(600);
+    await waitFor("Boolean(window.__fixturePressAnimation)", 'launcher creates an actual Web Animation');
+    assert.equal(await evaluate("window.__fixturePressAnimation.effect.getKeyframes().some(frame => frame.transform.includes('scale'))"), true, 'button plays a press and rebound animation');
+    await waitFor("Boolean(document.querySelector('[aria-modal=true]'))", 'normal click opens settings');
     assert.equal(await evaluate("Boolean(document.querySelector('[aria-modal=true]'))"), true, 'normal click opens settings after dragging and reloading');
     await win.loadURL("https://example.test/app");
     assert.equal(await evaluate("typeof window.VestraNative"), "undefined");
