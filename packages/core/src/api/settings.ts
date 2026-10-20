@@ -16,6 +16,38 @@ export const CustomCssSchema = z.object({
 
 export type CustomCss = z.infer<typeof CustomCssSchema>;
 
+export const ThemeCustomizationSchema = z.object({
+  opacity: z.number().min(5).max(100).default(28),
+  blur: z.number().min(0).max(48).default(26),
+  saturation: z.number().min(0).max(200).default(125),
+  brightness: z.number().min(35).max(120).default(100),
+  radius: z.number().min(0).max(30).default(22),
+  backgroundColor: z
+    .string()
+    .regex(/^(?:#[0-9a-fA-F]{6})?$/)
+    .default(""),
+  backgroundImage: z
+    .string()
+    .max(1_500_000)
+    .refine((value) => {
+      if (!value) return true;
+      if (
+        /^data:image\/(?:png|jpeg|webp|avif);base64,[A-Za-z0-9+/=]+$/.test(
+          value,
+        )
+      )
+        return true;
+      try {
+        const url = new URL(value);
+        return url.protocol === "https:" && !url.username && !url.password;
+      } catch {
+        return false;
+      }
+    }, "Choose an image or an HTTPS image URL.")
+    .default(""),
+});
+export type ThemeCustomization = z.infer<typeof ThemeCustomizationSchema>;
+
 export const ThemeSchema = z.object({
   id: z.string().regex(/^[A-Za-z0-9_-]{1,80}$/),
   name: z.string().min(1).max(120),
@@ -34,6 +66,8 @@ export const ThemeSchema = z.object({
       "Invalid theme source filename",
     )
     .optional(),
+  sourceMissing: z.boolean().optional(),
+  customization: ThemeCustomizationSchema.optional(),
 });
 export type Theme = z.infer<typeof ThemeSchema>;
 
@@ -107,7 +141,12 @@ function cloneSettings(state: VestraSettings): VestraSettings {
   return {
     plugins,
     customCss: { ...state.customCss },
-    themes: state.themes.map((theme) => ({ ...theme })),
+    themes: state.themes.map((theme) => ({
+      ...theme,
+      ...(theme.customization
+        ? { customization: { ...theme.customization } }
+        : {}),
+    })),
   };
 }
 
@@ -397,11 +436,15 @@ export class SettingsStore {
   }
 
   getThemes(): Theme[] {
-    return this.state.themes.map((theme) => ({ ...theme }));
+    return cloneSettings(this.state).themes;
   }
 
   setThemes(themes: readonly Theme[]): void {
     const checked = z.array(ThemeSchema).max(32).parse(themes);
+    if (JSON.stringify(checked).length > 18_000_000)
+      throw new TypeError(
+        "Your theme library is too large. Remove an image or a theme before saving.",
+      );
     if (new Set(checked.map((theme) => theme.id)).size !== checked.length)
       throw new TypeError("Duplicate theme id.");
     const enabled = checked.filter((theme) => theme.enabled);
@@ -428,6 +471,26 @@ export class SettingsStore {
         ...theme,
         enabled: theme.id === id,
       })),
+    );
+  }
+
+  setThemeCustomization(
+    id: string,
+    value: ThemeCustomization | undefined,
+  ): void {
+    if (!this.state.themes.some((theme) => theme.id === id))
+      throw new TypeError("Theme not found.");
+    this.setThemes(
+      this.state.themes.map((theme) => {
+        if (theme.id !== id) return theme;
+        const { customization: _previous, ...original } = theme;
+        return value
+          ? {
+              ...original,
+              customization: ThemeCustomizationSchema.parse(value),
+            }
+          : original;
+      }),
     );
   }
 
@@ -459,12 +522,14 @@ export class SettingsStore {
 
   private persist(): void {
     try {
-      // Local CSS files are authoritative and re-read before themes start.
-      // Keeping a second full copy here can exhaust browser storage.
+      // Desktop files can hold the bounded library and its last working CSS.
+      // Browser storage stays small; local files are refreshed when available.
       const raw = JSON.stringify({
         ...this.state,
         themes: this.state.themes.map((theme) =>
-          theme.sourceFile ? { ...theme, css: "" } : theme,
+          theme.sourceFile && !this.nativeStorage
+            ? { ...theme, css: "" }
+            : theme,
         ),
       });
       if (this.nativeStorage) {
