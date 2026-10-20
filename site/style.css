@@ -55,9 +55,10 @@ a {
   touch-action: manipulation;
 }
 .wrap {
-  max-width: 1240px;
+  width: 100%;
+  max-width: 1600px;
   margin-inline: auto;
-  padding-inline: 40px;
+  padding-inline: clamp(40px, 5vw, 96px);
 }
 .skip {
   position: fixed;
@@ -980,6 +981,18 @@ footer small {
 footer .source-link {
   font-size: 10px;
 }
+.footer-links {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  flex-wrap: wrap;
+}
+.footer-links a {
+  min-height: 40px;
+}
+.footer-links a:hover {
+  color: var(--accent);
+}
 @keyframes product-arrive {
   from {
     opacity: 0;
@@ -1003,8 +1016,36 @@ footer .source-link {
 }
 @media (min-width: 1500px) {
   .hero {
-    padding-top: 120px;
-    padding-bottom: 110px;
+    gap: clamp(55px, 4vw, 90px);
+    padding-top: 100px;
+    padding-bottom: 94px;
+  }
+  h1 {
+    font-size: clamp(78px, 5.2vw, 112px);
+  }
+  .hero-description {
+    font-size: 16px;
+    max-width: 380px;
+  }
+}
+@media (min-width: 1800px) {
+  .wrap {
+    max-width: 2160px;
+    width: 88%;
+    padding-inline: 0;
+  }
+  body {
+    background:
+      radial-gradient(ellipse at 0 28vh, #8870b20b, transparent 30%),
+      radial-gradient(ellipse at 100% 70vh, #8870b20c, transparent 32%),
+      var(--bg);
+  }
+  .hero::after {
+    content: "";
+    position: absolute;
+    inset: 0 -3vw;
+    border-inline: 1px solid #c5baf807;
+    pointer-events: none;
   }
 }
 @media (max-width: 1000px) {
@@ -1253,7 +1294,7 @@ footer .source-link {
     margin-left: auto;
     text-align: right;
   }
-  footer > .source-link {
+  footer > .footer-links {
     width: 100%;
     justify-content: center;
   }
