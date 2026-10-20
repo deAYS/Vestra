@@ -1,13 +1,6 @@
-// Vestra Updater — check / download / apply orchestration.
-// Phase 12. `check` writes `{home}/update-status.json` (the main hook serves
-// it to the renderer). `download` stages a verified envelope. `apply`
-// re-injects touched installs with the new payload and rolls back to the
-// previous payload per install when the re-inject fails. `prune` drops
-// unreferenced staged versions.
-
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { VESTRA_VERSION } from "@vestra/shared";
+import { assertSafeVersion, VESTRA_VERSION } from "@vestra/shared";
 import {
   installAll,
   layoutHome,
@@ -94,6 +87,15 @@ export async function currentStagedVersion(homeDir: string): Promise<string> {
   return best === "" ? VESTRA_VERSION : best;
 }
 
+/** Downloading a release does not install it. Compare feeds to recorded installs. */
+export async function currentInstalledVersion(homeDir: string): Promise<string> {
+  const registry = await loadRegistry(layoutHome(homeDir).registryPath);
+  const versions = Object.values(registry).map(entry => entry.payloadVersion).filter(version => {
+    try { assertSafeVersion(version); return true; } catch { return false; }
+  });
+  return versions.sort(compareVersions)[0] ?? VESTRA_VERSION;
+}
+
 /** Check the feed; persist the status file for the main hook. Never throws on feed shape issues. */
 export async function checkForUpdates(ctx: UpdateContext): Promise<UpdateStatus> {
   if (ctx.feedUrl === undefined || ctx.feedUrl === "") {
@@ -101,7 +103,7 @@ export async function checkForUpdates(ctx: UpdateContext): Promise<UpdateStatus>
   }
   // Protection (2): the status file is written under the home.
   guardHome(ctx);
-  const current = await currentStagedVersion(ctx.homeDir);
+  const current = await currentInstalledVersion(ctx.homeDir);
   const feed = await fetchFeed(ctx.feedUrl, ctx.fetchFn);
   const newest = newestAbove(feed, current);
   const status: UpdateStatus = {
@@ -129,7 +131,7 @@ export async function downloadUpdate(
   }
   // Protection (2): the envelope payload is staged under the home.
   guardHome(ctx);
-  const current = await currentStagedVersion(ctx.homeDir);
+  const current = await currentInstalledVersion(ctx.homeDir);
   const feed = await fetchFeed(ctx.feedUrl, ctx.fetchFn);
   const target =
     version === undefined
@@ -169,6 +171,7 @@ export async function downloadUpdate(
  * version; failures are reported per install, never thrown.
  */
 export async function applyUpdate(ctx: UpdateContext, version: string): Promise<ApplyResult> {
+  assertSafeVersion(version);
   if (version === "") throw new TypeError("applyUpdate() requires a version.");
   // Protection (2): registry entries are re-recorded under the home below.
   guardHome(ctx);
