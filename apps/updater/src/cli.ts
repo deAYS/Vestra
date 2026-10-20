@@ -1,7 +1,3 @@
-// Vestra Updater — minimal CLI.
-// Phase 12. `check | download | apply | update | prune | status`.
-// Exits 0 (ok / nothing to do), 1 (failures), 2 (usage).
-
 import type { DiscordChannel } from "@vestra/injector";
 import { resolveHome } from "@vestra/installer";
 import { applyUpdate, checkForUpdates, currentStagedVersion, downloadUpdate, prunePayloads } from "./update.js";
