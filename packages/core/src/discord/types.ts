@@ -1,8 +1,3 @@
-// @vestra/core discord — public wrapper types.
-// Phase 8 (roadmap #8). Minimal structural facades over Discord internals.
-// Fields are optional beyond `id` because Discord's shapes drift; wrappers
-// validate structure at resolve time and degrade to undefined at call time.
-
 /** Lazily resolved, cached handle. Never throws on lookup. */
 export interface DiscordWrapper<T> {
   readonly name: string;
