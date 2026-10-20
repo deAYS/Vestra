@@ -1,10 +1,3 @@
-// @vestra/core — Settings store.
-// Phase 3. Centralized persistent settings on the spec shape
-// `{ plugins: { [name]: { enabled, settings } }, customCss }`, prototype-backed
-// by `localStorage` under VESTRA_STORAGE_KEY with an in-memory fallback for
-// Node/Bun. Never blocks startup on corrupt data: total JSON failure resets to
-// defaults, partial invalid fields are salvaged/discarded with warnings.
-
 import { VESTRA_STORAGE_KEY } from "@vestra/shared";
 import { z } from "zod";
 import { Logger, type ScopedLogger } from "./logger.js";
@@ -23,9 +16,19 @@ export const CustomCssSchema = z.object({
 
 export type CustomCss = z.infer<typeof CustomCssSchema>;
 
+export const ThemeSchema = z.object({
+  id: z.string().regex(/^[A-Za-z0-9_-]{1,80}$/),
+  name: z.string().min(1).max(120),
+  author: z.string().max(120).default("Unknown"),
+  css: z.string().max(512_000),
+  enabled: z.boolean(),
+});
+export type Theme = z.infer<typeof ThemeSchema>;
+
 export const VestraSettingsSchema = z.object({
   plugins: z.record(PluginSettingsEntrySchema).default({}),
   customCss: CustomCssSchema.default({ enabled: false, css: "" }),
+  themes: z.array(ThemeSchema).max(32).default([]),
 });
 
 export type VestraSettings = z.infer<typeof VestraSettingsSchema>;
@@ -33,6 +36,7 @@ export type VestraSettings = z.infer<typeof VestraSettingsSchema>;
 export const DEFAULT_SETTINGS: VestraSettings = {
   plugins: {},
   customCss: { enabled: false, css: "" },
+  themes: [],
 };
 
 export type SettingsListener = (snapshot: Readonly<VestraSettings>) => void;
@@ -76,7 +80,7 @@ function cloneSettings(state: VestraSettings): VestraSettings {
   for (const [name, entry] of Object.entries(state.plugins)) {
     plugins[name] = { enabled: entry.enabled, settings: { ...entry.settings } };
   }
-  return { plugins, customCss: { ...state.customCss } };
+  return { plugins, customCss: { ...state.customCss }, themes: state.themes.map(theme => ({ ...theme })) };
 }
 
 interface LoadResult {
@@ -138,7 +142,7 @@ function normalizeParsed(parsed: unknown, logger: ScopedLogger): LoadResult {
 
   // --- customCss ---
   // Current shape: `{ enabled: boolean, css: string }`.
-  // Legacy: bare `boolean` (spec Phase 2 shape) migrates to `{ enabled: bool, css: "" }`.
+  // Legacy: bare `boolean` migrates to `{ enabled: bool, css: "" }`.
   let customCss: CustomCss = { enabled: false, css: "" };
   const rawCss = parsed["customCss"];
   if (rawCss === undefined) {
@@ -177,7 +181,18 @@ function normalizeParsed(parsed: unknown, logger: ScopedLogger): LoadResult {
     logger.warn("Settings: discarding invalid `customCss` (expected object).");
   }
 
-  return { settings: { plugins, customCss }, migrated };
+  const themes: Theme[] = [];
+  const ids = new Set<string>();
+  if (Array.isArray(parsed["themes"])) {
+    for (const raw of parsed["themes"].slice(0, 32)) {
+      const checked = ThemeSchema.safeParse(raw);
+      if (checked.success && !ids.has(checked.data.id)) {
+        ids.add(checked.data.id);
+        themes.push(checked.data);
+      }
+    }
+  }
+  return { settings: { plugins, customCss, themes }, migrated };
 }
 
 export class SettingsStore {
@@ -197,6 +212,7 @@ export class SettingsStore {
     const raw = this.useLocalStorage ? readRaw() : this.memoryRaw.raw;
     if (raw === null) {
       this.state = cloneSettings(DEFAULT_SETTINGS);
+      this.emit();
       return;
     }
     let parsed: unknown;
@@ -273,6 +289,18 @@ export class SettingsStore {
 
   getCustomCss(): Readonly<CustomCss> {
     return { ...this.state.customCss };
+  }
+
+  getThemes(): Theme[] {
+    return this.state.themes.map(theme => ({ ...theme }));
+  }
+
+  setThemes(themes: readonly Theme[]): void {
+    const checked = z.array(ThemeSchema).max(32).parse(themes);
+    if (new Set(checked.map(theme => theme.id)).size !== checked.length) throw new TypeError("Duplicate theme id.");
+    this.state.themes = checked;
+    this.persist();
+    this.emit();
   }
 
   setCustomCss(value: CustomCss): void {
