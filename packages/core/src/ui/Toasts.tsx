@@ -1,12 +1,8 @@
-// @vestra/core UI — toast stack.
-// Renders `ToastManager` toasts bottom-right: glass cards, per-type accent,
-// slide-in + timed progress bar (pauses on hover), click × or auto-dismiss.
-// CSS (keyframes included) is injected once through the Styles API.
-
 import { useEffect, useRef, useState } from "react";
 import { Logger } from "../api/logger.js";
 import { Styles } from "../api/styles.js";
 import type { Toast, ToastManager } from "../api/toasts.js";
+import { VESTRA_MARK_PATH } from "@vestra/shared";
 
 const TOAST_CSS_ID = "vestra-toasts";
 
@@ -53,8 +49,8 @@ const TYPE_COLOR: Record<Toast["type"], string> = {
 
 export function VMark({ color }: { color: string }): JSX.Element {
   return (
-    <svg className="vs-toast-mark" viewBox="0 0 40 44" width="16" height="16" aria-hidden="true">
-      <polygon points="4,6 20,38 36,6 28,6 20,26 12,6" fill={color} />
+    <svg className="vs-toast-mark" viewBox="0 0 64 64" width="16" height="16" aria-hidden="true">
+      <path d={VESTRA_MARK_PATH} fill={color} fillRule="evenodd" />
     </svg>
   );
 }
