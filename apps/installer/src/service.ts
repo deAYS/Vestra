@@ -1,20 +1,3 @@
-// Vestra Installer — programmatic service API.
-//
-// Thin, GUI-safe facade over operations.ts (the engine) and discovery
-// (@vestra/injector listInstalls). The CLI (`cli.ts`) and the future Vestra
-// Manager GUI both consume this service. The future bootstrap/update-recovery
-// logic can also consume it.
-//
-// Rules:
-// - Structured typed results only. No console output. No process exit codes.
-// - Discovery (cheap metadata) and health (status/check) stay separate.
-// - status() is cheap: isInjected + registry presence only. It never reads
-//   ASAR contents. Only check() may claim authoritative deep integrity.
-// - Channel filtering reuses operations' channelMatches semantics.
-// - testMode / knownFixtureRoots / discovery propagate verbatim to the
-//   test-safety guard; no service path bypasses it.
-// - onProgress is optional, strongly typed, zero behavior change when absent.
-
 import {
   isInjected,
   listInstalls,
@@ -246,7 +229,8 @@ export interface PruneOptions extends ChannelScope {
 
 function emit(listener: InstallerProgressListener | undefined, event: InstallerProgressEvent): void {
   if (listener === undefined) return;
-  listener(event);
+  // A closed GUI/progress consumer must not interrupt an archive transaction.
+  try { listener(event); } catch { /* observer failure is isolated */ }
 }
 
 // ---------------------------------------------------------------------------
@@ -298,7 +282,7 @@ function withCode(result: PerInstallResult): ServicePerInstallResult {
 
 function summarize(batch: BatchResult): OperationSummary {
   const results = batch.results.map(withCode);
-  return { ok: results.every((r) => r.ok), results };
+  return { ok: results.length > 0 && results.every((r) => r.ok), results };
 }
 
 // ---------------------------------------------------------------------------
