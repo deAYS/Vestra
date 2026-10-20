@@ -39,18 +39,31 @@ and Canary can be discovered; GUI operations target the installation you select.
 
 ## Make it yours
 
-**Four curated themes.** Midnight, Graphite, Rose and Aurora change the main Discord
+**Six curated themes.** Midnight, Graphite, Rose, Aurora, Afterglow and Liquid Glass change the main Discord
 surfaces, input areas and accents. Apply one from the library or import your own
 `.css` / `.theme.css` file. Selecting a theme turns the previous one off, including
 when you switch from your library. Previous built-in presets upgrade automatically.
 Native background gradients are replaced while the theme is active and restored
 when it is disabled.
 
+**Your own atmosphere.** Select a theme, then use its appearance panel to adjust
+opacity, glass blur, background saturation and brightness, or corner radius.
+Choose a local picture, an HTTPS image URL or a background color. The sample
+preview leaves Discord unchanged until you click **Apply appearance**. Each theme
+remembers its own choices; **Restore original** removes the overrides. Local
+pictures are resized and embedded in your settings so moving the source file or
+restarting Discord does not lose them. Liquid Glass uses frosted translucent
+panels over a lit backdrop; it approximates glass with CSS rather than native
+iOS optical refraction.
+
 **A movable workspace button.** Drag it to a comfortable spot; its position survives
 a restart and stays within the window when resized. Keyboard users can use arrow
 keys, Shift+arrow for larger steps, or Home to reset its position.
 Right-click the button to hide it with a rotating exit animation. Your shortcut
-still opens Vestra; **Overview → Floating Vestra button** brings it back.
+still opens Vestra; **Show floating button** in the settings sidebar brings it back.
+Settings reopen on your last page and scroll position. The workspace and floating
+button can follow your selected theme; switch this off in Overview if you prefer
+the original Vestra palette.
 
 **A proper CSS editor.** Syntax highlighting, line numbers, CSS completion, bracket
 matching, undo, search and automatic scrolling follow your edits. Changes save
@@ -91,7 +104,7 @@ SDK builder defaults new builds to enabled.
 
 **Themes → Open theme folder** opens `%AppData%\Vestra\themes`. Add `.css` files,
 then click **Refresh files**. Changes to existing files preserve their selection;
-missing files leave the library. Import CSS copies the file into this folder
+missing files keep their saved CSS and show a file-unavailable label. Import CSS copies the file into this folder
 without overwriting an existing file. **Save file** exports a library theme there.
 Removing a file-backed theme moves its file to the system Trash.
 
