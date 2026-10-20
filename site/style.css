@@ -1416,3 +1416,8 @@ footer .source-link {
     transition: none !important;
   }
 }
+
+.client-demo[data-palette="liquid-glass"]{background:radial-gradient(ellipse at 85% 5%,#e3b69d88,transparent 65%),radial-gradient(ellipse at 5% 80%,#9b84d6a0,transparent 70%),radial-gradient(ellipse at 60% 95%,#b2dcce60,transparent 65%),#342b40;border-color:#ffffff35;box-shadow:inset 0 1px 0 #ffffff30,0 24px 80px #0005}
+.client-demo[data-palette="liquid-glass"] .demo-top{background:#ffffff10;border-color:#ffffff22}
+.client-demo[data-palette="liquid-glass"] :is(.demo-rail,.demo-channels,.demo-chat,.demo-members){background:#ffffff09;backdrop-filter:blur(20px);border-color:#ffffff20}
+.client-demo[data-palette="liquid-glass"] .demo-input{border:1px solid #ffffff35;border-radius:18px;box-shadow:inset 0 1px 0 #ffffff28}
