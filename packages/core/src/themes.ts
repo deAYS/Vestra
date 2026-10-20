@@ -1,5 +1,6 @@
 import { Settings, type SettingsStore, type Theme } from "./api/settings.js";
 import { Styles, type StylesManager } from "./api/styles.js";
+import { Native, type NativeBridge } from "./api/native.js";
 
 const LEGACY_MIDNIGHT_THEME = `/**
  * @name Vestra Midnight
@@ -114,7 +115,7 @@ const palettes: Palette[] = [
  * Old background-primary alone only affects legacy surfaces. No hashed classes.
  * References and compatibility scope: docs/DISCORD_COMPATIBILITY.md.
  */
-function presetCss(name: string, p: Palette): string {
+function presetCss(name: string, p: Palette, revision = 3): string {
   const tokens: Record<string, string> = {
     "app-frame-background": p.base,
     "app-frame-border": "#ffffff12",
@@ -220,11 +221,43 @@ function presetCss(name: string, p: Palette): string {
     "control-secondary-background-hover": p.raised,
     "control-secondary-background-active": p.side,
   };
-  return `/** @name ${name}\n * @author Vestra\n * @vestra-preset 2\n */\n:root,body,:is(.theme-dark,.theme-darker,.theme-midnight,.theme-light):not(.custom-user-profile-theme){\n  color-scheme:dark;\n${Object.entries(
+  if (revision >= 3) {
+    // Discord's custom backgrounds precede the solid-color fallback on surfaces.
+    // A guaranteed-invalid value lets those surfaces use our semantic palette.
+    for (const layer of [
+      "app-frame",
+      "chat",
+      "chat-preview",
+      "low",
+      "lower",
+      "lowest",
+      "high",
+      "higher",
+      "highest",
+    ]) {
+      tokens[`background-gradient-${layer}`] = "initial";
+    }
+    tokens["vestra-theme-base"] = p.base;
+    tokens["vestra-theme-chat"] = p.chat;
+    tokens["vestra-theme-side"] = p.side;
+    tokens["vestra-theme-input"] = p.input;
+  }
+  const scopes =
+    revision >= 3
+      ? ".theme-dark,.theme-darker,.theme-midnight,.theme-light,.custom-theme-background"
+      : ".theme-dark,.theme-darker,.theme-midnight,.theme-light";
+  const mount = ':is(#app-mount,[class*="appMount_"])';
+  const surface = (selectors: string, color: string): string =>
+    `${mount} :is(${selectors}):not(.custom-user-profile-theme):not(.custom-user-profile-theme *){background:var(--vestra-theme-${color})!important;}`;
+  const surfaces =
+    revision >= 3
+      ? `\n${mount}{background:var(--vestra-theme-base)!important;}\n${surface('[class*="bg_"],[class*="guilds_"]', "base")}\n${surface('[class*="chat_"],[class*="chatContent_"]', "chat")}\n${surface('[class*="sidebarList_"],[class*="privateChannels_"],[class*="members_"],[class*="membersWrap_"]', "side")}\n${surface('[class*="channelTextArea_"],[class*="scrollableContainer_"]', "input")}`
+      : "";
+  return `/** @name ${name}\n * @author Vestra\n * @vestra-preset ${revision}\n */\n:root,body,:is(${scopes}):not(.custom-user-profile-theme){\n  color-scheme:dark;\n${Object.entries(
     tokens,
   )
     .map(([key, value]) => `  --${key}:${value}!important;`)
-    .join("\n")}\n}`;
+    .join("\n")}\n}${surfaces}`;
 }
 
 export const THEME_LIBRARY = LEGACY_THEME_LIBRARY.map((preset, index) => ({
@@ -238,8 +271,9 @@ export function upgradeBuiltinThemes(store: SettingsStore): void {
   let changed = false;
   const next = store.getThemes().map((theme) => {
     const index = LEGACY_THEME_LIBRARY.findIndex(
-      (preset) =>
-        preset.css === theme.css &&
+      (preset, index) =>
+        (preset.css === theme.css ||
+          presetCss(preset.name, palettes[index]!, 2) === theme.css) &&
         preset.name === theme.name &&
         theme.author === "Vestra",
     );
@@ -269,6 +303,12 @@ export function importTheme(
   css: string,
   filename: string,
 ): Theme {
+  const theme = parseTheme(css, filename);
+  store.setThemes([...store.getThemes(), theme]);
+  return theme;
+}
+
+function parseTheme(css: string, filename: string): Theme {
   if (!css.trim()) throw new TypeError("The theme file is empty.");
   if (css.length > 512_000)
     throw new TypeError("Themes must be smaller than 512 KB.");
@@ -285,8 +325,47 @@ export function importTheme(
     css,
     enabled: false,
   };
-  store.setThemes([...store.getThemes(), theme]);
   return theme;
+}
+
+export async function refreshLocalThemes(
+  store: SettingsStore = Settings,
+  native: Pick<NativeBridge, "readThemeFiles"> = Native,
+): Promise<void> {
+  const files = await native.readThemeFiles();
+  const names = new Set(files.map((file) => file.filename));
+  const current = store.getThemes();
+  const next = current
+    .filter((theme) => !theme.sourceFile || names.has(theme.sourceFile))
+    .map((theme) => ({ ...theme }));
+  for (const file of files) {
+    const existing = next.find((theme) => theme.sourceFile === file.filename);
+    if (!file.source.trim()) {
+      if (existing) existing.css = file.source;
+      continue;
+    }
+    if (existing) {
+      if (existing.css !== file.source) {
+        const parsed = parseTheme(file.source, file.filename);
+        Object.assign(existing, {
+          css: parsed.css,
+          name: parsed.name,
+          author: parsed.author,
+        });
+      }
+    } else {
+      next.push({
+        ...parseTheme(file.source, file.filename),
+        sourceFile: file.filename,
+      });
+    }
+  }
+  if (next.length > 32)
+    throw new Error(
+      "Your library is full (32 themes). Remove a theme before importing more files.",
+    );
+  if (JSON.stringify(next) !== JSON.stringify(current)) store.setThemes(next);
+  upgradeBuiltinThemes(store);
 }
 
 /** Reconcile ordered theme styles; QuickCSS always wins at equal specificity. */
