@@ -1,10 +1,3 @@
-// Vestra Installer — isolated Discord-like fixture installs for tests.
-// Fixture/temp directories only — never touches real Discord installs.
-// Produces a realistic `app-<version>/resources/app.asar` layout plus the
-// `.vestra-test-install` sentinel, so the test-safety guard can establish
-// positive fixture identity. Each fixture owns a mkdtemp base directory and
-// cleans up after itself.
-
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
