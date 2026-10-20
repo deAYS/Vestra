@@ -1,6 +1,3 @@
-// Vestra Manager — friendly error with a "Show details" disclosure.
-// Raw detail stays hidden until requested; no stack dumps in normal UI.
-
 import { useState } from "react";
 import { friendlyErrorMessage } from "../../shared/errorMessages.js";
 import type { InstallerErrorCode } from "../../shared/types.js";
