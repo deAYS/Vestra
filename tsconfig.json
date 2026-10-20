@@ -24,7 +24,8 @@
       "@vestra/shared": ["./packages/shared/src/index.ts"],
       "@vestra/shared/node/testSafety": ["./packages/shared/src/node/testSafety.ts"],
       "@vestra/shared/node/testSafety.js": ["./packages/shared/src/node/testSafety.ts"],
-      "@vestra/api": ["./packages/core/src/api/index.ts"],
+      "@vestra/shared/node/integrity.js": ["./packages/shared/src/node/integrity.ts"],
+      "@vestra/api": ["./packages/api/src/index.ts"],
       "@vestra/core": ["./packages/core/src/index.ts"],
       "@vestra/injector": ["./packages/injector/src/index.ts"]
     }
