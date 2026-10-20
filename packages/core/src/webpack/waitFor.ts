@@ -1,8 +1,3 @@
-// @vestra/core webpack — lazy discovery.
-// Phase 6. `waitForModule` polls a caller-supplied search until it matches,
-// times out, or aborts. Timeouts/aborts resolve undefined (fail gracefully);
-// only programmer errors (non-function args) throw.
-
 import { Logger, type ScopedLogger } from "../api/logger.js";
 import type { ModuleFilter, WaitForOptions, WebpackExports } from "./types.js";
 
