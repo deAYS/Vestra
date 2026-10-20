@@ -1,12 +1,3 @@
-// @vestra/core — Native Bridge (renderer side).
-// Phase 9 (roadmap #9). Controlled renderer↔native channel with a capability
-// allowlist. The injector preload (Phase 10) provides the real transport via
-// `Native.connect()`; until then every call fails closed with typed errors.
-// Security rule: plugins NEVER get Node/Electron access — only these gated
-// channels, only with serializable args, only when the native host grants the
-// capability. No ambient global detection: a planted `__VESTRA_NATIVE__`
-// object grants nothing; only an explicit `connect()` wires the bridge.
-
 import { VESTRA_NATIVE_CHANNELS } from "@vestra/shared";
 import { Logger, type ScopedLogger } from "./logger.js";
 
