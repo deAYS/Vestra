@@ -1,5 +1,3 @@
-// Vestra Manager — action button (primary / secondary / danger).
-
 interface Props {
   label: string;
   onClick(): void;
