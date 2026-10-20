@@ -1,12 +1,8 @@
-// Vestra Manager (main) — narrow IPC bridge over the InstallerService.
-// The ONLY gateway from the renderer to installation logic. Six methods,
-// structured args, no arbitrary invoke, no fs/path/child_process exposure.
-// Uninstall always runs with purge=false (enforced here even if the
-// renderer passed anything else).
-
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { ipcMain, type WebContents } from "electron";
+import { ipcMain, type IpcMainInvokeEvent, type WebContents } from "electron";
+import { fileURLToPath, pathToFileURL } from "node:url";
+import { isManagerSender } from "./sender.js";
 import { listInstalls, getRealFs, type DiscordChannel } from "@vestra/injector";
 import type { InstallerService } from "@vestra/installer";
 import { MANAGER_IPC } from "../shared/channels.js";
@@ -102,10 +98,17 @@ function singleChannel(raw: unknown): DiscordChannel[] {
 }
 
 export function registerManagerIpc(service: InstallerService): void {
+  const rendererUrl = pathToFileURL(path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "renderer", "index.html")).href;
+  const handle = (channel: string, listener: (event: IpcMainInvokeEvent, raw: unknown) => unknown): void => {
+    ipcMain.handle(channel, (event, raw: unknown) => {
+      if (!isManagerSender(event, rendererUrl)) throw new Error("Untrusted Manager IPC sender.");
+      return listener(event, raw);
+    });
+  };
   const forwardProgress =
     (sender: WebContents) =>
     (event: InstallerProgressEvent): void => {
-      sender.send(MANAGER_IPC.progress, event);
+      if (!sender.isDestroyed()) sender.send(MANAGER_IPC.progress, event);
     };
 
   // TEMPORARY dev-only diagnostics (validation phase): trace discover
@@ -114,7 +117,7 @@ export function registerManagerIpc(service: InstallerService): void {
     console.log("[Vestra Manager] installer IPC handlers registered");
   }
 
-  ipcMain.handle(MANAGER_IPC.discover, async () => {
+  handle(MANAGER_IPC.discover, async () => {
     if (isDevBuild()) {
       console.log("[Vestra Manager] discover request received");
       logDiscoveryInputs();
@@ -135,23 +138,23 @@ export function registerManagerIpc(service: InstallerService): void {
     }
   });
 
-  ipcMain.handle(MANAGER_IPC.status, (event, raw: unknown) =>
+  handle(MANAGER_IPC.status, (event, raw: unknown) =>
     service.status({ ...argsOf(raw), onProgress: forwardProgress(event.sender) }),
   );
 
-  ipcMain.handle(MANAGER_IPC.check, (event, raw: unknown) =>
+  handle(MANAGER_IPC.check, (event, raw: unknown) =>
     service.check({ ...argsOf(raw), onProgress: forwardProgress(event.sender) }),
   );
 
-  ipcMain.handle(MANAGER_IPC.install, (event, raw: unknown) =>
+  handle(MANAGER_IPC.install, (event, raw: unknown) =>
     service.install({ channels: singleChannel(raw), onProgress: forwardProgress(event.sender) }),
   );
 
-  ipcMain.handle(MANAGER_IPC.repair, (event, raw: unknown) =>
+  handle(MANAGER_IPC.repair, (event, raw: unknown) =>
     service.repair({ channels: singleChannel(raw), onProgress: forwardProgress(event.sender) }),
   );
 
-  ipcMain.handle(MANAGER_IPC.uninstall, (event, raw: unknown) =>
+  handle(MANAGER_IPC.uninstall, (event, raw: unknown) =>
     service.uninstall({
       channels: singleChannel(raw),
       purge: false,
