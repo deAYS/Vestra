@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { channelDisplayName, type DiscordChannel } from "../../shared/channels.js";
+import {
+  channelDisplayName,
+  type DiscordChannel,
+} from "../../shared/channels.js";
 import { selectDefaultChannel } from "../../shared/channelSelect.js";
 import {
-  ALREADY_HEALTHY_MESSAGE,
   runInstallFlow,
   runRepairFlow,
   runUninstallFlow,
@@ -58,6 +60,10 @@ function phaseText(event: InstallerProgressEvent): string {
       return "Preparing Vestra...";
     case "staging":
       return "Staging Vestra...";
+    case "stopping":
+      return "Closing Discord...";
+    case "restarting":
+      return "Restarting Discord...";
     case "patching": {
       const label = event.installation
         ? channelDisplayName(event.installation.channel)
@@ -82,19 +88,29 @@ export function useManager(): ManagerState {
     }
   });
   const [installations, setInstallations] = useState<DiscordInstallation[]>([]);
-  const [shallow, setShallow] = useState<Partial<Record<DiscordChannel, InstallStatus>>>({});
-  const [deep, setDeep] = useState<Partial<Record<DiscordChannel, InstallStatus>>>({});
+  const [shallow, setShallow] = useState<
+    Partial<Record<DiscordChannel, InstallStatus>>
+  >({});
+  const [deep, setDeep] = useState<
+    Partial<Record<DiscordChannel, InstallStatus>>
+  >({});
   const [checking, setChecking] = useState<DiscordChannel[]>([]);
-  const [selected, setSelected] = useState<DiscordChannel | undefined>(undefined);
-  const [activeOp, setActiveOp] = useState<{ channel: DiscordChannel; kind: OperationKind } | null>(
-    null,
+  const [selected, setSelected] = useState<DiscordChannel | undefined>(
+    undefined,
   );
+  const [activeOp, setActiveOp] = useState<{
+    channel: DiscordChannel;
+    kind: OperationKind;
+  } | null>(null);
   const [progress, setProgress] = useState<InstallerProgressEvent | null>(null);
   const [error, setError] = useState<OperationError | null>(null);
   const [errorChannel, setErrorChannel] = useState<DiscordChannel | null>(null);
-  const [discoveryError, setDiscoveryError] = useState<OperationError | null>(null);
+  const [discoveryError, setDiscoveryError] = useState<OperationError | null>(
+    null,
+  );
   const [notice, setNotice] = useState<string | null>(null);
-  const [confirmUninstall, setConfirmUninstall] = useState<DiscordChannel | null>(null);
+  const [confirmUninstall, setConfirmUninstall] =
+    useState<DiscordChannel | null>(null);
   const mounted = useRef(true);
 
   useEffect(() => {
@@ -107,42 +123,49 @@ export function useManager(): ManagerState {
   const devModeRef = useRef(devMode);
   devModeRef.current = devMode;
 
-  const checkOne = useCallback(async (channel: DiscordChannel): Promise<void> => {
-    setChecking((prev) => (prev.includes(channel) ? prev : [...prev, channel]));
-    try {
-      const result = await managerApi().check({ channels: [channel] });
-      if (!mounted.current) return;
-      const found = result.statuses.find((s) => s.installation.channel === channel);
-      if (found !== undefined) {
-        setDeep((prev) => ({ ...prev, [channel]: found }));
-      }
-    } catch (err: unknown) {
-      if (!mounted.current) return;
-      const detail = err instanceof Error ? err.message : String(err);
-      setDeep((prev) => ({
-        ...prev,
-        [channel]: {
-          installation: prev[channel]?.installation ?? {
-            channel,
-            version: null,
-            rootDir: "",
-            appDir: "",
-            asarPath: "",
-            isActive: true,
+  const checkOne = useCallback(
+    async (channel: DiscordChannel): Promise<void> => {
+      setChecking((prev) =>
+        prev.includes(channel) ? prev : [...prev, channel],
+      );
+      try {
+        const result = await managerApi().check({ channels: [channel] });
+        if (!mounted.current) return;
+        const found = result.statuses.find(
+          (s) => s.installation.channel === channel,
+        );
+        if (found !== undefined) {
+          setDeep((prev) => ({ ...prev, [channel]: found }));
+        }
+      } catch (err: unknown) {
+        if (!mounted.current) return;
+        const detail = err instanceof Error ? err.message : String(err);
+        setDeep((prev) => ({
+          ...prev,
+          [channel]: {
+            installation: prev[channel]?.installation ?? {
+              channel,
+              version: null,
+              rootDir: "",
+              appDir: "",
+              asarPath: "",
+              isActive: true,
+            },
+            health: "error",
+            vestraInstalled: false,
+            repairable: true,
+            detail,
+            code: "unknown",
           },
-          health: "error",
-          vestraInstalled: false,
-          repairable: true,
-          detail,
-          code: "unknown",
-        },
-      }));
-    } finally {
-      if (mounted.current) {
-        setChecking((prev) => prev.filter((c) => c !== channel));
+        }));
+      } finally {
+        if (mounted.current) {
+          setChecking((prev) => prev.filter((c) => c !== channel));
+        }
       }
-    }
-  }, []);
+    },
+    [],
+  );
 
   const load = useCallback(
     async (isRefresh: boolean): Promise<void> => {
@@ -162,7 +185,9 @@ export function useManager(): ManagerState {
           }
           found = await managerApi().discover();
           if (devModeRef.current) {
-            console.log(`[Vestra Manager] renderer discover result: ${found.length}`);
+            console.log(
+              `[Vestra Manager] renderer discover result: ${found.length}`,
+            );
           }
         } catch (err: unknown) {
           // Discovery failure is NOT an empty list: the bridge may be down
@@ -172,9 +197,15 @@ export function useManager(): ManagerState {
           if (!mounted.current) return;
           const detail = err instanceof Error ? err.message : String(err);
           if (devModeRef.current) {
-            console.error(`[Vestra Manager] renderer discover error: ${detail}`);
+            console.error(
+              `[Vestra Manager] renderer discover error: ${detail}`,
+            );
           }
-          setDiscoveryError({ code: "unknown", detail, message: "Discord discovery failed." });
+          setDiscoveryError({
+            code: "unknown",
+            detail,
+            message: "Discord discovery failed.",
+          });
           return;
         }
         if (!mounted.current) return;
@@ -240,7 +271,9 @@ export function useManager(): ManagerState {
     async (channel: DiscordChannel): Promise<void> => {
       const summary = await managerApi().status({ channels: [channel] });
       if (!mounted.current) return;
-      const found = summary.statuses.find((s) => s.installation.channel === channel);
+      const found = summary.statuses.find(
+        (s) => s.installation.channel === channel,
+      );
       if (found !== undefined) {
         setShallow((prev) => ({ ...prev, [channel]: found }));
       }
@@ -292,16 +325,15 @@ export function useManager(): ManagerState {
       try {
         const result = await runRepairFlow(managerApi(), channel);
         if (!mounted.current) return;
-        if (result.ok && !result.repaired) {
-          setNotice(ALREADY_HEALTHY_MESSAGE);
-          await finishMutation(channel);
-          return;
-        }
         await finishMutation(channel);
         if (result.ok) {
           setNotice("Vestra repaired successfully.");
         } else {
-          setError({ code: result.code, detail: result.detail, message: result.message });
+          setError({
+            code: result.code,
+            detail: result.detail,
+            message: result.message,
+          });
           setErrorChannel(channel);
         }
       } catch (err: unknown) {
@@ -340,7 +372,11 @@ export function useManager(): ManagerState {
       if (result.ok) {
         setNotice("Vestra was removed.");
       } else {
-        setError({ code: result.code, detail: result.detail, message: result.message });
+        setError({
+          code: result.code,
+          detail: result.detail,
+          message: result.message,
+        });
         setErrorChannel(channel);
       }
     } catch (err: unknown) {
