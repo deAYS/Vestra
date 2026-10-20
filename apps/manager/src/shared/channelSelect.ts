@@ -1,8 +1,3 @@
-// Vestra Manager — default channel selection.
-// Compile-time dev flag: the build scripts provide __VESTRA_MANAGER_DEV__
-// via esbuild `define`. Dev bundles preselect Canary; production bundles
-// preselect Stable. Never inferred from NODE_ENV or user env at runtime.
-
 import type { DiscordChannel } from "./channels.js";
 
 declare const __VESTRA_MANAGER_DEV__: boolean;
@@ -14,9 +9,9 @@ export function isDevelopmentBuild(devFlag?: boolean): boolean {
   return false;
 }
 
-/** Explicit default: canary in dev, stable in production. */
-export function defaultChannel(devFlag?: boolean): DiscordChannel {
-  return isDevelopmentBuild(devFlag) ? "canary" : "stable";
+/** Development mode must not silently redirect the user to Canary. */
+export function defaultChannel(_devFlag?: boolean): DiscordChannel {
+  return "stable";
 }
 
 /**
@@ -40,6 +35,6 @@ export function selectDefaultChannel(
 export function channelBadge(channel: DiscordChannel, devFlag?: boolean): string | undefined {
   const dev = isDevelopmentBuild(devFlag);
   if (!dev && channel === "stable") return "Recommended";
-  if (dev && channel === "canary") return "Development target";
+  if (dev && channel === "stable") return "Development target";
   return undefined;
 }
