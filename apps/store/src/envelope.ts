@@ -1,13 +1,8 @@
-// Vestra Store — plugin envelope.
-// Phase 13. A plugin artifact is one JSON envelope carrying the plugin files
-// as base64 plus a file manifest. Download verifies the envelope hash (pinned
-// in the feed entry) and then every inner file hash — tampered bytes never
-// reach the plugins dir. `index.js` is the required renderer entry (see the
-// entry convention in store.ts).
-
 import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { assertSafeVersion } from "@vestra/shared";
+import { assertArtifactFilename, verifyFileManifest } from "@vestra/shared/node/integrity.js";
 
 export const PLUGIN_ENTRY_FILE = "index.js";
 
@@ -25,6 +20,7 @@ export function sha256Hex(data: string | Buffer): string {
 }
 
 function assertSafeName(name: string, what: string): void {
+  assertArtifactFilename(name);
   if (!/^[A-Za-z0-9_-]{1,64}$/.test(name) && what === "plugin") {
     throw new Error(`Unsafe plugin name "${name}".`);
   }
@@ -39,7 +35,7 @@ export async function buildPluginEnvelope(
   meta: { name: string; pluginVersion: string },
 ): Promise<{ envelope: PluginEnvelope; bytes: Buffer }> {
   assertSafeName(meta.name, "plugin");
-  if (meta.pluginVersion === "") throw new Error("buildPluginEnvelope() requires a pluginVersion.");
+  assertSafeVersion(meta.pluginVersion);
   let entries: string[];
   try {
     entries = await fs.promises.readdir(sourceDir);
@@ -99,6 +95,9 @@ export function parsePluginEnvelope(
     throw new Error("Plugin envelope has an unexpected shape.");
   }
   const envelope = parsed as PluginEnvelope;
+  assertSafeName(envelope.name, "plugin");
+  assertSafeVersion(envelope.pluginVersion);
+  verifyFileManifest(envelope.files, envelope.manifest?.files, [PLUGIN_ENTRY_FILE]);
   if (envelope.name !== expectedName) {
     throw new Error(`Envelope is for "${envelope.name}", expected "${expectedName}".`);
   }
@@ -122,7 +121,8 @@ export async function writePluginPayload(
   envelope: PluginEnvelope,
 ): Promise<string> {
   assertSafeName(envelope.name, "plugin");
-  if (envelope.pluginVersion === "") throw new Error("Envelope has no pluginVersion.");
+  assertSafeVersion(envelope.pluginVersion);
+  verifyFileManifest(envelope.files, envelope.manifest?.files, [PLUGIN_ENTRY_FILE]);
   const dir = path.join(pluginsRoot, envelope.name, envelope.pluginVersion);
   await fs.promises.mkdir(dir, { recursive: true });
   for (const [name, b64] of Object.entries(envelope.files)) {
