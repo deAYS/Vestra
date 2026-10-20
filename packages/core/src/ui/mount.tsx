@@ -1,8 +1,3 @@
-// @vestra/core UI — mount helpers.
-// Phase 5. Render the settings panel into any container (Discord settings
-// injection lands Phase 10; until then any element works). Mount failures are
-// captured via Logger and yield a no-op unmount — never throw.
-
 import { createRoot, type Root } from "react-dom/client";
 import { VESTRA_VERSION } from "@vestra/shared";
 import { Logger } from "../api/logger.js";
@@ -10,6 +5,7 @@ import { pluginManager } from "../pluginManager.js";
 import { Settings } from "../api/settings.js";
 import { VestraSettingsPanel } from "./VestraSettings.js";
 import type { SettingsPageId, VestraUIDeps } from "./types.js";
+import { ensureSettingsDesign } from "./design.js";
 
 const roots = new WeakMap<Element, Root>();
 
@@ -51,6 +47,7 @@ export function mountVestraSettings(
     }
     const root = createRoot(container);
     roots.set(container, root);
+    ensureSettingsDesign();
     root.render(
       <VestraSettingsPanel
         settings={resolved.settings}
