@@ -373,6 +373,7 @@ export function startThemes(
   store: SettingsStore = Settings,
   styles: StylesManager = Styles,
 ): () => void {
+  const doc = typeof document !== "undefined" ? document : undefined;
   upgradeBuiltinThemes(store);
   const owned = new Set<string>();
   const sync = (): void => {
@@ -385,24 +386,60 @@ export function startThemes(
       }
     for (const theme of active) {
       const id = `theme-${theme.id}`;
-      if (styles.get(id) !== theme.css) styles.inject(id, theme.css);
+      // Reattach if Discord rebuilt <head> or removed our style node.
+      styles.inject(id, theme.css);
       owned.add(id);
     }
-    if (typeof document !== "undefined") {
-      const quick = document.querySelector('[data-vestra-style="quickcss"]');
+    if (doc) {
+      const quick = doc.querySelector('[data-vestra-style="quickcss"]');
+      if (quick && quick.parentNode && quick !== quick.parentNode.lastChild)
+        quick.parentNode.appendChild(quick);
       for (const theme of active) {
-        const el = document.querySelector(
-          `[data-vestra-style="theme-${theme.id}"]`,
-        );
-        if (quick && el && quick.parentNode)
+        const el = doc.querySelector(`[data-vestra-style="theme-${theme.id}"]`);
+        if (quick && el && quick.parentNode && el.nextSibling !== quick)
           quick.parentNode.insertBefore(el, quick);
-        else if (el?.parentNode) el.parentNode.appendChild(el);
+        else if (!quick && el?.parentNode && el !== el.parentNode.lastChild)
+          el.parentNode.appendChild(el);
       }
     }
   };
   sync();
   const unsubscribe = store.subscribe(sync);
+  let active = true;
+  let scheduled = false;
+  let headObserver: MutationObserver | undefined;
+  let rootObserver: MutationObserver | undefined;
+  const Observer =
+    doc?.defaultView?.MutationObserver ?? globalThis.MutationObserver;
+  if (doc && typeof Observer !== "undefined") {
+    const schedule = (): void => {
+      if (scheduled || !active) return;
+      scheduled = true;
+      queueMicrotask(() => {
+        scheduled = false;
+        if (active) sync();
+      });
+    };
+    const observeHead = (): void => {
+      headObserver?.disconnect();
+      if (doc.head) {
+        headObserver = new Observer(schedule);
+        headObserver.observe(doc.head, {
+          childList: true,
+          subtree: true,
+          characterData: true,
+        });
+      }
+      schedule();
+    };
+    observeHead();
+    rootObserver = new Observer(observeHead);
+    rootObserver.observe(doc.documentElement, { childList: true });
+  }
   return () => {
+    active = false;
+    headObserver?.disconnect();
+    rootObserver?.disconnect();
     unsubscribe();
     for (const id of owned) styles.remove(id);
     owned.clear();
