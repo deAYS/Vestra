@@ -40,13 +40,17 @@ export function isBindable(combo: string): boolean {
 /** Parse "Ctrl+Shift+V" back into parts. Undefined when malformed. */
 export function parseCombo(combo: string): ParsedCombo | undefined {
   if (typeof combo !== "string") return undefined;
-  const parts = combo.split("+").map((p) => p.trim()).filter((p) => p !== "");
+  const parts = combo
+    .split("+")
+    .map((p) => p.trim())
+    .filter((p) => p !== "");
   if (parts.length === 0) return undefined;
   const key = parts[parts.length - 1] as string;
   const mods = new Set(parts.slice(0, -1).map((m) => m.toLowerCase()));
   if (mods.size !== parts.length - 1) return undefined;
   for (const m of mods) {
-    if (m !== "ctrl" && m !== "shift" && m !== "alt" && m !== "meta") return undefined;
+    if (m !== "ctrl" && m !== "shift" && m !== "alt" && m !== "meta")
+      return undefined;
   }
   if (key === "" || key.includes("+")) return undefined;
   return {
@@ -69,8 +73,23 @@ export function comboMatches(combo: string, event: KeyEventLike): boolean {
   return normalizeKey(event.key).toLowerCase() === parsed.key.toLowerCase();
 }
 
+export function combosEqual(left: string, right: string): boolean {
+  const parsed = parseCombo(right);
+  return (
+    parsed !== undefined &&
+    comboMatches(left, {
+      key: parsed.key,
+      ctrlKey: parsed.ctrl,
+      altKey: parsed.alt,
+      shiftKey: parsed.shift,
+      metaKey: parsed.meta,
+    })
+  );
+}
+
 function normalizeKey(key: string): string {
   if (typeof key !== "string" || key === "") return "";
+  if (["Dead", "Process", "Unidentified"].includes(key)) return "";
   if (key === " ") return "Space";
   if (key.length === 1) return key.toUpperCase();
   if (/^F\d{1,2}$/i.test(key)) return key.toUpperCase();
