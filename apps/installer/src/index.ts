@@ -1,7 +1,3 @@
-// Vestra Installer — Phase 11 (install/uninstall/repair to AppData).
-// Library API plus a minimal CLI. The product home holds versioned payloads
-// and the registry; Discord installs hold only the asar patch + receipt.
-
 export { resolveHome, layoutHome } from "./home.js";
 export type { HomeLayout, HomeOptions } from "./home.js";
 
