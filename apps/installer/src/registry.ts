@@ -1,8 +1,3 @@
-// Vestra Installer — install registry.
-// Phase 11. `{home}/installs.json` records which Discord installs carry our
-// patch and which payload version they got. Atomic writes (tmp + rename);
-// corrupt files read as empty so a bad registry can never block uninstall.
-
 import * as fs from "node:fs";
 
 export interface RegistryEntry {
