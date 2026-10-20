@@ -25,11 +25,14 @@ try {
   execFileSync(process.execPath, [path.join(root, "packages/api/scripts/build-plugin.mjs"), path.join(root, "plugins/example/src/index.ts"), path.join(pluginRoot, "ExamplePlugin/0.1.0/index.js")], { stdio: "inherit" });
   await fs.writeFile(path.join(pluginRoot, "installed.json"), JSON.stringify({ ExamplePlugin: { version: "0.1.0", enabled: true } }));
   await fs.copyFile(path.join(root, "scripts/electron-smoke.cjs"), path.join(fixture, "main.cjs"));
-  const env = { ...process.env };
-  delete env.ELECTRON_RUN_AS_NODE;
-  const child = spawn(electron, [path.join(fixture, "main.cjs")], { env, stdio: "inherit", windowsHide: true });
-  const code = await new Promise((resolve, reject) => { child.on("error", reject); child.on("exit", resolve); });
-  process.exitCode = code ?? 1;
+  for (const motion of ["full", "reduced"]) {
+    const env = { ...process.env, VESTRA_TEST_MOTION: motion };
+    delete env.ELECTRON_RUN_AS_NODE;
+    const flag = motion === "reduced" ? "--force-prefers-reduced-motion" : "--force-prefers-no-reduced-motion";
+    const child = spawn(electron, [flag, path.join(fixture, "main.cjs")], { env, stdio: "inherit", windowsHide: true });
+    const code = await new Promise((resolve, reject) => { child.on("error", reject); child.on("exit", resolve); });
+    if (code !== 0) { process.exitCode = code ?? 1; break; }
+  }
 } finally {
   // This path comes directly from mkdtemp, and cleanup is restricted to it.
   const resolved = path.resolve(fixture);
