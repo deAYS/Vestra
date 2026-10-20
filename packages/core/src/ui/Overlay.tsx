@@ -319,7 +319,24 @@ export function OverlayHost({
     panel.current?.querySelector<HTMLButtonElement>("button")?.focus();
     const onKey = (event: KeyboardEvent): void => {
       if (event.defaultPrevented) return;
+      const recording = event.target instanceof Element && event.target.closest('[data-vestra-keybind-recording="true"]');
+      if (!recording && comboMatches(getOverlayKeybind(settings), event)) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        controller.close();
+        return;
+      }
+      if ((event.ctrlKey || event.metaKey) && !event.altKey && event.key.toLowerCase() === "f") {
+        const editor = panel.current?.querySelector(".vs-css-editor");
+        if (editor) {
+          event.preventDefault();
+          event.stopImmediatePropagation();
+          editor.dispatchEvent(new Event("vestra-editor-search"));
+          return;
+        }
+      }
       if (event.key === "Escape") {
+        if (event.target instanceof Element && event.target.closest(".vs-css-editor") && panel.current?.querySelector(".cm-search")) return;
         event.preventDefault();
         controller.close();
       }
@@ -350,12 +367,12 @@ export function OverlayHost({
         items[next]!.focus();
       }
     };
-    window.addEventListener("keydown", onKey);
+    window.addEventListener("keydown", onKey, true);
     return () => {
-      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("keydown", onKey, true);
       if (previous?.isConnected) previous.focus();
     };
-  }, [open, present, controller]);
+  }, [open, present, controller, settings]);
 
   return (
     <>
@@ -381,6 +398,8 @@ export function OverlayHost({
             aria-modal="true"
             aria-label="Vestra settings"
             tabIndex={-1}
+            onKeyDown={(event) => event.stopPropagation()}
+            onKeyUp={(event) => event.stopPropagation()}
           >
             <div className="vs-overlay-window-tools">
               <span className="vs-overlay-hint">esc</span>
