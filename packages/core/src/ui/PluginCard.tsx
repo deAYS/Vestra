@@ -1,12 +1,9 @@
-// @vestra/core UI — one plugin row.
-// Phase 5. Toggle (async, isolated failures), description + authors, lastError
-// shown inline without crashing, expandable per-plugin settings editor.
-
 import { useState } from "react";
 import type { SettingsStore } from "../api/settings.js";
 import { Logger } from "../api/logger.js";
 import { formatError, s, vs } from "./theme.js";
 import type { PluginListEntry, PluginManagerLike } from "./types.js";
+import { Icon } from "./Brand.js";
 
 interface PluginCardProps {
   entry: PluginListEntry;
@@ -24,6 +21,8 @@ export function PluginCard({ entry, plugins, settings, onChanged }: PluginCardPr
   const [pending, setPending] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const lastError = errorText(plugins.getLastError(definition.name));
+  const displayName = definition.name === "QuickCSS" ? "QuickCSS" : definition.name.replace(/([a-z])([A-Z])/g,"$1 $2");
+  const hasSettings = Object.keys(settings.getPluginSettings(definition.name)).length > 0;
 
   const toggle = (): void => {
     setPending(true);
@@ -45,8 +44,9 @@ export function PluginCard({ entry, plugins, settings, onChanged }: PluginCardPr
 
   return (
     <div style={s.card} className={vs.card} data-vestra-plugin={definition.name}>
-      <div style={s.row}>
-        <label style={{ ...s.row, cursor: "pointer", flex: 1 }}>
+      <div className="vs-plugin-heading">
+        <span className="vs-plugin-glyph"><Icon name={definition.name === "QuickCSS" ? "code" : "plugins"} size={17}/></span>
+        <div><strong>{displayName}</strong><small>{started ? "Enabled" : enabled ? "Starting" : "Disabled"}</small></div>
           <input
             type="checkbox"
             checked={enabled}
@@ -54,27 +54,24 @@ export function PluginCard({ entry, plugins, settings, onChanged }: PluginCardPr
             onChange={toggle}
             aria-label={`Enable ${definition.name}`}
           />
-          <strong>{definition.name}</strong>
-        </label>
-        <span style={s.muted}>{started ? "running" : enabled ? "enabled" : "disabled"}</span>
       </div>
-      <p style={{ ...s.muted, margin: "6px 0" }}>{definition.description}</p>
-      <div style={{ ...s.muted, fontSize: 12 }}>by {definition.authors.join(", ")}</div>
+      <p>{definition.description}</p>
       {lastError !== undefined ? (
         <div style={s.errorBox} data-vestra-plugin-error={definition.name}>
           <strong>Plugin error:</strong> {lastError}
         </div>
       ) : null}
-      <div style={{ marginTop: 8 }}>
+      <div className="vs-plugin-footer"><span>by {definition.authors.join(", ")}</span><span style={{color:started?"#9DBDA9":"#7E748C"}}>{started?"● Running":"○ Paused"}</span>
+      {hasSettings &&
         <button
           type="button"
-          style={s.navButton}
           onClick={() => {
             setExpanded((e) => !e);
           }}
         >
-          {expanded ? "Hide settings" : "Plugin settings"}
+          {expanded ? "Close settings" : "Configure"}
         </button>
+      }
       </div>
       {expanded ? (
         <PluginSettingsEditor name={definition.name} settings={settings} />
