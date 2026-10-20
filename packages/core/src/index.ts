@@ -1,17 +1,9 @@
-// @vestra/core — renderer runtime entry.
-// Phase 1: Core Bootstrap. `Vestra.start()` must execute a renderer bundle successfully.
-// Phase 2 wired PluginManager, Phase 3 Settings, Phase 4 Styles + QuickCSS,
-// Phase 5 the mountable Settings UI, Phase 6 the Webpack finder, Phase 7 the
-// Patcher, Phase 8 Discord facades, Phase 9 the Native bridge, then toasts,
-// the keybind overlay and the loading splash. The public `Vestra` shape grows
-// additively (Logger, Plugins, Settings, Styles, UI, Webpack, Patcher,
-// Discord, Native, Toasts) without breaking callers.
-
-import { VESTRA_BRANDING, VESTRA_COLORS, VESTRA_VERSION } from "@vestra/shared";
+import { VESTRA_API_VERSION, VESTRA_BRANDING, VESTRA_COLORS, VESTRA_VERSION } from "@vestra/shared";
 import { Logger } from "./api/logger.js";
 import { Settings, type SettingsStore } from "./api/settings.js";
 import { Styles, type StylesManager } from "./api/styles.js";
-import { startQuickCss } from "./quickCss.js";
+import { startThemes } from "./themes.js";
+import { BUILTIN_PLUGINS } from "./builtins.js";
 import { pluginManager, type PluginManager } from "./pluginManager.js";
 import { mountVestraSettings, unmountVestraSettings } from "./ui/mount.js";
 import type { VestraUIDeps } from "./ui/types.js";
@@ -32,6 +24,7 @@ export interface VestraUI {
 
 export interface VestraRuntime {
   readonly version: string;
+  readonly apiVersion: string;
   readonly started: boolean;
   start(): Promise<void>;
   stop(): Promise<void>;
@@ -49,12 +42,19 @@ export interface VestraRuntime {
 
 let started = false;
 let exposedGlobal = false;
-let stopQuickCss: (() => void) | undefined;
+let stopThemes: (() => void) | undefined;
 let stopOverlay: (() => void) | undefined;
 let stopShortcuts: (() => void) | undefined;
+let lifecycle: Promise<void> = Promise.resolve();
+
+// Serialize the whole runtime lifecycle, including concurrent start/stop calls.
+function schedule(operation: () => Promise<void>): Promise<void> {
+  const next = lifecycle.then(operation, operation);
+  lifecycle = next.catch(() => {});
+  return next;
+}
 
 function printBanner(): void {
-  // Branded console line — verified in 0.0.1 DoD ("branding appears in console").
   const style = `color:${VESTRA_COLORS.text};background:${VESTRA_COLORS.primary};padding:2px 6px;border-radius:4px`;
   console.log(
     `%c${VESTRA_BRANDING.name}%c v${VESTRA_VERSION} — ${VESTRA_BRANDING.tagline}`,
@@ -90,6 +90,10 @@ function revokeGlobal(): void {
 }
 
 export async function start(): Promise<void> {
+  return schedule(startRuntime);
+}
+
+async function startRuntime(): Promise<void> {
   if (started) {
     Logger.warn("Vestra.start() called while already started — ignoring.");
     return;
@@ -97,7 +101,7 @@ export async function start(): Promise<void> {
   try {
     printBanner();
     Logger.info("Starting Vestra runtime…");
-    // Phase 3: load centralized settings before booting plugins so persisted
+    // Load settings before plugins so saved
     // enabled flags (and per-plugin settings) apply. Never blocks on corrupt
     // data — Settings.load() resets/salvages with logs.
     try {
@@ -106,17 +110,12 @@ export async function start(): Promise<void> {
       Logger.captureError(err, "Vestra.start.Settings.load");
     }
     // Boot persisted plugins registered before start().
-    for (const p of pluginManager.list()) {
-      if (p.enabled) await pluginManager.enable(p.definition.name);
+    for (const plugin of BUILTIN_PLUGINS) {
+      if (!pluginManager.get(plugin.name)) pluginManager.register(plugin);
     }
-    // Phase 4: sync QuickCSS with Settings until stop(). Replaces any previous
-    // subscription (defensive; start() is idempotent-guarded above).
-    try {
-      stopQuickCss?.();
-      stopQuickCss = startQuickCss();
-    } catch (err: unknown) {
-      Logger.captureError(err, "Vestra.start.QuickCSS");
-    }
+    stopThemes?.();
+    stopThemes = startThemes();
+    await pluginManager.startEnabled();
     // Overlay host (toasts + keybind settings panel). Mounts into its own
     // root div; safe no-ops without a DOM.
     try {
@@ -142,25 +141,32 @@ export async function start(): Promise<void> {
     }
   } catch (err: unknown) {
     Logger.captureError(err, "Vestra.start");
+    await pluginManager.shutdown();
+    stopThemes?.();
+    stopOverlay?.();
+    stopShortcuts?.();
     revokeGlobal();
     throw err;
   }
 }
 
 export async function stop(): Promise<void> {
+  return schedule(stopRuntime);
+}
+
+async function stopRuntime(): Promise<void> {
   if (!started) return;
   try {
     Logger.info("Stopping Vestra runtime…");
     // Suspend running plugins; enabled flags persist for next start().
     await pluginManager.shutdown();
-    // Phase 4: unsubscribe QuickCSS and remove its element. Plugin-owned
-    // styles are their owners' responsibility (removed in their stop()).
+    // Plugins release their own resources; themes belong to the runtime.
     try {
-      stopQuickCss?.();
+      stopThemes?.();
     } catch (err: unknown) {
       Logger.captureError(err, "Vestra.stop.QuickCSS");
     } finally {
-      stopQuickCss = undefined;
+      stopThemes = undefined;
     }
     try {
       stopShortcuts?.();
@@ -209,6 +215,7 @@ export const UI: VestraUI = {
 
 export const runtime: VestraRuntime = {
   version: VESTRA_VERSION,
+  apiVersion: VESTRA_API_VERSION,
   get started(): boolean {
     return started;
   },
