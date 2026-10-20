@@ -36,6 +36,15 @@ export interface PluginRecord {
   enabled: boolean;
   started: boolean;
 }
+export interface ThemeCustomization {
+  opacity: number;
+  blur: number;
+  saturation: number;
+  brightness: number;
+  radius: number;
+  backgroundColor: string;
+  backgroundImage: string;
+}
 export interface Theme {
   id: string;
   name: string;
@@ -43,6 +52,8 @@ export interface Theme {
   css: string;
   enabled: boolean;
   sourceFile?: string | undefined;
+  sourceMissing?: boolean | undefined;
+  customization?: ThemeCustomization | undefined;
 }
 export interface SettingsAPI {
   getEnabled(name: string): boolean | undefined;
@@ -55,6 +66,7 @@ export interface SettingsAPI {
   getThemes(): Theme[];
   setThemes(themes: readonly Theme[]): void;
   activateTheme(id: string | null): void;
+  setThemeCustomization(id: string, value: ThemeCustomization | undefined): void;
   subscribe(listener: () => void): () => void;
 }
 export interface StylesAPI {
