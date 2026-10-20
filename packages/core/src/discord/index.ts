@@ -1,9 +1,3 @@
-// @vestra/core discord — stable wrappers over Discord internals.
-// Phase 8 (roadmap #8). Plugins consume `Discord.*` facades instead of raw
-// bundle modules: resolution is lazy + cached, structurally validated, and
-// every call degrades gracefully when Discord changes underneath. Raw access
-// stays in `webpack/` for cases these facades do not cover.
-
 import {
   createChannelStore,
   createDispatcher,
