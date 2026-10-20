@@ -1,16 +1,26 @@
 import { definePlugin } from "../api/plugins.js";
 import { Styles } from "../api/styles.js";
 import { Toasts } from "../api/toasts.js";
+import { Settings } from "../api/settings.js";
+import type { PluginDefinition } from "../api/plugins.js";
+import {
+  booleanOption,
+  confirmationSetting,
+  modifierMatches,
+  modifierSetting,
+  numberOption,
+} from "./options.js";
+import { comboMatches } from "../ui/keybind.js";
 
 const messageSelector =
   '[id^="chat-messages-"],[data-list-item-id^="chat-messages"]';
 const contentSelector = '[id^="message-content-"]';
 const excluded = '#vestra-overlay-root,input,textarea,[contenteditable="true"]';
 
-async function copy(text: string, label: string): Promise<void> {
+async function copy(text: string, label: string, notify = true): Promise<void> {
   try {
     await navigator.clipboard.writeText(text);
-    Toasts.success(label, undefined, 1800);
+    if (notify) Toasts.success(label, undefined, 1800);
   } catch {
     Toasts.error(
       "Clipboard unavailable",
@@ -66,12 +76,14 @@ function eventPlugin(
   name: string,
   description: string,
   activate: () => () => void,
+  settingsSchema?: PluginDefinition["settingsSchema"],
 ) {
   let cleanup: (() => void) | undefined;
   return definePlugin({
     name,
     description,
     authors: ["Vestra"],
+    settingsSchema,
     start() {
       cleanup?.();
       if (typeof document !== "undefined") cleanup = activate();
@@ -85,12 +97,12 @@ function eventPlugin(
 
 export const QuickMessageCopy = eventPlugin(
   "QuickMessageCopy",
-  "Alt + click message text to copy it. Alt + Shift + click copies its Discord message link.",
+  "Modifier + click copies message text. Add Shift to copy its Discord permalink. Choose your modifier in Configure.",
   () => {
     const click = (event: MouseEvent): void => {
       const target = event.target;
       if (
-        !event.altKey ||
+        !modifierMatches("QuickMessageCopy", event, true) ||
         event.button !== 0 ||
         !(target instanceof Element) ||
         target.closest(excluded) ||
@@ -108,21 +120,23 @@ export const QuickMessageCopy = eventPlugin(
       void copy(
         text,
         event.shiftKey ? "Message link copied" : "Message copied",
+        booleanOption("QuickMessageCopy", "confirmation"),
       );
     };
     document.addEventListener("click", click, true);
     return () => document.removeEventListener("click", click, true);
   },
+  { modifier: modifierSetting, confirmation: confirmationSetting },
 );
 
 export const CleanLinkCopy = eventPlugin(
   "CleanLinkCopy",
-  "Alt + click a web link in chat to copy it without common tracking parameters. Regular clicks stay unchanged.",
+  "Modifier + click a chat link to copy it without tracking parameters. Choose your modifier in Configure.",
   () => {
     const click = (event: MouseEvent): void => {
       const target = event.target;
       if (
-        !event.altKey ||
+        !modifierMatches("CleanLinkCopy", event) ||
         event.shiftKey ||
         event.button !== 0 ||
         !(target instanceof Element) ||
@@ -139,11 +153,16 @@ export const CleanLinkCopy = eventPlugin(
       }
       event.preventDefault();
       event.stopImmediatePropagation();
-      void copy(url, "Clean link copied");
+      void copy(
+        url,
+        "Clean link copied",
+        booleanOption("CleanLinkCopy", "confirmation"),
+      );
     };
     document.addEventListener("click", click, true);
     return () => document.removeEventListener("click", click, true);
   },
+  { modifier: modifierSetting, confirmation: confirmationSetting },
 );
 
 /** Enhance mounted nodes, handle Discord virtualization and restore only our changes. */
@@ -193,6 +212,7 @@ function enhance(
 export function formatTimestamp(
   iso: string,
   locale?: string,
+  options: { seconds?: boolean; twelveHour?: boolean } = {},
 ): string | undefined {
   const date = new Date(iso);
   if (!Number.isFinite(date.getTime())) return undefined;
@@ -202,8 +222,8 @@ export function formatTimestamp(
     day: "2-digit",
     hour: "2-digit",
     minute: "2-digit",
-    second: "2-digit",
-    hourCycle: "h23",
+    ...(options.seconds !== false ? { second: "2-digit" as const } : {}),
+    hourCycle: options.twelveHour ? "h12" : "h23",
   }).format(date);
 }
 
@@ -225,18 +245,40 @@ export const FullTimestamps = eventPlugin(
     // Discord can reuse a time node when scrolling. Its datetime is part of identity.
     const cleanup = enhance(selector, (element) => {
       const update = (): void => {
-        const text = formatTimestamp(element.getAttribute("datetime") ?? "");
+        const text = formatTimestamp(
+          element.getAttribute("datetime") ?? "",
+          undefined,
+          {
+            seconds: booleanOption("FullTimestamps", "seconds"),
+            twelveHour: booleanOption("FullTimestamps", "twelveHour", false),
+          },
+        );
         if (text) element.setAttribute("data-vestra-time", text);
         else element.removeAttribute("data-vestra-time");
       };
       update();
       const observer = new MutationObserver(update);
+      let signature = JSON.stringify([
+        Settings.getPluginSetting("FullTimestamps", "seconds"),
+        Settings.getPluginSetting("FullTimestamps", "twelveHour"),
+      ]);
+      const unsubscribe = Settings.subscribe(() => {
+        const next = JSON.stringify([
+          Settings.getPluginSetting("FullTimestamps", "seconds"),
+          Settings.getPluginSetting("FullTimestamps", "twelveHour"),
+        ]);
+        if (next !== signature) {
+          signature = next;
+          update();
+        }
+      });
       observer.observe(element, {
         attributes: true,
         attributeFilter: ["datetime"],
       });
       return () => {
         observer.disconnect();
+        unsubscribe();
         element.removeAttribute("data-vestra-time");
       };
     });
@@ -244,6 +286,15 @@ export const FullTimestamps = eventPlugin(
       cleanup();
       Styles.remove("plugin-full-timestamps");
     };
+  },
+  {
+    seconds: { type: "boolean", label: "Show seconds", default: true },
+    twelveHour: {
+      type: "boolean",
+      label: "12-hour clock",
+      description: "Use AM/PM instead of a 24-hour clock.",
+      default: false,
+    },
   },
 );
 
@@ -269,6 +320,7 @@ export const CodeBlockCopy = eventPlugin(
           void copy(
             element.querySelector("code")?.textContent ?? "",
             "Code copied",
+            booleanOption("CodeBlockCopy", "confirmation"),
           );
         };
         button.addEventListener("click", click);
@@ -286,26 +338,43 @@ export const CodeBlockCopy = eventPlugin(
       Styles.remove("plugin-code-block-copy");
     };
   },
+  { confirmation: confirmationSetting },
 );
 
 export const FocusMode = eventPlugin(
   "FocusMode",
-  "Ctrl + Alt + F toggles a wider chat by hiding channel and member sidebars. Your last layout is restored when disabled.",
+  "Hide sidebars with a shortcut for a quieter chat. Choose the shortcut and panels in Configure.",
   () => {
     const attr = "data-vestra-focus";
-    Styles.inject(
-      "plugin-focus-mode",
-      `html[${attr}] :is([class*="sidebarList_"],[class*="-sidebarList"],[class*="membersWrap_"],[class*="-membersWrap"]){display:none!important}`,
-    );
+    const update = (): void => {
+      const selectors = [
+        ...(booleanOption("FocusMode", "channels")
+          ? ['[class*="sidebarList_"]', '[class*="-sidebarList"]']
+          : []),
+        ...(booleanOption("FocusMode", "members")
+          ? ['[class*="membersWrap_"]', '[class*="-membersWrap"]']
+          : []),
+      ];
+      const css = selectors.length
+        ? `html[${attr}] :is(${selectors.join(",")}){display:none!important}`
+        : "";
+      if (Styles.get("plugin-focus-mode") !== css)
+        Styles.inject("plugin-focus-mode", css);
+    };
+    update();
+    const unsubscribe = Settings.subscribe(update);
     const key = (event: KeyboardEvent): void => {
       if (
         event.defaultPrevented ||
         event.repeat ||
-        !event.ctrlKey ||
-        !event.altKey ||
-        event.shiftKey ||
-        event.metaKey ||
-        event.code !== "KeyF" ||
+        !comboMatches(
+          typeof Settings.getPluginSetting("FocusMode", "shortcut") === "string"
+            ? (Settings.getPluginSetting("FocusMode", "shortcut") as string)
+            : "Ctrl+Alt+F",
+          event,
+        ) ||
+        (event.target instanceof Element &&
+          Boolean(event.target.closest("#vestra-overlay-root"))) ||
         event.isComposing
       )
         return;
@@ -313,22 +382,33 @@ export const FocusMode = eventPlugin(
       const enabled = document.documentElement.toggleAttribute(attr);
       Toasts.info(
         enabled ? "Focus mode on" : "Focus mode off",
-        "Ctrl + Alt + F to toggle",
+        `${Settings.getPluginSetting("FocusMode", "shortcut") ?? "Ctrl+Alt+F"} to toggle`,
         1800,
       );
     };
     document.addEventListener("keydown", key);
     return () => {
       document.removeEventListener("keydown", key);
+      unsubscribe();
       document.documentElement.removeAttribute(attr);
       Styles.remove("plugin-focus-mode");
     };
+  },
+  {
+    shortcut: {
+      type: "keybind",
+      label: "Focus shortcut",
+      description: "Show or hide the selected panels.",
+      default: "Ctrl+Alt+F",
+    },
+    channels: { type: "boolean", label: "Hide channel list", default: true },
+    members: { type: "boolean", label: "Hide member list", default: true },
   },
 );
 
 export const ImageZoom = eventPlugin(
   "ImageZoom",
-  "Hold Alt over a chat image to reveal a magnifying lens. Scroll while holding Alt to change zoom. Release Alt to dismiss.",
+  "Hold your chosen modifier over a chat image to magnify it. Scroll to zoom; release the modifier to dismiss.",
   () => {
     const lens = document.createElement("div");
     lens.setAttribute("data-vestra-image-lens", "");
@@ -350,7 +430,7 @@ export const ImageZoom = eventPlugin(
     let image: HTMLImageElement | undefined,
       x = 0,
       y = 0,
-      zoom = 2;
+      zoom = numberOption("ImageZoom", "zoom", 2, 1.25, 8);
     const hide = (): void => {
       image = undefined;
       lens.style.display = "none";
@@ -361,8 +441,9 @@ export const ImageZoom = eventPlugin(
         return;
       }
       const rect = image.getBoundingClientRect();
-      const width = Math.min(220, window.innerWidth - 16),
-        height = Math.min(220, window.innerHeight - 16);
+      const lensSize = numberOption("ImageZoom", "size", 220, 120, 400);
+      const width = Math.min(lensSize, window.innerWidth - 16),
+        height = Math.min(lensSize, window.innerHeight - 16);
       const left = Math.max(
         8,
         Math.min(window.innerWidth - width - 8, x - width / 2),
@@ -385,7 +466,7 @@ export const ImageZoom = eventPlugin(
     const move = (event: MouseEvent): void => {
       const target = event.target;
       if (
-        !event.altKey ||
+        !modifierMatches("ImageZoom", event) ||
         !(target instanceof HTMLImageElement) ||
         target.closest(excluded) ||
         !target.closest(`${messageSelector},[role="dialog"]`) ||
@@ -410,7 +491,8 @@ export const ImageZoom = eventPlugin(
       paint();
     };
     const wheel = (event: WheelEvent): void => {
-      if (!event.altKey || !image || event.deltaY === 0) return;
+      if (!modifierMatches("ImageZoom", event) || !image || event.deltaY === 0)
+        return;
       event.preventDefault();
       event.stopImmediatePropagation();
       zoom = Math.max(
@@ -420,7 +502,7 @@ export const ImageZoom = eventPlugin(
       paint();
     };
     const key = (event: KeyboardEvent): void => {
-      if (event.key === "Alt" || event.key === "Escape") hide();
+      if (["Alt", "Control", "Meta", "Escape"].includes(event.key)) hide();
     };
     document.addEventListener("mousemove", move);
     document.addEventListener("wheel", wheel, {
@@ -430,14 +512,44 @@ export const ImageZoom = eventPlugin(
     document.addEventListener("keyup", key);
     window.addEventListener("blur", hide);
     window.addEventListener("scroll", hide, true);
+    let configuredZoom = Settings.getPluginSetting("ImageZoom", "zoom");
+    const unsubscribe = Settings.subscribe(() => {
+      const next = Settings.getPluginSetting("ImageZoom", "zoom");
+      if (next !== configuredZoom) {
+        configuredZoom = next;
+        zoom = numberOption("ImageZoom", "zoom", 2, 1.25, 8);
+      }
+      if (image) paint();
+    });
     return () => {
       document.removeEventListener("mousemove", move);
       document.removeEventListener("wheel", wheel, true);
       document.removeEventListener("keyup", key);
       window.removeEventListener("blur", hide);
       window.removeEventListener("scroll", hide, true);
+      unsubscribe();
       lens.remove();
     };
+  },
+  {
+    modifier: modifierSetting,
+    zoom: {
+      type: "number",
+      label: "Default zoom",
+      default: 2,
+      min: 1.25,
+      max: 8,
+      step: 0.25,
+    },
+    size: {
+      type: "number",
+      label: "Lens size",
+      description: "Diameter in pixels.",
+      default: 220,
+      min: 120,
+      max: 400,
+      step: 10,
+    },
   },
 );
 
