@@ -98,3 +98,35 @@ FocusMode and chat utilities still need a visual check after restarting the user
 real Stable client. No Discord account data was extracted and no live messages
 were sent during these tests. The release remains an alpha, not a guarantee of
 compatibility with every third-party theme or plugin.
+
+## Desktop persistence and update recovery
+
+Desktop preferences are stored atomically under `%AppData%\Vestra\settings`,
+with separate `stable.json`, `ptb.json` and `canary.json` files and a last-valid
+`.bak`. Discord's origin storage is only a migration source, so deleting it does
+not reset themes, plugin options or shortcuts. Native storage is connected before
+local plugin registration. Browser previews continue to use their own local storage.
+
+Theme reconciliation watches the document head, reattaches removed style elements
+and orders the selected theme after native stylesheets, with QuickCSS last. It
+also handles a replaced head and disconnects observers when the runtime stops.
+
+Windows Manager Install and Repair stop only processes beneath the selected
+installation root, wait for that root's Update.exe to finish, rediscover the
+current version, replace all four payload files, verify them and relaunch the
+selected Discord executable. Explicit Repair also replaces healthy installations.
+An in-place native Discord update becomes the new pristine backup; an older
+backup never overwrites an updated native archive during Repair or Uninstall.
+
+Keep Vestra installed registers the named HKCU Run value VestraMaintenance. Its
+independent local runtime supports Portable builds after extraction cleanup. It
+observes only registered roots on selected channels, waits for unchanged file
+metadata across two 15-second observations, defers during updater activity and
+checks integrity before repairing. Healthy Discord instances are left running;
+a recovered instance restarts. Failed attempts back off five minutes. Foreground
+and background writes share an OS-owned named pipe lock on Windows, released
+automatically on process exit. Disable removes the startup value; Uninstall
+untracks its channel and removes the value after the final tracked channel.
+
+Recovery is an enabled, visible Manager setting rather than a guarantee against
+future Discord changes. It does not stop Discord updates or download remote code.
