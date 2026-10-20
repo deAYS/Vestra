@@ -1,7 +1,6 @@
-// @vestra/shared — types, constants and utilities shared across packages.
-// Phase 0 skeleton. Expanded in Phase 1+.
-
-export const VESTRA_VERSION = "0.0.0";
+export const VESTRA_VERSION = "0.1.0-alpha.1";
+export const VESTRA_API_VERSION = "1.0.0";
+export { VESTRA_MARK_PATH, VESTRA_BRAND_ACCENT, VESTRA_BRAND_NEUTRAL } from "./brand.js";
 
 export const VESTRA_BRANDING = {
   name: "Vestra",
@@ -44,3 +43,22 @@ export type VestraNativeChannel = (typeof VESTRA_NATIVE_CHANNELS)[number];
 
 /** IPC prefix namespacing Vestra channels on the Electron ipc bus. */
 export const VESTRA_IPC_PREFIX = "vestra:native:" as const;
+
+/** Exact app origins/routes only. Never grant native access to OAuth or embeds. */
+export function isDiscordRendererUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" && url.port === "" &&
+      /^(?:(?:canary|ptb)\.)?discord(?:app)?\.com$/.test(url.hostname) &&
+      /^\/(?:channels(?:\/|$)|(?:app|login|register)(?:\/|$))/.test(url.pathname);
+  } catch {
+    return false;
+  }
+}
+
+/** Versions become directory names in the installer, updater and store. */
+export function assertSafeVersion(value: string): void {
+  if (typeof value !== "string" || !/^[0-9]+(?:\.[0-9]+){1,3}(?:-[A-Za-z0-9]+(?:[.-][A-Za-z0-9]+)*)?(?:\+[A-Za-z0-9]+(?:[.-][A-Za-z0-9]+)*)?$/.test(value) || value.includes("..") || value.length > 128) {
+    throw new TypeError("Invalid version directory.");
+  }
+}
