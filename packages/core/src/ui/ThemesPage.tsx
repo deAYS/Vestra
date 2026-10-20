@@ -60,6 +60,7 @@ function ThemePreview({ colors }: { colors: readonly string[] }): JSX.Element {
 
 export function ThemesPage({ settings }: PageProps): JSX.Element {
   const { themes } = useSettingsSnapshot(settings);
+  const persistence = settings.getPersistenceStatus();
   const input = useRef<HTMLInputElement>(null);
   const [error, setError] = useState("");
   const [pending, setPending] = useState(false);
@@ -106,16 +107,26 @@ export function ThemesPage({ settings }: PageProps): JSX.Element {
       setPending(false);
     }
   };
-  const apply = (preset: (typeof THEME_LIBRARY)[number]): void => {
+  const saveSelection = async (change: () => void): Promise<void> => {
+    setPending(true);
     try {
-      applyThemePreset(settings, preset);
+      change();
+      await settings.flush();
       setError("");
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setPending(false);
     }
   };
   return (
     <section data-vestra-page="themes">
+      {persistence.error || persistence.backend === "memory" ? (
+        <p role="alert" style={s.errorBox}>
+          Preferences are not saved to disk.{" "}
+          {persistence.error ?? "Only temporary memory storage is available."}
+        </p>
+      ) : null}
       <div style={{ ...s.header, position: "relative", paddingRight: 60 }}>
         <h2 style={s.title}>Themes</h2>
         <p style={s.subtitle}>A different atmosphere. Still your Discord.</p>
@@ -165,11 +176,19 @@ export function ThemesPage({ settings }: PageProps): JSX.Element {
                   <button
                     type="button"
                     style={active ? s.button : s.navButton}
-                    disabled={active}
-                    aria-label={`${active ? "Applied" : "Apply"} ${preset.name}`}
-                    onClick={() => apply(preset)}
+                    disabled={pending || (active && !persistence.error)}
+                    aria-label={`${active && !persistence.error ? (pending ? "Saving" : "Applied") : "Apply"} ${preset.name}`}
+                    onClick={() =>
+                      void saveSelection(() =>
+                        applyThemePreset(settings, preset),
+                      )
+                    }
                   >
-                    {active ? "Applied" : "Apply theme"}
+                    {active && pending
+                      ? "Saving…"
+                      : active && !persistence.error
+                        ? "Applied"
+                        : "Apply theme"}
                   </button>
                 </div>
               </div>
@@ -260,15 +279,24 @@ export function ThemesPage({ settings }: PageProps): JSX.Element {
             <strong>{theme.name}</strong>
             <p>
               {theme.author} <span style={{ margin: "0 5px" }}>·</span>
-              {theme.enabled ? "Active" : "Ready to apply"}
+              {theme.enabled
+                ? pending
+                  ? "Saving…"
+                  : persistence.error
+                    ? "Save failed"
+                    : "Active"
+                : "Ready to apply"}
             </p>
           </div>
           <input
             type="checkbox"
             checked={theme.enabled}
+            disabled={pending}
             aria-label={`Enable ${theme.name}`}
             onChange={() =>
-              settings.activateTheme(theme.enabled ? null : theme.id)
+              void saveSelection(() =>
+                settings.activateTheme(theme.enabled ? null : theme.id),
+              )
             }
           />
           {!theme.sourceFile && filesAvailable && (
