@@ -1,6 +1,9 @@
 import { Settings, type SettingsStore, type Theme } from "./api/settings.js";
 import { Styles, type StylesManager } from "./api/styles.js";
 import { Native, type NativeBridge } from "./api/native.js";
+import glassCss from "../../../themes/liquid-glass.theme.css";
+import afterglowCss from "../../../themes/afterglow.theme.css";
+import { customizedThemeCss } from "./themeCustomization.js";
 
 const LEGACY_MIDNIGHT_THEME = `/**
  * @name Vestra Midnight
@@ -260,10 +263,24 @@ function presetCss(name: string, p: Palette, revision = 3): string {
     .join("\n")}\n}${surfaces}`;
 }
 
-export const THEME_LIBRARY = LEGACY_THEME_LIBRARY.map((preset, index) => ({
-  ...preset,
-  css: presetCss(preset.name, palettes[index]!),
-}));
+export const THEME_LIBRARY = [
+  ...LEGACY_THEME_LIBRARY.map((preset, index) => ({
+    ...preset,
+    css: presetCss(preset.name, palettes[index]!),
+  })),
+  {
+    name: "Vestra Afterglow",
+    description: "Smoked copper · warm horizons",
+    colors: ["#100b0b", "#1d1414", "#e6ad83"],
+    css: afterglowCss,
+  },
+  {
+    name: "Vestra Liquid Glass",
+    description: "Pearl light · frosted floating panels",
+    colors: ["#262132", "#5c4a67", "#ddd2ff"],
+    css: glassCss,
+  },
+];
 export const MIDNIGHT_THEME = THEME_LIBRARY[0]!.css;
 
 /** Exact shipped CSS only: a custom theme sharing our name is never replaced. */
@@ -335,28 +352,34 @@ export async function refreshLocalThemes(
   const files = await native.readThemeFiles();
   const names = new Set(files.map((file) => file.filename));
   const current = store.getThemes();
-  const next = current
-    .filter((theme) => !theme.sourceFile || names.has(theme.sourceFile))
-    .map((theme) => ({ ...theme }));
+  const next = current.map((theme) => ({
+    ...theme,
+    ...(theme.sourceFile
+      ? { sourceMissing: !names.has(theme.sourceFile) }
+      : {}),
+  }));
   for (const file of files) {
     const existing = next.find((theme) => theme.sourceFile === file.filename);
     if (!file.source.trim()) {
-      if (existing) existing.css = file.source;
+      if (existing) existing.sourceMissing = true;
       continue;
     }
     if (existing) {
+      existing.sourceMissing = false;
       if (existing.css !== file.source) {
         const parsed = parseTheme(file.source, file.filename);
         Object.assign(existing, {
           css: parsed.css,
           name: parsed.name,
           author: parsed.author,
+          sourceMissing: false,
         });
       }
     } else {
       next.push({
         ...parseTheme(file.source, file.filename),
         sourceFile: file.filename,
+        sourceMissing: false,
       });
     }
   }
@@ -379,6 +402,7 @@ export function startThemes(
   const sync = (): void => {
     const active = store.getThemes().filter((theme) => theme.enabled);
     const desired = new Set(active.map((theme) => `theme-${theme.id}`));
+    if (active.length) desired.add("theme-profile-surfaces");
     for (const id of owned)
       if (!desired.has(id)) {
         styles.remove(id);
@@ -387,8 +411,15 @@ export function startThemes(
     for (const theme of active) {
       const id = `theme-${theme.id}`;
       // Reattach if Discord rebuilt <head> or removed our style node.
-      styles.inject(id, theme.css);
+      styles.inject(id, customizedThemeCss(theme));
       owned.add(id);
+    }
+    if (active.length) {
+      styles.inject(
+        "theme-profile-surfaces",
+        `:root{--vestra-profile-activity-bg:var(--background-surface-high,var(--background-floating));--vestra-profile-activity-border:var(--border-subtle,#ffffff14)}:is(.custom-user-profile-theme,[class*="userPopout_"],[class*="userProfile_"]) :is([class*="biteSize_"],[class*="activityBiteSizePopout_"],[class*="activityCard_"],[class*="activity_"]){--background-surface-high:var(--vestra-profile-activity-bg)!important;--background-base-low:var(--vestra-profile-activity-bg)!important;background-color:var(--vestra-profile-activity-bg)!important;border-color:var(--vestra-profile-activity-border)!important;}`,
+      );
+      owned.add("theme-profile-surfaces");
     }
     if (doc) {
       const quick = doc.querySelector('[data-vestra-style="quickcss"]');
