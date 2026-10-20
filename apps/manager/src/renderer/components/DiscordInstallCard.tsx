@@ -1,5 +1,3 @@
-// Vestra Manager — one Discord installation card.
-
 import { channelDisplayName, type DiscordChannel } from "../../shared/channels.js";
 import { channelBadge } from "../../shared/channelSelect.js";
 import type { CardModel } from "../../shared/statusModel.js";
