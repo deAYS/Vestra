@@ -1,5 +1,3 @@
-// Vestra Manager — uninstall confirmation modal.
-
 import { channelDisplayName, type DiscordChannel } from "../../shared/channels.js";
 
 interface Props {
