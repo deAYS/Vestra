@@ -5,6 +5,7 @@ import { EditorView, keymap, placeholder } from "@codemirror/view";
 import { indentWithTab } from "@codemirror/commands";
 import { oneDarkHighlightStyle } from "@codemirror/theme-one-dark";
 import { syntaxHighlighting } from "@codemirror/language";
+import { openSearchPanel } from "@codemirror/search";
 
 export function CssEditor({
   value,
@@ -88,7 +89,11 @@ export function CssEditor({
       ],
     });
     editor.current = view;
+    const search = (): void => { openSearchPanel(view); };
+    const element = host.current;
+    element.addEventListener("vestra-editor-search", search);
     return () => {
+      element.removeEventListener("vestra-editor-search", search);
       editor.current = undefined;
       view.destroy();
     };
