@@ -17,14 +17,25 @@ are planned; they are not part of this release.
 
 1. Download the **Setup** or **Portable** Windows x64 build from [Releases](https://github.com/deAYS/Vestra/releases).
 2. Open Vestra Manager, select your Discord installation and click **Install Vestra**.
-3. Fully quit Discord from the system tray, then open it normally.
+3. The Manager closes the selected Discord, installs and verifies Vestra, then reopens Discord. Active calls and streams disconnect during this operation.
 4. Click the floating **Vestra** button or press **Ctrl+Shift+V**.
 5. Pick a theme and enable the plugins you want.
 
+Desktop settings are saved under `%AppData%\Vestra\settings` for each Discord channel,
+with a last-valid backup. Clearing Discord storage does not reset your preferences.
+
 The Manager keeps an original backup. **Uninstall** restores it while preserving
-Vestra preferences. If a Discord update replaces the modified files, use **Check**
-and **Repair** in the Manager. Stable, PTB and Canary can be discovered; GUI operations
-target the installation you select.
+Vestra preferences. **Repair** always reinstalls Vestra, even when the status is healthy.
+
+**Keep Vestra installed** is enabled after installation in Windows builds. A local
+recovery process starts at Windows sign-in, waits for Discord updates to finish,
+then restores Vestra into the current version and restarts that Discord channel.
+Turn this off in the Manager to remove its Windows startup entry. Recovery only
+tracks channels and installation roots where you installed Vestra. It keeps an
+independent runtime under `%LocalAppData%\Vestra\maintenance`, so Portable recovery
+does not depend on a temporary extraction directory. Diagnostic failures are saved
+in `%AppData%\Vestra\recovery.log`. Manual **Repair** remains available. Stable, PTB
+and Canary can be discovered; GUI operations target the installation you select.
 
 ## Make it yours
 
