@@ -1,8 +1,3 @@
-// Vestra Manager (main) — BrowserWindow factory.
-// Native chrome kept (no frameless/custom titlebar this phase).
-// Security: contextIsolation on, nodeIntegration off; renderer reaches
-// Node only through the narrow preload bridge.
-
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -16,7 +11,7 @@ function isDevBuild(): boolean {
   return typeof __VESTRA_MANAGER_DEV__ !== "undefined" && __VESTRA_MANAGER_DEV__;
 }
 
-export function createManagerWindow(): BrowserWindow {
+export function createManagerWindow(show = true): BrowserWindow {
   // TEMPORARY dev-only diagnostics (validation phase): verify the exact
   // preload path at runtime. Production remains quiet. Path unchanged.
   const preloadPath = path.join(HERE, "..", "preload", "index.cjs");
@@ -25,6 +20,7 @@ export function createManagerWindow(): BrowserWindow {
     console.log(`[Vestra Manager] preload exists: ${fs.existsSync(preloadPath)}`);
   }
   const win = new BrowserWindow({
+    show,
     width: 900,
     height: 650,
     minWidth: 760,
@@ -38,6 +34,9 @@ export function createManagerWindow(): BrowserWindow {
       preload: preloadPath,
     },
   });
+  // This window only displays bundled Manager files.
+  win.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+  win.webContents.on("will-navigate", event => { event.preventDefault(); });
   // TEMPORARY dev-only diagnostics: mirror preload/renderer "[Vestra Manager]"
   // messages to the main terminal. Prefix-filtered; DevTools output preserved.
   // Listener lives on win.webContents and dies with the window lifecycle.
