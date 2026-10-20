@@ -3,13 +3,16 @@ import { useRefreshCounter, useSettingsSnapshot } from "./hooks.js";
 import { Logger } from "../api/logger.js";
 import { s } from "./theme.js";
 import type { PageProps } from "./types.js";
+import { CssEditor } from "./CssEditor.js";
 
 export function QuickCssPage({ settings, plugins }: PageProps): JSX.Element {
   const snapshot = useSettingsSnapshot(settings);
   const [text, setText] = useState(snapshot.customCss.css);
   const { refresh } = useRefreshCounter();
   useEffect(() => plugins.subscribe?.(refresh), [plugins, refresh]);
-  const running = plugins.list().some(plugin => plugin.definition.name === "QuickCSS" && plugin.started);
+  const running = plugins
+    .list()
+    .some((plugin) => plugin.definition.name === "QuickCSS" && plugin.started);
 
   // Sync external changes (another surface editing the same setting) without
   // clobbering in-progress typing: only overwrite when the values differ.
@@ -17,7 +20,10 @@ export function QuickCssPage({ settings, plugins }: PageProps): JSX.Element {
     if (snapshot.customCss.css !== text) setText(snapshot.customCss.css);
   });
 
-  const live = running && snapshot.customCss.enabled && snapshot.customCss.css.trim() !== "";
+  const live =
+    running &&
+    snapshot.customCss.enabled &&
+    snapshot.customCss.css.trim() !== "";
 
   const setEnabled = (enabled: boolean): void => {
     try {
@@ -51,9 +57,34 @@ export function QuickCssPage({ settings, plugins }: PageProps): JSX.Element {
         <h2 style={s.title}>QuickCSS</h2>
         <p style={s.subtitle}>The finishing touch, written by you.</p>
       </div>
-      {!running && <div style={{...s.card,display:"flex",alignItems:"center",gap:10,justifyContent:"space-between"}}><span style={s.muted}>The QuickCSS plugin is paused.</span><button type="button" style={s.navButton} onClick={()=>void plugins.enable("QuickCSS").then(refresh)}>Enable plugin</button></div>}
-      <label className="vs-setting-row" style={{cursor:"pointer",paddingTop:0,marginBottom:22}}>
-        <div style={{flex:1}}><strong>Custom styling</strong><p>Your changes are saved automatically.</p></div>
+      {!running && (
+        <div
+          style={{
+            ...s.card,
+            display: "flex",
+            alignItems: "center",
+            gap: 10,
+            justifyContent: "space-between",
+          }}
+        >
+          <span style={s.muted}>The QuickCSS plugin is paused.</span>
+          <button
+            type="button"
+            style={s.navButton}
+            onClick={() => void plugins.enable("QuickCSS").then(refresh)}
+          >
+            Enable plugin
+          </button>
+        </div>
+      )}
+      <label
+        className="vs-setting-row"
+        style={{ cursor: "pointer", paddingTop: 0, marginBottom: 22 }}
+      >
+        <div style={{ flex: 1 }}>
+          <strong>Custom styling</strong>
+          <p>Your changes are saved automatically.</p>
+        </div>
         <input
           type="checkbox"
           aria-label="Enable custom styling"
@@ -63,21 +94,43 @@ export function QuickCssPage({ settings, plugins }: PageProps): JSX.Element {
           }}
         />
       </label>
-      <div className="vs-editor"><div className="vs-editor-toolbar"><span style={{color:"#C5BAF8"}}>{"{ }"}</span><span>custom.css</span><span>{live?"● Applied live":"○ Not applied"}</span></div>
-      <textarea
-        style={s.textarea}
-        value={text}
-        onChange={(e) => {
-          setTextLive(e.target.value);
-        }}
-        placeholder={"/* Your space. Your styles. */\n\n:root {\n  --text-link: #c5baf8;\n}"}
-        aria-label="Custom CSS"
-        spellCheck={false}
-      />
+      <div className="vs-editor">
+        <div className="vs-editor-toolbar">
+          <span style={{ color: "#C5BAF8" }}>{"{ }"}</span>
+          <span>custom.css</span>
+          <span>{live ? "● Applied live" : "○ Not applied"}</span>
+        </div>
+        <CssEditor value={text} onChange={setTextLive} />
       </div>
-      <div style={{ ...s.row, marginTop: 14,justifyContent:"space-between" }}>
-        <span style={{...s.muted,fontSize:10}}>{text.length} characters <span style={{margin:"0 7px"}}>·</span> CSS</span>
-        <button type="button" style={{...s.navButton,padding:"6px 11px",fontSize:10}} onClick={clear}>
+      <div style={{ ...s.row, marginTop: 14, justifyContent: "space-between" }}>
+        <span style={{ ...s.muted, fontSize: 10 }}>
+          {text.split("\n").length} lines{" "}
+          <span style={{ margin: "0 7px" }}>·</span> CSS{" "}
+          <span style={{ margin: "0 7px" }}>·</span> Ctrl+F to find
+        </span>
+        {!text && (
+          <button
+            type="button"
+            style={{
+              ...s.navButton,
+              padding: "6px 11px",
+              fontSize: 10,
+              marginLeft: "auto",
+            }}
+            onClick={() =>
+              setTextLive(
+                "/* Your space. Your styles. */\n\n:root {\n  --text-link: #c5baf8;\n}\n",
+              )
+            }
+          >
+            Insert starter
+          </button>
+        )}
+        <button
+          type="button"
+          style={{ ...s.navButton, padding: "6px 11px", fontSize: 10 }}
+          onClick={clear}
+        >
           Clear editor
         </button>
       </div>
