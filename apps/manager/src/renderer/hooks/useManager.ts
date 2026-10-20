@@ -1,8 +1,3 @@
-// Vestra Manager — state orchestration hook.
-// Startup: discover() -> cheap status() -> cards render -> async deep
-// check() per apparently-installed channel. Deep verification never blocks
-// the initial paint. All mutations target ONE selected channel.
-
 import { useCallback, useEffect, useRef, useState } from "react";
 import { channelDisplayName, type DiscordChannel } from "../../shared/channels.js";
 import { selectDefaultChannel } from "../../shared/channelSelect.js";
