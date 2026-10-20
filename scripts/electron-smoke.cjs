@@ -220,6 +220,21 @@ app
         await evaluate("document.getElementById('vestra-splash') === null"),
         true,
       );
+      const originalSize = win.getSize();
+      win.setSize(1280, 1000);
+      await evaluate("document.querySelector('button[aria-label=Themes]').click()");
+      await waitFor("Boolean(document.querySelector('[aria-label=\"Preview Vestra Midnight\"]')) && document.querySelector('[data-vestra-page=themes]').getAnimations().every(a=>a.playState==='finished')", "theme cards finish entering");
+      for (const name of ["Midnight", "Graphite"]) {
+        await evaluate(`(() => {const button=document.querySelector('[aria-label="Preview Vestra ${name}"]');button.focus();button.click()})()`);
+        await waitFor(`document.querySelector('.vs-theme-peek-panel strong')?.textContent === 'Vestra ${name}' && document.querySelector('.vs-theme-peek-panel').getAnimations().every(a=>a.playState==='finished')`, "theme preview finishes entering").catch(async error => {
+          console.error(name, await evaluate("JSON.stringify({panels:[...document.querySelectorAll('.vs-theme-peek-panel')].map(p=>({title:p.querySelector('strong')?.textContent,animations:p.getAnimations().map(a=>a.playState)})),active:document.activeElement?.getAttribute('aria-label')})"));
+          throw error;
+        });
+        const placement = await evaluate(`(() => {const b=document.querySelector('[aria-label="Preview Vestra ${name}"]').getBoundingClientRect();const p=document.querySelector('.vs-theme-peek-panel').getBoundingClientRect();const r=document.querySelector('.vs-settings-root').getBoundingClientRect();return {gap:p.top-b.bottom,gapAbove:b.top-p.bottom,left:p.left,right:p.right,bottom:p.bottom,rootLeft:r.left,rootRight:r.right,rootBottom:r.bottom}})()`);
+        assert.ok(Math.min(Math.abs(placement.gap - 10), Math.abs(placement.gapAbove - 10)) < 2, `${name} preview opens beside its button: ${JSON.stringify(placement)}`);
+        assert.ok(placement.left >= placement.rootLeft && placement.right <= placement.rootRight + 1 && placement.bottom <= placement.rootBottom + 1, "preview stays inside settings");
+      }
+      win.setSize(...originalSize);
       await evaluate(
         "document.querySelector('nav[aria-label=\"Vestra settings pages\"] button[aria-label=QuickCSS]').click()",
       );
@@ -262,6 +277,13 @@ app
         "document.querySelector('.cm-scroller').scrollTop>0",
         "the editor follows the cursor down a long file",
       );
+      await evaluate("window.__discordSearch=0;document.addEventListener('keydown',e=>{if(e.ctrlKey&&e.key.toLowerCase()==='f')window.__discordSearch++},true)");
+      win.webContents.sendInputEvent({ type: "keyDown", keyCode: "F", modifiers: ["control"] });
+      win.webContents.sendInputEvent({ type: "keyUp", keyCode: "F", modifiers: ["control"] });
+      await waitFor("document.activeElement?.getAttribute('name') === 'search' && Boolean(document.activeElement.closest('.cm-search'))", "Ctrl+F focuses the editor search");
+      await win.webContents.insertText("editor line 42");
+      assert.equal(await evaluate("window.__discordSearch"), 0, "Discord search never receives Ctrl+F");
+      assert.equal(await evaluate("document.querySelector('.cm-search input').value"), "editor line 42", "search typing stays inside QuickCSS");
       await evaluate(
         "window.Vestra.Settings.setCustomCss({enabled:false,css:''});document.querySelector('nav[aria-label=\"Vestra settings pages\"] button[aria-label=Plugins]').click()",
       );
@@ -319,7 +341,8 @@ app
         "document.querySelector('nav[aria-label=\"Vestra settings pages\"] button[aria-label=Overview]').click()",
       );
 
-      for (const preset of presets) {
+      await evaluate("document.querySelector('.custom-user-profile-theme').insertAdjacentHTML('beforeend','<div id=fixture-activity class=activity_fixture style=background-color:rgb(12,12,12)>Watching</div>')");
+      for (const preset of presets.filter(preset => preset.name !== "Vestra Liquid Glass")) {
         const colors = await page((preset) => {
           window.Vestra.Settings.setThemes([
             {
@@ -380,7 +403,11 @@ app
           "rgb(75, 36, 66)",
           "custom profile backgrounds keep their own styling",
         );
+        assert.equal(await evaluate("getComputedStyle(document.getElementById('fixture-activity')).backgroundColor"), colors[3], "profile activity cards follow the theme palette");
+        await waitFor("document.querySelector('.vs-settings-launcher')?.getAttribute('data-theme-follow') === 'true'", "the launcher follows an enabled theme");
+        await waitFor(`getComputedStyle(document.querySelector('.vs-settings-launcher')).backgroundColor === ${JSON.stringify(colors[3])}`, "the launcher uses the theme floating surface");
       }
+      await page(preset => window.Vestra.Settings.setThemes([{ id:"palette", name:preset.name, author:"Vestra", css:preset.css, enabled:true }]), presets[3]);
       await evaluate(
         "document.querySelector('[data-vestra-style=theme-palette]').remove()",
       );
@@ -432,6 +459,60 @@ app
         "linear-gradient(rgb(70, 55, 78), rgb(70, 55, 78))",
         "disabling themes restores the native custom background",
       );
+
+      await page(preset => window.Vestra.Settings.setThemes([{ id:"glass", name:preset.name, author:"Vestra", css:preset.css, enabled:true }]), presets.find(preset => preset.name === "Vestra Liquid Glass"));
+      const glassSurface = await evaluate(`(() => {const style=getComputedStyle(document.getElementById('fixture-chat'));return {color:style.backgroundColor,blur:style.backdropFilter,wallpaper:getComputedStyle(document.getElementById('app-mount')).backgroundImage}})()`);
+      assert.equal(glassSurface.color, "rgba(22, 18, 30, 0.2)", "Glass main surfaces are translucent, not a solid navy palette");
+      assert.ok(glassSurface.blur.includes("26px"), "Glass uses actual backdrop blur");
+      assert.ok(glassSurface.wallpaper.includes("radial-gradient"), "visible light exists behind the glass panels");
+      await evaluate("window.Vestra.UI.openSettings()");
+      await waitFor("Boolean(document.querySelector('[aria-label=\"Vestra settings pages\"] button[aria-label=Themes]'))", "settings open for appearance controls");
+      await evaluate("document.querySelector('[aria-label=\"Vestra settings pages\"] button[aria-label=Themes]').click()");
+      await waitFor("Boolean(document.querySelector('[aria-label=\"Panel opacity\"]'))", "the active theme exposes appearance controls");
+      await evaluate(`(() => {const input=document.querySelector('[aria-label="Panel opacity"]');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,'68');input.dispatchEvent(new Event('input',{bubbles:true}));})()`);
+      await pause(50);
+      assert.equal(await evaluate("window.Vestra.Settings.getThemes()[0].customization"), undefined, "editing is a preview until Apply");
+      await page(values => {
+        for(const [label,value] of Object.entries(values)) {
+          const input=document.querySelector('[aria-label="'+label+'"]');
+          Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,String(value));
+          input.dispatchEvent(new Event('input',{bubbles:true}));
+        }
+      }, { "Glass blur":14, "Background saturation":75, "Background brightness":90, "Corner radius":16 });
+      await page(async () => {
+        const canvas=document.createElement('canvas');canvas.width=40;canvas.height=40;
+        canvas.getContext('2d').fillStyle='#31495c';canvas.getContext('2d').fillRect(0,0,40,40);
+        const blob=await new Promise(resolve=>canvas.toBlob(resolve,'image/png'));
+        const files=new DataTransfer();files.items.add(new File([blob],'wallpaper.png',{type:'image/png'}));
+        const input=document.querySelector('[aria-label="Choose background image"]');input.files=files.files;input.dispatchEvent(new Event('change',{bubbles:true}));
+      });
+      await waitFor("document.querySelector('.vs-appearance-background p')?.textContent.includes('Image saved inside')", "local background is resized and embedded");
+      await evaluate("Array.from(document.querySelectorAll('.vs-theme-customizer button')).find(button=>button.textContent==='Apply appearance').click()");
+      await waitFor("window.Vestra.Settings.getThemes()[0]?.customization?.opacity === 68", "Apply stores the chosen opacity");
+      await waitFor("document.querySelector('.vs-theme-customizer footer')?.textContent.includes('Appearance saved')", "saved feedback waits for disk confirmation");
+      assert.equal(await evaluate("getComputedStyle(document.getElementById('fixture-chat')).backgroundColor"), "rgba(22, 18, 30, 0.68)", "opacity changes the actual main surface");
+      assert.equal(await evaluate("getComputedStyle(document.getElementById('fixture-chat')).backdropFilter"), "blur(14px)", "blur changes the actual main surface");
+      assert.equal(await evaluate("getComputedStyle(document.getElementById('fixture-chat')).borderRadius"), "16px", "radius changes the actual main surface");
+      assert.equal(await evaluate("getComputedStyle(document.getElementById('app-mount'),'::before').filter"), "saturate(0.75) brightness(0.9)", "saturation and brightness apply to the backdrop only");
+      assert.equal(await evaluate("getComputedStyle(document.getElementById('fixture-image')).filter"), "none", "chat images are not color-filtered");
+      assert.ok((await evaluate("window.Vestra.Settings.getThemes()[0].customization.backgroundImage")).startsWith("data:image/webp;base64,"), "saved backgrounds do not depend on temporary files");
+      win.webContents.debugger.attach('1.3');
+      try {
+        const targets=await win.webContents.debugger.sendCommand('Target.getTargets');
+        const frame=targets.targetInfos.find(target=>target.type==='iframe' && target.url==='about:srcdoc');
+        assert.ok(frame,'the isolated appearance preview creates its own frame');
+        const {sessionId}=await win.webContents.debugger.sendCommand('Target.attachToTarget',{targetId:frame.targetId,flatten:true});
+        const snapshot=await win.webContents.debugger.sendCommand('DOMSnapshot.captureSnapshot',{computedStyles:[]},sessionId);
+        assert.ok(snapshot.documents.some(doc=>doc.nodes.nodeValue.some(index=>snapshot.strings[index]==='mira')), 'the isolated scriptless appearance preview contains its sample conversation');
+      } finally { win.webContents.debugger.detach(); }
+      await evaluate("window.Vestra.Settings.flush()");
+      await win.loadURL("https://discord.com/channels/789/123");
+      await waitFor("Boolean(window.Vestra?.started) && document.getElementById('vestra-splash') === null", "customized Glass restores in a new renderer");
+      assert.equal(await evaluate("getComputedStyle(document.getElementById('fixture-chat')).backgroundColor"), "rgba(22, 18, 30, 0.68)", "appearance survives a renderer restart");
+      assert.ok((await evaluate("getComputedStyle(document.getElementById('app-mount'),'::before').backgroundImage")).includes("data:image/webp;base64,"), "the embedded backdrop is restored too");
+      await evaluate("window.Vestra.Settings.setThemeCustomization('glass',undefined)");
+      assert.equal(await evaluate("getComputedStyle(document.getElementById('fixture-chat')).backgroundColor"), "rgba(22, 18, 30, 0.2)", "Restore original returns to the authored Glass theme");
+      await evaluate("window.Vestra.Settings.setThemes([])");
 
       await page(async (names) => {
         window.__fixtureCopies = [];
@@ -499,6 +580,8 @@ app
         ),
         true,
       );
+      assert.match(await evaluate("document.querySelector('time').getAttribute('data-vestra-time-compact')"), /^\d{2}:\d{2}$/, "grouped message gutters only show a short clock");
+      assert.equal(await evaluate("getComputedStyle(document.querySelector('time'),'::after').whiteSpace"), "nowrap", "timestamps cannot split the year into another line");
       await evaluate(
         "document.dispatchEvent(new KeyboardEvent('keydown',{key:'f',code:'KeyF',ctrlKey:true,altKey:true,bubbles:true,cancelable:true}))",
       );
