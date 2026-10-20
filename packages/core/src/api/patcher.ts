@@ -1,14 +1,3 @@
-// @vestra/core — Patcher API.
-// Phase 7 (roadmap #7). Safely intercept functions with automatic cleanup:
-// `before` / `after` / `instead` install hooks under an owner namespace
-// (plugin name), every call returns an `unpatch` function, `unpatchAll(owner)`
-// removes one owner's hooks (or everything), and disabling a plugin removes
-// its patches via PluginManager. Multiple independent hooks may share one
-// target; the original is restored byte-for-byte once the last hook leaves.
-// Hook exceptions are captured via Logger and never break the target: a
-// throwing `before` still calls through, a throwing `after` keeps the prior
-// result, a throwing `instead` falls back to the next hook/original.
-
 import { Logger, type ScopedLogger } from "./logger.js";
 
 /** Namespace every patch belongs to — a plugin name or patch group. */
@@ -300,14 +289,26 @@ export class Patcher {
     if (record === undefined) {
       return entry.original.apply(thisArg, args);
     }
+    let calledNext = false;
+    let nextFailed = false;
+    let nextError: unknown;
+    let nextResult: unknown;
     const callOriginal = (...nextArgs: unknown[]): unknown => {
+      calledNext = true;
       const effective = nextArgs.length === 0 ? args : nextArgs;
-      return this.runInsteadChain(entry, insteads, index + 1, effective, thisArg, label);
+      try {
+        nextResult = this.runInsteadChain(entry, insteads, index + 1, effective, thisArg, label);
+        return nextResult;
+      } catch (err) { nextFailed = true; nextError = err; throw err; }
     };
     try {
       return (record.hook as InsteadHook)(args, callOriginal, thisArg);
     } catch (err: unknown) {
+      // An original failure must propagate exactly once. If a hook throws
+      // after calling through successfully, preserve that call's result.
+      if (nextFailed) throw nextError;
       this.logger.captureError(err, `Patcher.instead "${label}" (owner "${record.owner}")`);
+      if (calledNext) return nextResult;
       return callOriginal();
     }
   }
