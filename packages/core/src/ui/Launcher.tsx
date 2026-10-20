@@ -3,6 +3,7 @@ import type { SettingsStore } from "../api/settings.js";
 import { BrandMark } from "./Brand.js";
 import { Toasts } from "../api/toasts.js";
 import { DEFAULT_OVERLAY_KEYBIND } from "./keybind.js";
+import { useSettingsSnapshot } from "./hooks.js";
 
 export const LAUNCHER_HIDDEN_KEY = "launcherHidden";
 import {
@@ -21,6 +22,8 @@ export function Launcher({
   open: boolean;
   toggle: () => void;
 }): JSX.Element {
+  const snapshot = useSettingsSnapshot(settings);
+  const followTheme = snapshot.plugins.Vestra?.settings.followTheme !== false && (snapshot.themes.some(theme => theme.enabled) || snapshot.customCss.enabled);
   const [position, setPosition] = useState(() =>
     readLauncherPosition(
       settings.getPluginSetting("Vestra", LAUNCHER_POSITION_KEY),
@@ -132,7 +135,7 @@ export function Launcher({
         DEFAULT_OVERLAY_KEYBIND;
       Toasts.info(
         "Floating button hidden",
-        `Use ${shortcut} to open Vestra. Restore the button in Overview.`,
+        `Use ${shortcut} to open Vestra, then choose Show floating button in the sidebar.`,
         4000,
       );
     };
@@ -153,6 +156,7 @@ export function Launcher({
         ref={button}
         type="button"
         className="vs-settings-launcher"
+        data-theme-follow={followTheme}
         data-dragging={dragging}
         data-hiding={vanishing}
         style={{
@@ -300,6 +304,7 @@ export function Launcher({
         <div
           ref={menuElement}
           className="vs-launcher-menu"
+          data-theme-follow={followTheme}
           role="menu"
           aria-label="Vestra button"
           style={{ left: Math.max(8, menu.x), top: Math.max(8, menu.y) }}
