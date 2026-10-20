@@ -1,7 +1,3 @@
-// @vestra/core webpack — shared types.
-// Phase 6. Raw webpack access stays behind structural minimal interfaces so
-// nothing here depends on Discord's exact bundle shape.
-
 /** Any discovered module's exports object. */
 export type WebpackExports = Record<string, unknown>;
 
