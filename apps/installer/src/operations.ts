@@ -1,10 +1,3 @@
-// Vestra Installer — install / uninstall / repair orchestration.
-// Phase 11. Coordinates payload staging (payload.ts), the asar patch engine
-// (@vestra/injector) and the registry (registry.ts). Multi-install batches
-// never abort halfway: each install reports its own ok/error, and the patch
-// layer restores the backup when a single inject fails. The registry records
-// successes only.
-
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { VESTRA_VERSION } from "@vestra/shared";
@@ -123,6 +116,7 @@ export async function resetToBackup(install: DiscordInstall, safety?: SafetyOpti
   try {
     await getRealFs().promises.copyFile(`${install.asarPath}${BACKUP_SUFFIX}`, install.asarPath);
     await fs.promises.rm(requireReceiptPath(install), { force: true });
+    await getRealFs().promises.rm(`${install.asarPath}${BACKUP_SUFFIX}`, { force: true });
     return true;
   } catch {
     return false;
