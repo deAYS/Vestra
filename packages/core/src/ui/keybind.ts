@@ -1,7 +1,3 @@
-// @vestra/core UI — keybind combo helpers (pure, testable).
-// Combos look like "Ctrl+Shift+V". Recording requires at least one modifier
-// (or a function key) so typing never toggles the overlay by accident.
-
 export const DEFAULT_OVERLAY_KEYBIND = "Ctrl+Shift+V";
 
 export interface KeyEventLike {
