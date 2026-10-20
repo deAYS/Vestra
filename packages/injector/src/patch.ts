@@ -1,13 +1,3 @@
-// @vestra/injector — patch engine.
-// Phase 10. Computes and applies the file operations that load Vestra into a
-// Discord install: back up app.asar → unpack → drop the vestra payload
-// (bundle, preload, main hook, loader) → prepend the main-hook require to the
-// asar's main entry → repack. At runtime the main hook registers ipc handlers
-// and chains the preload; the preload exposes `window.VestraNative` and
-// injects the loader, which loads the bundle and starts Vestra.
-// `uninject()` restores the backup byte-for-byte. Detection needs no
-// unpacking: a receipt + backup sit next to app.asar in resources/.
-
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -158,7 +148,7 @@ export async function applyInject(
   let backedUp = false;
   try {
     // Physical archive copies: route through the unpatched filesystem.
-    await getRealFs().promises.copyFile(install.asarPath, plan.backupPath);
+    await getRealFs().promises.copyFile(install.asarPath, plan.backupPath, fs.constants.COPYFILE_EXCL);
     backedUp = true;
     await unpackAsar(install.asarPath, workDir);
 
@@ -174,7 +164,9 @@ export async function applyInject(
     if (original.includes(HOOK_REQUIRE_PREFIX)) {
       throw new Error(`Main entry already hooked: ${plan.mainEntry}`);
     }
-    await fs.promises.writeFile(entryPath, `${plan.hookLines.join("\n")}\n${original}`, "utf8");
+    // Keep hashbang and strict-mode directives at the start of the CJS module.
+    const prologue = original.match(/^(?:#![^\n]*\n)?\s*(?:(?:"use strict"|'use strict');?\s*)?/u)?.[0] ?? "";
+    await fs.promises.writeFile(entryPath, `${prologue}${plan.hookLines.join("\n")}\n${original.slice(prologue.length)}`, "utf8");
 
     await packAsar(workDir, install.asarPath);
     await fs.promises.writeFile(plan.receiptPath, JSON.stringify(plan.receipt, null, 2), "utf8");
@@ -217,7 +209,8 @@ export async function uninject(install: DiscordInstall, safety?: SafetyOptions):
 }
 
 function requirePayload(payload: PayloadSources): void {
-  for (const [key, value] of Object.entries(payload)) {
+  for (const key of ["bundleSource", "preloadSource", "mainHookSource", "loaderSource"] as const) {
+    const value = payload[key];
     if (typeof value !== "string" || value === "") {
       throw new Error(`Inject payload missing "${key}".`);
     }
