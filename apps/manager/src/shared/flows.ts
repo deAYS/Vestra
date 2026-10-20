@@ -5,7 +5,10 @@ export interface ServiceLike {
   check(args: { channels: DiscordChannel[] }): Promise<CheckSummary>;
   install(args: { channels: DiscordChannel[] }): Promise<OperationSummary>;
   repair(args: { channels: DiscordChannel[] }): Promise<OperationSummary>;
-  uninstall(args: { channels: DiscordChannel[]; purge?: boolean }): Promise<OperationSummary>;
+  uninstall(args: {
+    channels: DiscordChannel[];
+    purge?: boolean;
+  }): Promise<OperationSummary>;
 }
 
 export type FlowOk = { ok: true };
@@ -46,18 +49,13 @@ export async function runInstallFlow(
   };
 }
 
-export const ALREADY_HEALTHY_MESSAGE = "Vestra is already healthy.";
-
-/** Verify-first repair. Never rewrites a healthy install. */
+/** Explicit repair always replaces the payload, then verifies the result. */
 export async function runRepairFlow(
   service: ServiceLike,
   channel: DiscordChannel,
-): Promise<(FlowOk & { repaired: boolean }) | (FlowErr & { repaired?: false })> {
-  const before = await service.check({ channels: [channel] });
-  const current = statusFor(before, channel);
-  if (current?.health === "healthy") {
-    return { ok: true, repaired: false };
-  }
+): Promise<
+  (FlowOk & { repaired: boolean }) | (FlowErr & { repaired?: false })
+> {
   const repaired = await service.repair({ channels: [channel] });
   if (!repaired.ok) {
     const failed = repaired.results.find((r) => !r.ok);
@@ -87,7 +85,8 @@ export async function runUninstallFlow(
   channel: DiscordChannel,
 ): Promise<FlowOk | FlowErr> {
   const result = await service.uninstall({ channels: [channel], purge: false });
-  if (result.ok && result.results.some(r => r.channel === channel && r.ok)) return { ok: true };
+  if (result.ok && result.results.some((r) => r.channel === channel && r.ok))
+    return { ok: true };
   const failed = result.results.find((r) => !r.ok);
   return {
     ok: false,
