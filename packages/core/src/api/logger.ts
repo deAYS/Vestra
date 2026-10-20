@@ -1,7 +1,3 @@
-// @vestra/core — Logger API.
-// Stable public surface: `Logger` + `createLogger(scope)`.
-// Rule: plugin/subsystem errors must be routed through here, never silently swallowed.
-
 export type LogLevel = "debug" | "log" | "info" | "warn" | "error";
 
 export interface ScopedLogger {
