@@ -1,6 +1,10 @@
 export const VESTRA_VERSION = "0.1.0-alpha.1";
 export const VESTRA_API_VERSION = "1.0.0";
-export { VESTRA_MARK_PATH, VESTRA_BRAND_ACCENT, VESTRA_BRAND_NEUTRAL } from "./brand.js";
+export {
+  VESTRA_MARK_PATH,
+  VESTRA_BRAND_ACCENT,
+  VESTRA_BRAND_NEUTRAL,
+} from "./brand.js";
 
 export const VESTRA_BRANDING = {
   name: "Vestra",
@@ -35,6 +39,10 @@ export const VESTRA_NATIVE_CHANNELS = [
   "shell:showItemInFolder",
   "app:getVersion",
   "app:getPath",
+  "addons:openFolder",
+  "addons:readThemes",
+  "addons:writeTheme",
+  "addons:removeTheme",
   "updater:check",
   "updater:install",
 ] as const;
@@ -48,9 +56,14 @@ export const VESTRA_IPC_PREFIX = "vestra:native:" as const;
 export function isDiscordRendererUrl(value: string): boolean {
   try {
     const url = new URL(value);
-    return url.protocol === "https:" && url.port === "" &&
+    return (
+      url.protocol === "https:" &&
+      url.port === "" &&
       /^(?:(?:canary|ptb)\.)?discord(?:app)?\.com$/.test(url.hostname) &&
-      /^\/(?:channels(?:\/|$)|(?:app|login|register)(?:\/|$))/.test(url.pathname);
+      /^\/(?:channels(?:\/|$)|(?:app|login|register)(?:\/|$))/.test(
+        url.pathname,
+      )
+    );
   } catch {
     return false;
   }
@@ -58,7 +71,14 @@ export function isDiscordRendererUrl(value: string): boolean {
 
 /** Versions become directory names in the installer, updater and store. */
 export function assertSafeVersion(value: string): void {
-  if (typeof value !== "string" || !/^[0-9]+(?:\.[0-9]+){1,3}(?:-[A-Za-z0-9]+(?:[.-][A-Za-z0-9]+)*)?(?:\+[A-Za-z0-9]+(?:[.-][A-Za-z0-9]+)*)?$/.test(value) || value.includes("..") || value.length > 128) {
+  if (
+    typeof value !== "string" ||
+    !/^[0-9]+(?:\.[0-9]+){1,3}(?:-[A-Za-z0-9]+(?:[.-][A-Za-z0-9]+)*)?(?:\+[A-Za-z0-9]+(?:[.-][A-Za-z0-9]+)*)?$/.test(
+      value,
+    ) ||
+    value.includes("..") ||
+    value.length > 128
+  ) {
     throw new TypeError("Invalid version directory.");
   }
 }
