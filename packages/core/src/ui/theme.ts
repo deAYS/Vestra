@@ -1,137 +1,36 @@
-// @vestra/core UI — shared inline styles + formatting.
-// Phase 5. Inline styles keep the UI dependency-free (no SCSS pipeline in the
-// IIFE bundle yet); every root also carries a `vs-*` class and `data-vestra-*`
-// attribute so themes can target them later.
-
 import type { CSSProperties } from "react";
-import { VESTRA_COLORS } from "@vestra/shared";
 
-export const vs = {
-  page: "vs-settings-page",
-  nav: "vs-settings-nav",
-  card: "vs-plugin-card",
-} as const;
+export const palette = { bg: "#17161C", sidebar: "#121116", surface: "#1E1D25", border: "#302E39", text: "#F2F0F7", muted: "#9894A6", accent: "#C5BAF8" };
+export const vs = { page: "vs-settings-page", nav: "vs-settings-nav", card: "vs-plugin-card" } as const;
 
 export const s: Record<string, CSSProperties> = {
-  page: {
-    background: VESTRA_COLORS.background,
-    color: VESTRA_COLORS.text,
-    fontFamily: "system-ui, sans-serif",
-    fontSize: 13,
-    padding: 16,
-    maxWidth: 720,
-  },
-  header: {
-    display: "flex",
-    alignItems: "baseline",
-    gap: 8,
-    marginBottom: 12,
-  },
-  title: { fontSize: 18, fontWeight: 700, margin: 0 },
-  subtitle: { color: VESTRA_COLORS.mutedText, margin: 0 },
-  nav: { display: "flex", gap: 6, marginBottom: 16, flexWrap: "wrap" },
-  navButton: {
-    background: VESTRA_COLORS.surface2,
-    color: VESTRA_COLORS.text,
-    border: `1px solid ${VESTRA_COLORS.border}`,
-    borderRadius: 6,
-    padding: "6px 10px",
-    cursor: "pointer",
-  },
-  navButtonActive: {
-    background: VESTRA_COLORS.primary,
-    color: VESTRA_COLORS.text,
-    border: `1px solid ${VESTRA_COLORS.primaryHover}`,
-    borderRadius: 6,
-    padding: "6px 10px",
-    cursor: "pointer",
-  },
-  card: {
-    background: VESTRA_COLORS.surface,
-    border: `1px solid ${VESTRA_COLORS.border}`,
-    borderRadius: 8,
-    padding: 12,
-    marginBottom: 10,
-  },
-  row: { display: "flex", alignItems: "center", gap: 8 },
-  input: {
-    background: VESTRA_COLORS.surface2,
-    color: VESTRA_COLORS.text,
-    border: `1px solid ${VESTRA_COLORS.border}`,
-    borderRadius: 6,
-    padding: "6px 8px",
-    width: "100%",
-    boxSizing: "border-box",
-  },
-  textarea: {
-    background: VESTRA_COLORS.surface2,
-    color: VESTRA_COLORS.text,
-    border: `1px solid ${VESTRA_COLORS.border}`,
-    borderRadius: 6,
-    padding: 8,
-    width: "100%",
-    boxSizing: "border-box",
-    minHeight: 160,
-    fontFamily: "monospace",
-    fontSize: 12,
-  },
-  button: {
-    background: VESTRA_COLORS.primary,
-    color: VESTRA_COLORS.text,
-    border: "none",
-    borderRadius: 6,
-    padding: "6px 12px",
-    cursor: "pointer",
-  },
-  dangerButton: {
-    background: "transparent",
-    color: "#ff8080",
-    border: "1px solid #ff8080",
-    borderRadius: 6,
-    padding: "6px 12px",
-    cursor: "pointer",
-  },
-  muted: { color: VESTRA_COLORS.mutedText },
-  errorBox: {
-    background: "#2a1215",
-    color: "#ffb4b4",
-    border: "1px solid #7a2e2e",
-    borderRadius: 6,
-    padding: 8,
-    marginTop: 8,
-    whiteSpace: "pre-wrap",
-    wordBreak: "break-word",
-  },
-  code: {
-    fontFamily: "monospace",
-    fontSize: 12,
-    background: VESTRA_COLORS.surface2,
-    padding: "2px 6px",
-    borderRadius: 4,
-  },
+  page: { color: palette.text, fontFamily: '"Inter","gg sans","Segoe UI",sans-serif', fontSize: 14, lineHeight: 1.55 },
+  header: { display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 7, marginBottom: 26 },
+  title: { fontSize: 27, fontWeight: 650, letterSpacing: "-.035em", lineHeight: 1.2, margin: 0, color: palette.text },
+  subtitle: { color: palette.muted, fontSize: 13, margin: 0, lineHeight: 1.6 },
+  nav: { display: "flex", flexDirection: "column", gap: 5 },
+  navButton: { background: "#25232D", color: "#DEDAE8", border: "1px solid #383440", borderRadius: 9, padding: "9px 14px", cursor: "pointer", fontSize: 12, fontWeight: 500, lineHeight: "18px" },
+  navButtonActive: { background: "#C5BAF814", color: palette.accent, border: "1px solid #C5BAF81A", borderRadius: 9, padding: "9px 14px", cursor: "pointer" },
+  card: { background: palette.surface, border: `1px solid ${palette.border}`, borderRadius: 13, padding: 20, marginBottom: 12 },
+  row: { display: "flex", alignItems: "center", gap: 10 },
+  input: { background: "#121116", color: palette.text, border: `1px solid ${palette.border}`, borderRadius: 9, padding: "11px 13px", width: "100%", boxSizing: "border-box", fontSize: 13, lineHeight: "20px", outlineOffset: 3 },
+  textarea: { background: "#121116", color: "#D9D1F6", border: `1px solid ${palette.border}`, borderRadius: 12, padding: 20, width: "100%", boxSizing: "border-box", minHeight: 300, resize: "vertical", fontFamily: '"Cascadia Code","SFMono-Regular",Consolas,monospace', fontSize: 13, lineHeight: 1.9, tabSize: 2, outlineOffset: 3 },
+  button: { display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8, background: palette.accent, color: "#211B36", border: "1px solid transparent", borderRadius: 9, padding: "10px 16px", cursor: "pointer", fontSize: 12, fontWeight: 650, lineHeight: "18px" },
+  dangerButton: { background: "#F097A409", color: "#E7A4AE", border: "1px solid #F097A423", borderRadius: 9, padding: "9px 14px", cursor: "pointer", fontSize: 12, lineHeight: "18px" },
+  muted: { color: palette.muted, fontSize: 13, lineHeight: 1.65 },
+  errorBox: { background: "#E78E9D0A", color: "#F3BAC3", border: "1px solid #E78E9D30", borderRadius: 10, padding: 12, marginTop: 12, whiteSpace: "pre-wrap", wordBreak: "break-word", fontSize: 12 },
+  code: { fontFamily: '"Cascadia Code",Consolas,monospace', fontSize: 11, background: "#FFFFFF06", color: "#C8C1D8", border: "1px solid #FFFFFF09", padding: "4px 8px", borderRadius: 6 },
 };
 
-/** Render-safe one-line message for unknown thrown values. Never throws. */
 export function formatError(err: unknown): string {
   try {
     if (err instanceof Error) return err.message === "" ? err.name : err.message;
     if (typeof err === "string") return err;
     return JSON.stringify(err) ?? String(err);
-  } catch {
-    return "Unknown error";
-  }
+  } catch { return "Unknown error"; }
 }
 
-/** Case-insensitive plugin search across name, description and authors. */
-export function matchesQuery(
-  entry: { definition: { name: string; description: string; authors: readonly string[] } },
-  query: string,
-): boolean {
+export function matchesQuery(entry: { definition: { name: string; description: string; authors: readonly string[] } }, query: string): boolean {
   const q = query.trim().toLowerCase();
-  if (q === "") return true;
-  return (
-    entry.definition.name.toLowerCase().includes(q) ||
-    entry.definition.description.toLowerCase().includes(q) ||
-    entry.definition.authors.some((a) => a.toLowerCase().includes(q))
-  );
+  return !q || entry.definition.name.toLowerCase().includes(q) || entry.definition.description.toLowerCase().includes(q) || entry.definition.authors.some(author => author.toLowerCase().includes(q));
 }
