@@ -18,6 +18,7 @@ export function SettingsHomePage({
   const [confirming, setConfirming] = useState(false);
   const [resetting, setResetting] = useState(false);
   const snapshot = useSettingsSnapshot(settings);
+  const persistence = settings.getPersistenceStatus();
   const { refresh } = useRefreshCounter();
   useEffect(() => plugins.subscribe?.(refresh), [plugins, refresh]);
   const total = plugins.list().length;
@@ -177,6 +178,20 @@ export function SettingsHomePage({
         <summary style={{ cursor: "pointer", padding: "10px 0" }}>
           Advanced preferences
         </summary>
+        <div className="vs-setting-row">
+          <div>
+            <strong>Preferences storage</strong>
+            <p>
+              {persistence.error ??
+                (persistence.backend === "file"
+                  ? "Saved to Vestra's own settings file."
+                  : persistence.backend === "browser"
+                    ? "Saved in this browser."
+                    : "Temporary memory only. Preferences will be lost on restart.")}
+            </p>
+          </div>
+          <span>{persistence.backend}</span>
+        </div>
         <div className="vs-setting-row">
           <div>
             <strong>Start fresh</strong>
