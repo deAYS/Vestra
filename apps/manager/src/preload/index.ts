@@ -1,7 +1,3 @@
-// Vestra Manager — preload bridge (contextBridge only).
-// Narrow API: six installer methods + progress subscribe + dev-mode flag.
-// No fs, path, child_process, raw Node APIs, or arbitrary invoke.
-
 import { contextBridge, ipcRenderer } from "electron";
 import { MANAGER_IPC } from "../shared/channels.js";
 import type {
