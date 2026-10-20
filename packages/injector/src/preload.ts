@@ -1,4 +1,9 @@
-import { isDiscordRendererUrl, VESTRA_IPC_PREFIX, VESTRA_NATIVE_CHANNELS, type VestraNativeChannel } from "@vestra/shared";
+import {
+  isDiscordRendererUrl,
+  VESTRA_IPC_PREFIX,
+  VESTRA_NATIVE_CHANNELS,
+  type VestraNativeChannel,
+} from "@vestra/shared";
 import { buildSplashSource } from "./splash.js";
 
 export interface PreloadOptions {
@@ -14,13 +19,19 @@ export interface PreloadOptions {
 /** Sandboxed preload: only Electron is required; all file reads stay in main. */
 export function buildPreloadSource(options?: PreloadOptions): string {
   const caps = options?.capabilities ?? [...VESTRA_NATIVE_CHANNELS];
-  if (!caps.length || caps.some(cap => !(VESTRA_NATIVE_CHANNELS as readonly string[]).includes(cap))) {
+  if (
+    !caps.length ||
+    caps.some(
+      (cap) => !(VESTRA_NATIVE_CHANNELS as readonly string[]).includes(cap),
+    )
+  ) {
     throw new TypeError("Unknown or empty preload capabilities.");
   }
   const prefix = options?.ipcPrefix ?? VESTRA_IPC_PREFIX;
   if (!prefix) throw new TypeError("Empty IPC prefix.");
   for (const file of [options?.bundleFile, options?.loaderFile]) {
-    if (file !== undefined && !/^[A-Za-z0-9_-]+\.(?:c?js)$/.test(file)) throw new TypeError("Unsafe bootstrap file.");
+    if (file !== undefined && !/^[A-Za-z0-9_-]+\.(?:c?js)$/.test(file))
+      throw new TypeError("Unsafe bootstrap file.");
   }
   return `"use strict";
 (function () {
@@ -44,7 +55,10 @@ export function buildPreloadSource(options?: PreloadOptions): string {
     }
   });
   let splash;
-  ${options?.splash === false ? "" : `
+  ${
+    options?.splash === false
+      ? ""
+      : `
   function mountSplash() {
     if (splash || !document.documentElement) return;
     splash = ${buildSplashSource()};
@@ -55,7 +69,8 @@ export function buildPreloadSource(options?: PreloadOptions): string {
   else {
     const observer = new MutationObserver(() => { if (document.documentElement) { observer.disconnect(); mountSplash(); } });
     observer.observe(document, { childList: true });
-  }`}
+  }`
+  }
   expose("__VESTRA_SPLASH__", {
     set(pct, label) { if (splash) splash.set(pct, label); },
     done() { if (splash) splash.done(); }
@@ -73,8 +88,11 @@ export function buildPreloadSource(options?: PreloadOptions): string {
       // Execute explicitly in the page world. DOM script tags are blocked by CSP.
       await webFrame.executeJavaScript(payload.bundle + "\\n;window.Vestra = window.Vestra.Vestra || window.Vestra.default || window.Vestra; window.Vestra.Settings.load();\\n//# sourceURL=vestra.js");
       for (const plugin of payload.plugins || []) {
-        try { await webFrame.executeJavaScript(plugin.source + "\\n//# sourceURL=vestra-plugin-" + plugin.name + ".js"); }
-        catch (err) { console.error("[Vestra] plugin failed:", plugin.name, err); }
+        try { await webFrame.executeJavaScript(plugin.source + "\\n//# sourceURL=vestra-plugin-" + encodeURIComponent(plugin.name) + ".js"); }
+        catch (err) {
+          console.error("[Vestra] plugin failed:", plugin.name, err);
+          try { await webFrame.executeJavaScript("window.Vestra.Toasts.error('Plugin failed to load'," + JSON.stringify(plugin.name) + ")"); } catch (_) {}
+        }
       }
       if (splash) splash.set(55, "Starting plugins and themes…");
       await webFrame.executeJavaScript(payload.loader + "\\n//# sourceURL=vestra-loader.js");
