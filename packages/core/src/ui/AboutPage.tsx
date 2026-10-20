@@ -1,31 +1,14 @@
-// @vestra/core UI — About page.
-// Phase 5. Branding + build facts. Satisfies the 0.0.1 DoD row "Vestra
-// branding appears in the console and settings UI" on the UI side.
-
-import { VESTRA_BRANDING, VESTRA_STORAGE_KEY } from "@vestra/shared";
+import { VESTRA_API_VERSION } from "@vestra/shared";
+import { BrandMark } from "./Brand.js";
 import { s } from "./theme.js";
 import type { PageProps } from "./types.js";
 
 export function AboutPage({ plugins, version }: PageProps): JSX.Element {
-  const total = plugins.list().length;
-  const enabled = plugins.list().filter((p) => p.enabled).length;
-  return (
-    <section data-vestra-page="about">
-      <div style={s.header}>
-        <h2 style={s.title}>{VESTRA_BRANDING.name}</h2>
-        <p style={s.subtitle}>{VESTRA_BRANDING.tagline}</p>
-      </div>
-      <div style={s.card} className="vs-about-card">
-        <div>
-          Version <span style={s.code}>v{version}</span>
-        </div>
-        <div style={{ marginTop: 6 }}>
-          Plugins <span style={s.code}>{enabled}/{total} enabled</span>
-        </div>
-        <div style={{ marginTop: 6 }}>
-          Storage <span style={s.code}>{VESTRA_STORAGE_KEY}</span>
-        </div>
-      </div>
-    </section>
-  );
+  return <section data-vestra-page="about">
+    <div className="vs-about-brand"><BrandMark size={84}/><h2>vestra</h2><p>Your Discord. Your rules.</p></div>
+    <div className="vs-setting-row"><div><strong>Vestra Client</strong><p>A more personal place to hang out.</p></div><span style={s.code}>{version}</span></div>
+    <div className="vs-setting-row"><div><strong>Built to be yours</strong><p>Open source. MIT licensed. Made for the community.</p></div><span style={{color:"#C5BAF8",fontSize:11}}>Independent</span></div>
+    <div className="vs-setting-row"><div><strong>Plugin API</strong><p>{plugins.list().length} plugins in your workspace.</p></div><span style={s.code}>v{VESTRA_API_VERSION}</span></div>
+    <p style={{...s.muted,fontSize:11,marginTop:30}}>Vestra is an independent project and is not affiliated with Discord.</p>
+  </section>;
 }
