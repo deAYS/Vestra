@@ -1,12 +1,7 @@
-// Vestra Installer — payload staging.
-// Phase 11. A payload is one versioned, content-hashed directory:
-// `{home}/payload/<version>/{vestra.js,vestra-preload.cjs,vestra-main-hook.cjs,
-// vestra-loader.js,manifest.json}`. Injecting copies these bytes into app.asar,
-// so repair can detect drift by hash without unpacking anything.
-
 import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { assertSafeVersion } from "@vestra/shared";
 import {
   BUNDLE_FILE,
   HOOKDIR_PREFIX,
@@ -38,6 +33,7 @@ export interface StageOptions {
 }
 
 export function payloadDirFor(payloadRoot: string, version: string): string {
+  assertSafeVersion(version);
   return path.join(payloadRoot, version);
 }
 
@@ -49,6 +45,7 @@ export function sha256Hex(data: string | Buffer): string {
 export async function stagePayload(options: StageOptions): Promise<string> {
   if (options.bundlePath === "") throw new TypeError("stagePayload() requires bundlePath.");
   if (options.payloadVersion === "") throw new TypeError("stagePayload() requires payloadVersion.");
+  assertSafeVersion(options.payloadVersion);
   let bundle: string;
   try {
     bundle = await fs.promises.readFile(options.bundlePath, "utf8");
@@ -98,6 +95,8 @@ export async function readPayloadManifest(dir: string): Promise<PayloadManifest 
     if (typeof parsed.payloadVersion !== "string" || typeof parsed.files !== "object" || parsed.files === null) {
       return undefined;
     }
+    assertSafeVersion(parsed.payloadVersion);
+    if (Object.keys(parsed.files).length !== PAYLOAD_FILES.length || PAYLOAD_FILES.some(name => !Object.hasOwn(parsed.files!, name) || !/^[a-f0-9]{64}$/i.test(parsed.files![name] ?? ""))) return undefined;
     return parsed as PayloadManifest;
   } catch {
     return undefined;
