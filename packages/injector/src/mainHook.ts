@@ -1,4 +1,9 @@
-import { isDiscordRendererUrl, VESTRA_IPC_PREFIX, VESTRA_NATIVE_CHANNELS } from "@vestra/shared";
+import {
+  isDiscordRendererUrl,
+  VESTRA_IPC_PREFIX,
+  VESTRA_NATIVE_CHANNELS,
+} from "@vestra/shared";
+import { buildAddonsSource } from "./addonsSource.js";
 
 export interface MainHookOptions {
   /**
@@ -36,7 +41,15 @@ export interface FastHealthResult {
   detail?: string | undefined;
 }
 
-const APP_PATH_ALLOWLIST = ["userData", "home", "temp", "desktop", "documents", "downloads", "exe"];
+const APP_PATH_ALLOWLIST = [
+  "userData",
+  "home",
+  "temp",
+  "desktop",
+  "documents",
+  "downloads",
+  "exe",
+];
 
 /** Build the main-hook CJS source. Throws (TypeError) on bad options. */
 export function buildMainHookSource(options: MainHookOptions): string {
@@ -44,10 +57,15 @@ export function buildMainHookSource(options: MainHookOptions): string {
     throw new TypeError("buildMainHookSource() requires a preloadPath.");
   }
   const caps = options.capabilities ?? [...VESTRA_NATIVE_CHANNELS];
-  if (caps.length === 0) throw new TypeError("buildMainHookSource() requires at least one capability.");
+  if (caps.length === 0)
+    throw new TypeError(
+      "buildMainHookSource() requires at least one capability.",
+    );
   for (const cap of caps) {
     if (!(VESTRA_NATIVE_CHANNELS as readonly string[]).includes(cap)) {
-      throw new TypeError(`buildMainHookSource() unknown capability: "${cap}".`);
+      throw new TypeError(
+        `buildMainHookSource() unknown capability: "${cap}".`,
+      );
     }
   }
   const prefix = options.ipcPrefix ?? VESTRA_IPC_PREFIX;
@@ -55,7 +73,11 @@ export function buildMainHookSource(options: MainHookOptions): string {
     throw new TypeError("buildMainHookSource() requires a safe ipcPrefix.");
   }
   const settingsFile = options.settingsFile ?? "vestra-settings.json";
-  if (settingsFile === "" || settingsFile.includes('"') || settingsFile.includes("..")) {
+  if (
+    settingsFile === "" ||
+    settingsFile.includes('"') ||
+    settingsFile.includes("..")
+  ) {
     throw new TypeError("buildMainHookSource() requires a safe settingsFile.");
   }
   const preloadPathExpr = options.preloadPath.startsWith(HOOKDIR_PREFIX)
@@ -93,37 +115,6 @@ export function buildMainHookSource(options: MainHookOptions): string {
   function validPath(p) {
     return typeof p === "string" && p !== "" && p.indexOf("\\0") === -1;
   }
-
-  // TEMPORARY investigation diagnostics (Wardogs isolation probe): silent
-  // unless the host process env sets VESTRA_DIAG=1. Read-only logging to
-  // console + %TEMP%/vestra-diag.log. No behavior change when unset.
-  function vestraDiag(msg) {
-    try {
-      if (!process || !process.env || process.env.VESTRA_DIAG !== "1") return;
-      try { console.log("[Vestra][diag] " + msg); } catch (_) {}
-      try {
-        var tmp = process.env.TEMP || process.env.TMP || "/tmp";
-        fs.appendFileSync(path.join(tmp, "vestra-diag.log"),
-          new Date().toISOString() + " pid=" + process.pid + " " + msg + "\\n");
-      } catch (_) {}
-    } catch (_) {}
-  }
-  function vestraProcessId() {
-    try {
-      var argv = Array.isArray(process.argv) ? process.argv.slice(0, 10).join(" ") : "?";
-      var cwd = "?";
-      try { cwd = process.cwd(); } catch (_) {}
-      var appPath = "?";
-      try { appPath = app.getAppPath(); } catch (_) {}
-      var appName = "?";
-      try { appName = app.getName(); } catch (_) {}
-      var ver = "?";
-      try { ver = app.getVersion(); } catch (_) {}
-      return "execPath=" + process.execPath + " cwd=" + cwd + " argv=" + argv +
-        " appName=" + appName + " appPath=" + appPath + " version=" + ver;
-    } catch (_) { return "identity-unavailable"; }
-  }
-  try { vestraDiag("main-hook loaded " + vestraProcessId()); } catch (_) {}
 
   // Fast health check: read-mostly, zero filesystem writes, never throws.
   // Returns a structured result for tests / future diagnostics. Healthy is
@@ -184,7 +175,16 @@ export function buildMainHookSource(options: MainHookOptions): string {
     }
   }
 
+  ${buildAddonsSource()}
   const handlers = {
+    "addons:openFolder": async (kind) => {
+      const result = await shell.openPath(await addonFolder(kind));
+      if (result) throw new Error(result);
+      return true;
+    },
+    "addons:readThemes": async () => readAddonFiles("themes"),
+    "addons:writeTheme": async (name, css) => writeThemeFile(name, css),
+    "addons:removeTheme": async (name) => removeThemeFile(name),
     "settings:read": async () => {
       try {
         return await fs.promises.readFile(settingsPath(), "utf8");
@@ -271,6 +271,10 @@ export function buildMainHookSource(options: MainHookOptions): string {
         }
       }
     }
+    try {
+      for (const file of await readAddonFiles("plugins")) plugins.push({ name: file.filename.slice(0, -10), source: file.source });
+      await addonFolder("themes");
+    } catch (error) { console.warn("[Vestra] local addons unavailable:", error.message); }
     return { bundle, loader, plugins };
   });
 
@@ -305,10 +309,8 @@ export function buildMainHookSource(options: MainHookOptions): string {
           const s = opts.webPreferences.session || (ses && (opts.webPreferences.partition ? ses.fromPartition(opts.webPreferences.partition) : ses.defaultSession));
           chainViaSession(s);
         } catch (_) {}
-        try { vestraDiag("BrowserWindow constructed preload=session-chained"); } catch (_) {}
       } else {
         opts.webPreferences.preload = PRELOAD_PATH;
-        try { vestraDiag("BrowserWindow constructed preload=vestra-direct"); } catch (_) {}
       }
       return new OriginalBW(opts);
     }
@@ -321,26 +323,7 @@ export function buildMainHookSource(options: MainHookOptions): string {
       try {
         chainViaSession(window.webContents.session);
       } catch (_) {}
-      // TEMPORARY isolation probe: which windows get Vestra's preload.
-      try {
-        if (process && process.env && process.env.VESTRA_DIAG === "1") {
-          var wc = window.webContents;
-          var url = "?";
-          try { url = wc.getURL(); } catch (_) {}
-          var title = "?";
-          try { title = window.getTitle(); } catch (_) {}
-          vestraDiag("window-created url=" + url + " title=" + title);
-          try {
-            wc.once("did-finish-load", function () {
-              try {
-                var u2 = "?";
-                try { u2 = wc.getURL(); } catch (_) {}
-                vestraDiag("window-loaded url=" + u2);
-              } catch (_) {}
-            });
-          } catch (_) {}
-        }
-      } catch (_) {}
+
     });
   } catch (_) {}
   // Once-per-process fast check after app readiness. Not per-BrowserWindow.
