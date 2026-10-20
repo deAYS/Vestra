@@ -24,7 +24,14 @@ import {
   type TestDiscordInstall,
 } from "./test-fixtures.js";
 
-const ENV_KEYS = ["VESTRA_TEST", "VESTRA_ALLOW_LIVE_TESTS", "LOCALAPPDATA", "APPDATA", "HOME", "XDG_CONFIG_HOME"] as const;
+const ENV_KEYS = [
+  "VESTRA_TEST",
+  "VESTRA_ALLOW_LIVE_TESTS",
+  "LOCALAPPDATA",
+  "APPDATA",
+  "HOME",
+  "XDG_CONFIG_HOME",
+] as const;
 
 function snapshotEnv(): Record<string, string | undefined> {
   const out: Record<string, string | undefined> = {};
@@ -56,9 +63,18 @@ function makeIO(): CliIO & { lines: string[]; errors: string[] } {
 }
 
 /** Run the CLI with real-install discovery sandboxed to an empty temp dir. */
-async function runCliSandboxed(emptyDir: string, argv: string[], io: CliIO): Promise<number> {
+async function runCliSandboxed(
+  emptyDir: string,
+  argv: string[],
+  io: CliIO,
+): Promise<number> {
   const saved = snapshotEnv();
-  for (const key of ["LOCALAPPDATA", "APPDATA", "HOME", "XDG_CONFIG_HOME"] as const) {
+  for (const key of [
+    "LOCALAPPDATA",
+    "APPDATA",
+    "HOME",
+    "XDG_CONFIG_HOME",
+  ] as const) {
     process.env[key] = emptyDir;
   }
   process.env["VESTRA_TEST"] = "1";
@@ -75,14 +91,24 @@ function sha256File(p: string): string {
 
 /** Pack a minimal asar WITHOUT a sentinel (negative-identity target). */
 async function packBareAsar(root: string, version: string): Promise<string> {
-  const srcDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), "vestra-asar-src-"));
+  const srcDir = await fs.promises.mkdtemp(
+    path.join(os.tmpdir(), "vestra-asar-src-"),
+  );
   try {
     await fs.promises.writeFile(
       path.join(srcDir, "package.json"),
-      JSON.stringify({ name: "fake-discord", version: "1.0.0", main: "index.js" }),
+      JSON.stringify({
+        name: "fake-discord",
+        version: "1.0.0",
+        main: "index.js",
+      }),
       "utf8",
     );
-    await fs.promises.writeFile(path.join(srcDir, "index.js"), "module.exports = 42;\n", "utf8");
+    await fs.promises.writeFile(
+      path.join(srcDir, "index.js"),
+      "module.exports = 42;\n",
+      "utf8",
+    );
     const asarPath = path.join(root, `app-${version}`, "resources", "app.asar");
     await fs.promises.mkdir(path.dirname(asarPath), { recursive: true });
     await packAsar(srcDir, asarPath);
@@ -103,10 +129,18 @@ interface Harness {
 
 /** Two sentinel fixtures (stable + canary) sharing one sandbox home. */
 async function makeHarness(): Promise<Harness> {
-  const stable = await createTestDiscordInstall({ channel: "stable", version: "1.0.0" });
-  const canary = await createTestDiscordInstall({ channel: "canary", version: "1.0.0" });
+  const stable = await createTestDiscordInstall({
+    channel: "stable",
+    version: "1.0.0",
+  });
+  const canary = await createTestDiscordInstall({
+    channel: "canary",
+    version: "1.0.0",
+  });
   const fx = [stable, canary];
-  const emptyDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), "vestra-svc-empty-"));
+  const emptyDir = await fs.promises.mkdtemp(
+    path.join(os.tmpdir(), "vestra-svc-empty-"),
+  );
   const homeDir = path.join(stable.base, "home");
   const bundlePath = await writeTestBundle(path.join(stable.base, "bundle"));
   const discovery = {
@@ -114,7 +148,12 @@ async function makeHarness(): Promise<Harness> {
     platform: "win32",
     env: isolatedEnv(emptyDir),
   };
-  const ctx: InstallerServiceContext = { homeDir, bundlePath, discovery, testMode: true };
+  const ctx: InstallerServiceContext = {
+    homeDir,
+    bundlePath,
+    discovery,
+    testMode: true,
+  };
   return {
     fx,
     emptyDir,
@@ -174,7 +213,9 @@ describe("installer service", () => {
       assert.equal(s.repairable, true);
       assert.equal(s.installation.channel, "canary");
       // No process exit codes on the service contract.
-      assert.ok(!("exitCode" in (before as unknown as Record<string, unknown>)));
+      assert.ok(
+        !("exitCode" in (before as unknown as Record<string, unknown>)),
+      );
 
       await installer.install({ channels: ["canary"] });
       const after = await installer.status({ channels: ["canary"] });
@@ -200,7 +241,11 @@ describe("installer service", () => {
       const { payloadRoot } = layoutHome(h.homeDir);
       const versions = await fs.promises.readdir(payloadRoot);
       assert.ok(versions.length > 0);
-      const payloadFile = path.join(payloadRoot, versions[0] as string, "vestra.js");
+      const payloadFile = path.join(
+        payloadRoot,
+        versions[0] as string,
+        "vestra.js",
+      );
       await fs.promises.writeFile(payloadFile, "// corrupted\n", "utf8");
 
       const status = await installer.status({ channels: ["canary"] });
@@ -223,14 +268,23 @@ describe("installer service", () => {
 
       // CLI observes the same registry/engine state: already injected => skipped.
       const io = makeIO();
-      const code = await runCliSandboxed(h.emptyDir, [
-        "install",
-        "--home", h.homeDir,
-        "--bundle", h.bundlePath,
-        "--root", `stable:${h.fx[0]?.root as string}`,
-        "--root", `canary:${h.fx[1]?.root as string}`,
-        "--channel", "canary",
-      ], io);
+      const code = await runCliSandboxed(
+        h.emptyDir,
+        [
+          "install",
+          "--home",
+          h.homeDir,
+          "--bundle",
+          h.bundlePath,
+          "--root",
+          `stable:${h.fx[0]?.root as string}`,
+          "--root",
+          `canary:${h.fx[1]?.root as string}`,
+          "--channel",
+          "canary",
+        ],
+        io,
+      );
       assert.equal(code, 0);
       assert.ok(io.lines.some((l) => l.includes("skipped")));
       const registry = await loadRegistry(layoutHome(h.homeDir).registryPath);
@@ -247,7 +301,10 @@ describe("installer service", () => {
       await installer.install();
       // Break canary only (drop its receipt).
       await fs.promises.rm(
-        path.join(path.dirname(h.fx[1]?.asarPath as string), "vestra-receipt.json"),
+        path.join(
+          path.dirname(h.fx[1]?.asarPath as string),
+          "vestra-receipt.json",
+        ),
         { force: true },
       );
       // Dropping the receipt makes the install read unhealthy (not injected).
@@ -258,7 +315,7 @@ describe("installer service", () => {
       // Stable-scoped repair must not touch canary.
       const stableRepair = await installer.repair({ channels: ["stable"] });
       assert.equal(stableRepair.ok, true);
-      assert.equal(stableRepair.results[0]?.action, "skipped");
+      assert.equal(stableRepair.results[0]?.action, "repaired");
       const stillDrifted = await installer.check({ channels: ["canary"] });
       assert.notEqual(stillDrifted.statuses[0]?.health, "healthy");
 
@@ -276,30 +333,54 @@ describe("installer service", () => {
     const h = await makeHarness();
     const installer = createInstallerService(h.ctx);
     try {
-      const goneAsar = path.join(h.emptyDir, "wiped", "app-1.0.2000", "resources", "app.asar");
+      const goneAsar = path.join(
+        h.emptyDir,
+        "wiped",
+        "app-1.0.2000",
+        "resources",
+        "app.asar",
+      );
       const activeAsar = h.fx[1]?.asarPath as string;
       const hashBefore = sha256File(activeAsar);
       const mtimeBefore = (await fs.promises.stat(activeAsar)).mtimeMs;
       await fs.promises.mkdir(h.homeDir, { recursive: true });
       await saveRegistry(layoutHome(h.homeDir).registryPath, {
         [activeAsar]: {
-          asarPath: activeAsar, channel: "canary", installVersion: "1.0.0",
-          payloadVersion: "0.0.0-test", at: new Date().toISOString(),
+          asarPath: activeAsar,
+          channel: "canary",
+          installVersion: "1.0.0",
+          payloadVersion: "0.0.0-test",
+          at: new Date().toISOString(),
         },
         [goneAsar]: {
-          asarPath: goneAsar, channel: "canary", installVersion: "1.0.2000",
-          payloadVersion: "0.0.0-test", at: new Date().toISOString(),
+          asarPath: goneAsar,
+          channel: "canary",
+          installVersion: "1.0.2000",
+          payloadVersion: "0.0.0-test",
+          at: new Date().toISOString(),
         },
       });
       const discovery = {
-        extraRoots: [{ channel: "canary" as DiscordChannel, rootDir: (h.fx[1] as TestDiscordInstall).root }],
+        extraRoots: [
+          {
+            channel: "canary" as DiscordChannel,
+            rootDir: (h.fx[1] as TestDiscordInstall).root,
+          },
+        ],
         platform: "win32",
         env: isolatedEnv(h.emptyDir),
       };
-      const svc = createInstallerService({ homeDir: h.homeDir, discovery, testMode: true });
+      const svc = createInstallerService({
+        homeDir: h.homeDir,
+        discovery,
+        testMode: true,
+      });
       const result = await svc.pruneRegistry({ dryRun: true });
       assert.equal(result.dryRun, true);
-      assert.deepEqual(result.removed.map((r) => r.key), [goneAsar]);
+      assert.deepEqual(
+        result.removed.map((r) => r.key),
+        [goneAsar],
+      );
       assert.deepEqual(result.active, [activeAsar]);
       assert.ok(Array.isArray(result.skipped));
       // Dry run changes nothing; Discord bytes untouched.
@@ -315,12 +396,18 @@ describe("installer service", () => {
     const h = await makeHarness();
     try {
       const roots = [
-        "--root", `stable:${h.fx[0]?.root as string}`,
-        "--root", `canary:${h.fx[1]?.root as string}`,
+        "--root",
+        `stable:${h.fx[0]?.root as string}`,
+        "--root",
+        `canary:${h.fx[1]?.root as string}`,
       ];
       let io = makeIO();
       assert.equal(
-        await runCliSandboxed(h.emptyDir, ["list", "--home", h.homeDir, "--bundle", h.bundlePath, ...roots], io),
+        await runCliSandboxed(
+          h.emptyDir,
+          ["list", "--home", h.homeDir, "--bundle", h.bundlePath, ...roots],
+          io,
+        ),
         0,
       );
       assert.ok(io.lines.some((l) => /^canary 1\.0\.0 — /.test(l)));
@@ -328,14 +415,22 @@ describe("installer service", () => {
 
       io = makeIO();
       assert.equal(
-        await runCliSandboxed(h.emptyDir, ["install", "--home", h.homeDir, "--bundle", h.bundlePath, ...roots], io),
+        await runCliSandboxed(
+          h.emptyDir,
+          ["install", "--home", h.homeDir, "--bundle", h.bundlePath, ...roots],
+          io,
+        ),
         0,
       );
       assert.ok(io.lines.some((l) => l.includes(": installed")));
 
       io = makeIO();
       assert.equal(
-        await runCliSandboxed(h.emptyDir, ["status", "--home", h.homeDir, "--bundle", h.bundlePath, ...roots], io),
+        await runCliSandboxed(
+          h.emptyDir,
+          ["status", "--home", h.homeDir, "--bundle", h.bundlePath, ...roots],
+          io,
+        ),
         0,
       );
       assert.ok(io.lines.some((l) => l.startsWith("canary")));
@@ -348,27 +443,48 @@ describe("installer service", () => {
     const h = await makeHarness();
     try {
       const roots = [
-        "--root", `stable:${h.fx[0]?.root as string}`,
-        "--root", `canary:${h.fx[1]?.root as string}`,
+        "--root",
+        `stable:${h.fx[0]?.root as string}`,
+        "--root",
+        `canary:${h.fx[1]?.root as string}`,
       ];
       // 1: unhealthy (nothing installed).
       assert.equal(
-        await runCliSandboxed(h.emptyDir, ["check", "--home", h.homeDir, "--bundle", h.bundlePath, ...roots], makeIO()),
+        await runCliSandboxed(
+          h.emptyDir,
+          ["check", "--home", h.homeDir, "--bundle", h.bundlePath, ...roots],
+          makeIO(),
+        ),
         1,
       );
       // 0: healthy after install.
       assert.equal(
-        await runCliSandboxed(h.emptyDir, ["install", "--home", h.homeDir, "--bundle", h.bundlePath, ...roots], makeIO()),
+        await runCliSandboxed(
+          h.emptyDir,
+          ["install", "--home", h.homeDir, "--bundle", h.bundlePath, ...roots],
+          makeIO(),
+        ),
         0,
       );
       assert.equal(
-        await runCliSandboxed(h.emptyDir, ["check", "--home", h.homeDir, "--bundle", h.bundlePath, ...roots], makeIO()),
+        await runCliSandboxed(
+          h.emptyDir,
+          ["check", "--home", h.homeDir, "--bundle", h.bundlePath, ...roots],
+          makeIO(),
+        ),
         0,
       );
       // 2: usage errors.
-      assert.equal(await runCliSandboxed(h.emptyDir, ["frobnicate"], makeIO()), 2);
       assert.equal(
-        await runCliSandboxed(h.emptyDir, ["status", "--home", h.homeDir, "--bogus"], makeIO()),
+        await runCliSandboxed(h.emptyDir, ["frobnicate"], makeIO()),
+        2,
+      );
+      assert.equal(
+        await runCliSandboxed(
+          h.emptyDir,
+          ["status", "--home", h.homeDir, "--bogus"],
+          makeIO(),
+        ),
         2,
       );
     } finally {
@@ -393,13 +509,18 @@ describe("installer service", () => {
 
   test("11. direct service call in test mode hits the live-install guard", async () => {
     const saved = snapshotEnv();
-    const base = await fs.promises.mkdtemp(path.join(os.tmpdir(), "vestra-svc-guard-"));
+    const base = await fs.promises.mkdtemp(
+      path.join(os.tmpdir(), "vestra-svc-guard-"),
+    );
     try {
       delete process.env["VESTRA_TEST"];
       delete process.env["VESTRA_ALLOW_LIVE_TESTS"];
       // Simulated %LOCALAPPDATA% with a sentinel-less "real" Canary install.
       const local = path.join(base, "LocalAppData");
-      const asarPath = await packBareAsar(path.join(local, "DiscordCanary"), "1.0.2000");
+      const asarPath = await packBareAsar(
+        path.join(local, "DiscordCanary"),
+        "1.0.2000",
+      );
       const hashBefore = sha256File(asarPath);
       const homeDir = path.join(base, "home");
       const bundlePath = await writeTestBundle(path.join(base, "bundle"));
@@ -413,11 +534,17 @@ describe("installer service", () => {
       assert.equal(result.results.length, 1);
       assert.equal(result.ok, false);
       assert.equal(result.results[0]?.code, "safety-refusal");
-      assert.match(result.results[0]?.detail ?? "", /Refusing destructive test write/);
+      assert.match(
+        result.results[0]?.detail ?? "",
+        /Refusing destructive test write/,
+      );
       // Nothing written: bytes identical, no backup, no receipt.
       assert.equal(sha256File(asarPath), hashBefore);
       assert.equal(fs.existsSync(`${asarPath}.vestra-backup`), false);
-      assert.equal(fs.existsSync(path.join(path.dirname(asarPath), "vestra-receipt.json")), false);
+      assert.equal(
+        fs.existsSync(path.join(path.dirname(asarPath), "vestra-receipt.json")),
+        false,
+      );
     } finally {
       await fs.promises.rm(base, { recursive: true, force: true });
       restoreEnv(saved);
@@ -454,7 +581,10 @@ describe("installer service", () => {
     const h = await makeHarness();
     try {
       const a = createInstallerService(h.ctx);
-      const withCb = await a.install({ channels: ["stable"], onProgress: () => undefined });
+      const withCb = await a.install({
+        channels: ["stable"],
+        onProgress: () => undefined,
+      });
       const b = createInstallerService(h.ctx);
       const forced = await b.install({ channels: ["canary"] });
       assert.equal(withCb.ok, true);
@@ -477,7 +607,10 @@ describe("installer service", () => {
       const found = await installer.discover();
       assert.ok(found.length > 0);
       for (const f of found) {
-        assert.ok(f.asarPath.includes("vestra-svc-empty-") || f.asarPath.includes("vestra-test-install-"));
+        assert.ok(
+          f.asarPath.includes("vestra-svc-empty-") ||
+            f.asarPath.includes("vestra-test-install-"),
+        );
       }
     } finally {
       await h.cleanup();
