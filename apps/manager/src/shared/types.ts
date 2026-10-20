@@ -1,6 +1,17 @@
 import type { DiscordChannel } from "./channels.js";
 
-export type InstallHealth = "healthy" | "not-installed" | "drifted" | "stale" | "error";
+export interface MaintenanceStatus {
+  available: boolean;
+  enabled: boolean;
+  channels: DiscordChannel[];
+}
+
+export type InstallHealth =
+  | "healthy"
+  | "not-installed"
+  | "drifted"
+  | "stale"
+  | "error";
 
 export interface DiscordInstallation {
   channel: DiscordChannel;
@@ -64,7 +75,14 @@ export type InstallerOperation =
   | "uninstall"
   | "prune";
 
-export type InstallerPhase = "discovering" | "staging" | "patching" | "verifying" | "complete";
+export type InstallerPhase =
+  | "discovering"
+  | "staging"
+  | "stopping"
+  | "patching"
+  | "verifying"
+  | "restarting"
+  | "complete";
 
 export interface InstallerProgressEvent {
   operation: InstallerOperation;
