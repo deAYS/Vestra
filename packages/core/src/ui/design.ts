@@ -2,7 +2,9 @@ import { Styles } from "../api/styles.js";
 
 export function ensureSettingsDesign(): void {
   if (Styles.has("vestra-settings-design")) return;
-  Styles.inject("vestra-settings-design", `
+  Styles.inject(
+    "vestra-settings-design",
+    `
 .vs-settings-root{display:flex;height:100%;min-height:0;isolation:isolate;text-align:left}
 .vs-settings-root *{box-sizing:border-box}
 .vs-settings-root button,.vs-settings-root input,.vs-settings-root textarea{font-family:inherit}
@@ -62,6 +64,22 @@ export function ensureSettingsDesign(): void {
 .vs-plugin-card>p{font-size:12px;line-height:1.65;min-height:38px;margin:0 0 14px;color:#9B92AA}
 .vs-plugin-footer{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:10px;color:#7E748C}
 .vs-plugin-footer button{background:transparent;border:0;color:#ADA0C3;font-size:11px;padding:4px 0;cursor:pointer}
+.vs-plugin-options{margin-top:20px;padding-top:18px;border-top:1px solid #ffffff0b;scroll-margin-block:24px}
+.vs-plugin-options h4{font-size:10px;text-transform:uppercase;letter-spacing:.12em;font-weight:600;color:#ada1bc;margin:0 0 4px}
+.vs-option-row{display:flex;align-items:center;justify-content:space-between;gap:24px;padding:15px 0;border-bottom:1px solid #ffffff06;flex-wrap:wrap}
+.vs-option-row>div:first-child{flex:1;min-width:180px}
+.vs-option-row strong{font-size:12px;font-weight:500;color:#ddd5e8}
+.vs-option-row p,.vs-options-note{font-size:10px!important;line-height:1.65!important;color:#91859f!important;margin:5px 0 0!important}
+.vs-option-row select{font:11px inherit;background:#25202e;border:1px solid #40364e;border-radius:8px;color:#ded4ea;padding:9px;min-width:110px}
+.vs-shortcut-editor{display:flex;align-items:center;justify-content:flex-end;gap:10px;flex-wrap:wrap;max-width:100%}
+.vs-option-reset{background:transparent;border:0;color:#afa0c3;font:10px inherit;cursor:pointer;padding:5px}
+.vs-number-option{display:flex;align-items:center;gap:10px;width:160px}
+.vs-number-option input{width:120px;accent-color:#c5baf8}.vs-number-option output{font:11px Consolas,monospace;color:#c5baf8;min-width:30px}
+.vs-options-note{padding-top:13px}
+.vs-addon-folder{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;padding:16px 18px;margin:0 0 24px;border:1px solid #c5baf818;border-radius:11px;background:#c5baf804}
+.vs-addon-folder>div:first-child{flex:1;min-width:190px}.vs-addon-folder strong{font-size:11px;font-weight:550;color:#d3c8e0}
+.vs-addon-folder p{font-size:10px;color:#91869f;line-height:1.65;margin:4px 0}.vs-addon-folder code{color:#a699b5;font:10px Consolas,monospace}
+.vs-addon-folder .vs-addon-note{width:100%;margin:0;color:#8b809a}
 .vs-search{position:relative;margin-bottom:20px}
 .vs-search>svg{position:absolute;top:13px;left:13px;color:#7E748F}
 .vs-search input{padding-left:40px!important}
@@ -95,10 +113,12 @@ export function ensureSettingsDesign(): void {
 .vs-empty{border:1px dashed #3A3244;border-radius:11px;padding:22px;text-align:center;color:#8D829D;font-size:12px}
 .vs-editor-toolbar{display:flex;align-items:center;gap:8px;border:1px solid #302B39;border-bottom:0;border-radius:11px 11px 0 0;background:#1D1924;padding:12px 15px;font:11px Consolas,monospace;color:#9D90AF}
 .vs-editor-toolbar span:last-child{margin-left:auto;font:10px inherit;color:#8EB69B}
-.vs-editor textarea{border-radius:0 0 11px 11px!important;font-family:"Cascadia Code",Consolas,monospace!important}
+.vs-css-editor{overflow:hidden;border:1px solid #302B39;border-radius:0 0 11px 11px;background:#111015;transition:border-color .2s,box-shadow .2s}
+.vs-editor:focus-within .vs-css-editor{border-color:#9f8fd46b;box-shadow:0 0 0 3px #c5baf806}
 .vs-about-brand{padding:25px 0 30px;color:#C5BAF8}.vs-about-brand h2{color:#E7E1EF;font-size:34px;letter-spacing:-.065em;font-weight:650;margin:8px 0 2px}.vs-about-brand p{font-size:12px;color:#95889F;margin:0}
 @media(max-width:720px){.vs-settings-sidebar{width:152px;padding:24px 10px 16px}.vs-settings-content{padding:32px 21px 22px}.vs-settings-brand{padding-left:8px;gap:5px}.vs-settings-wordmark{font-size:20px}.vs-settings-nav button{font-size:11px;padding:10px}.vs-home-hero{padding:20px}.vs-stat{padding:12px}.vs-stat small{display:block;margin:0}.vs-home-hero>svg{opacity:.6}}
 @media(max-width:520px){.vs-settings-sidebar{width:60px;padding:23px 8px}.vs-settings-brand{padding:0 0 23px;justify-content:center}.vs-settings-wordmark,.vs-nav-caption,.vs-settings-nav button>span,.vs-sidebar-bottom{display:none}.vs-settings-nav button{justify-content:center;padding:12px 0}.vs-theme-grid{grid-template-columns:1fr}.vs-stat-grid{gap:6px}.vs-stat{padding:10px}.vs-settings-content{padding:30px 17px}.vs-home-hero h3{font-size:23px}}
 @media(prefers-reduced-motion:reduce){.vs-settings-root *{transition:none!important;animation:none!important}}
-`);
+`,
+  );
 }
