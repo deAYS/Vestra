@@ -2,6 +2,18 @@ Vestra for Windows — an early alpha with its own plugin API and theme library.
 
 ### In this release
 
+- Liquid Glass: frosted translucent main panels, pearl light, rounded composer and reflective edges.
+- Afterglow joins the built-in library alongside Midnight, Graphite, Rose and Aurora.
+- Per-theme appearance controls: opacity, blur, saturation, brightness, corner radius and background color/image.
+- Local background pictures are embedded in saved preferences and restored after restarting Discord.
+- Sample previews, disk-confirmed Apply, and Restore original for appearance changes.
+- Settings remember your last page and scroll; previews open beside their buttons.
+- QuickCSS search keeps keyboard input inside the editor; grouped timestamps no longer wrap into the message gutter.
+- Missing theme files retain a saved copy, and profile activity cards follow the theme.
+- The floating button and workspace can follow your theme, with a visible restore action for a hidden button.
+
+### Also included
+
 - Windows Manager with backup, installation, check, repair and uninstall.
 - Install and Repair close, replace, verify and relaunch the selected Discord.
 - Repair reinstalls even healthy installations.
@@ -9,7 +21,7 @@ Vestra for Windows — an early alpha with its own plugin API and theme library.
 - Theme CSS recovers after native stylesheet changes and removed style elements.
 - Desktop themes, shortcuts and plugin preferences persist in channel-specific files with atomic writes and backup recovery.
 - Theme selection waits for disk confirmation; storage failures are visible and retryable.
-- Midnight, Graphite, Rose and Aurora themes with modern Discord surface colors.
+- Six themes with modern Discord surface colors and optional appearance overrides.
 - Nine built-in plugins, including image zoom, message/code copying and focus mode.
 - A movable settings button with saved position and keyboard access.
 - Per-plugin settings and configurable shortcuts, with conflict checks.
