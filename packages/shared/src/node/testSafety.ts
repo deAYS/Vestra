@@ -1,39 +1,3 @@
-// @vestra/shared — Node-only test-safety guard.
-//
-// TEST-SAFETY infrastructure. This module must never be imported by
-// browser/renderer bundles: `packages/shared` builds only `src/index.ts`
-// for the browser (`--platform=browser`), and this file lives under the
-// `./node/*` subpath (see package.json `exports` + tsconfig paths), which
-// the browser barrel never references.
-//
-// Two separate, fail-closed protections — both active ONLY in test mode.
-// Normal production behavior is unchanged: with test mode off every guard
-// returns immediately without touching the filesystem.
-//
-//   1. Live Discord file-mutation protection:
-//      `assertDestructiveTestTargetAllowed()` gates every write to app.asar,
-//      the Vestra receipt, the Vestra backup, and staged runtime files.
-//      Destructive operations covered: install, repair, uninstall,
-//      applyInject/patch, uninject/restore, updater apply, updater rollback.
-//      Read-only operations (list, status, check, registry prune --dry-run)
-//      never call this guard and are never blocked by it.
-//      Registry-only metadata writes are covered separately (see below).
-//
-//   2. Real Vestra user-data mutation protection:
-//      `assertTestHomeAllowed()` gates every write under the Vestra product
-//      home (registry installs.json, staged payloads, update-status.json)
-//      in test mode: the home must be an explicit sandbox/test location,
-//      never the user's real home. `pruneStaleRecords(dryRun:false)` is
-//      exempt from protection (1) because it performs zero Discord file
-//      writes, but it is still subject to protection (2).
-//
-// Test mode is explicit-first: `testMode: true/false` passed through the
-// operation context is authoritative. Only when the context omits it do we
-// fall back to `VESTRA_TEST=1`. `NODE_ENV` and runner detection are NOT
-// consulted. The single override `VESTRA_ALLOW_LIVE_TESTS=1` permits live
-// writes in test mode (with a prominent warning); it is never set
-// automatically and never defaults true.
-
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
