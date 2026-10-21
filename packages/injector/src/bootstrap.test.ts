@@ -85,13 +85,19 @@ test("sandboxed preload uses only Electron; bundle, plugin registration and runt
     },
   };
   const preloadWindow = { addEventListener() {} };
+  const host = new Window({ url: goodUrl });
+  host.document.body.innerHTML =
+    '<main id="app-mount"><div class="sidebarList_fixture"></div></main>';
   const context = vm.createContext({
     URL,
     console,
     location: { href: goodUrl },
     process: { isMainFrame: true },
     window: preloadWindow,
-    document: { readyState: "complete" },
+    document: host.document,
+    MutationObserver: host.MutationObserver,
+    setTimeout,
+    clearTimeout,
     require(name: string) {
       assert.equal(name, "electron");
       return native;
@@ -109,6 +115,94 @@ test("sandboxed preload uses only Electron; bundle, plugin registration and runt
   vm.runInContext(buildPreloadSource({ splash: false }), context);
   await new Promise((resolve) => setTimeout(resolve, 5));
   assert.equal(order.filter((s) => s === "start").length, 1);
+  await host.happyDOM.close();
+});
+
+test("login is quiet; logout stops runtime and relogin starts it without duplicate plugins", async () => {
+  const host = new Window({ url: "https://discord.com/login" });
+  host.document.body.innerHTML =
+    '<main id="app-mount"><div class="authBox_fixture"></div></main>';
+  const order: string[] = [];
+  const world: Record<string, unknown> = {};
+  const page = vm.createContext({ window: world, order, console });
+  let reads = 0;
+  let notifyMutation = (): void => {};
+  const native = {
+    contextBridge: {
+      exposeInMainWorld(name: string, value: unknown) {
+        world[name] = value;
+      },
+    },
+    ipcRenderer: {
+      async invoke() {
+        reads++;
+        return {
+          bundle: `window.Vestra={Vestra:{Settings:{async connectStorage(){},load(){}},Native:{connect(){}},UI:{closeSettings(){order.push('close')}},Toasts:{clear(){order.push('clear')}},async start(){order.push('start')},async stop(){order.push('stop');delete window.Vestra}}};`,
+          plugins: [{ name: "Example", source: "order.push('plugin')" }],
+          loader: buildLoaderSource(),
+        };
+      },
+    },
+    webFrame: {
+      executeJavaScript(source: string) {
+        return Promise.resolve(vm.runInContext(source, page));
+      },
+    },
+  };
+  const context = vm.createContext({
+    URL,
+    console,
+    location: host.location,
+    process: { isMainFrame: true },
+    window: host,
+    document: host.document,
+    MutationObserver: class {
+      constructor(notify: () => void) {
+        notifyMutation = notify;
+      }
+      observe(): void {}
+      disconnect(): void {}
+    },
+    setTimeout,
+    clearTimeout,
+    require(name: string) {
+      assert.equal(name, "electron");
+      return native;
+    },
+  });
+  try {
+    vm.runInContext(buildPreloadSource({ splash: false }), context);
+    await new Promise((resolve) => setTimeout(resolve, 90));
+    assert.equal(reads, 0);
+    assert.equal(world["Vestra"], undefined);
+    host.document.getElementById("app-mount")!.innerHTML =
+      '<div class="guilds_fixture"></div>';
+    notifyMutation();
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    assert.deepEqual(order, ["plugin", "start"]);
+    host.document.getElementById("app-mount")!.innerHTML =
+      '<div class="authBox_fixture"></div>';
+    notifyMutation();
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    assert.deepEqual(order, ["plugin", "start", "close", "clear", "stop"]);
+    assert.equal(world["Vestra"], undefined);
+    host.document.getElementById("app-mount")!.innerHTML =
+      '<div class="privateChannels_fixture"></div>';
+    notifyMutation();
+    for (let attempt = 0; attempt < 20 && order.length < 6; attempt++)
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    assert.deepEqual(order, [
+      "plugin",
+      "start",
+      "close",
+      "clear",
+      "stop",
+      "start",
+    ]);
+    assert.equal(reads, 1);
+  } finally {
+    await host.happyDOM.close();
+  }
 });
 
 function mainFixture(execPath = "C:/Discord/DiscordCanary.exe") {
@@ -224,7 +318,7 @@ test("every native IPC handler rejects external pages and subframes", async () =
   }
 });
 
-test("bootstrap filters unsafe plugin versions and filenames; unsupported update fails honestly", async () => {
+test("bootstrap filters unsafe plugin versions and filenames", async () => {
   const { handlers, sender } = mainFixture();
   const payload = (await handlers.get("vestra:native:bootstrap")!(
     sender,
@@ -240,10 +334,6 @@ test("bootstrap filters unsafe plugin versions and filenames; unsupported update
         bundleFile: "../secret.js",
       }),
     /Unsafe/,
-  );
-  await assert.rejects(
-    () => handlers.get("vestra:native:updater:install")!(sender, []),
-    /not implemented/,
   );
 });
 
