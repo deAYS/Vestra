@@ -99,3 +99,9 @@ authored theme. `ThemeCustomization` contains `opacity` (5–100), `blur` (0–4
 (empty or hex), and `backgroundImage` (empty, an HTTPS image URL, or a supported
 base64 image). These preferences belong to each theme and are preserved when its
 local CSS file refreshes. Older hosts do not expose this additive method.
+
+Newer hosts also accept optional `homeOpacity` (30–100), `popupOpacity` (70–100),
+`settingsOpacity` (80–100), `textColor` (empty or hex), `glowColor` (hex),
+`glowStrength` (0–100) and `glowSize` (1–18). Missing values use readable defaults:
+55%, 94%, 96%, the authored text color and no glow. Check host support before
+depending on these controls in plugins built for older Vestra releases.
