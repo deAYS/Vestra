@@ -127,6 +127,7 @@ try {
       break;
     }
   }
+  if (!process.exitCode) await import("./smoke-manager.mjs");
 } finally {
   // This path comes directly from mkdtemp, and cleanup is restricted to it.
   const resolved = path.resolve(fixture);
