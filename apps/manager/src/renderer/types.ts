@@ -12,8 +12,14 @@ import type {
   StatusSummary,
   MaintenanceStatus,
 } from "../shared/types.js";
+import type { UpdateState } from "../shared/updates.js";
 
 export interface VestraManagerApi {
+  updateState(): Promise<UpdateState>;
+  checkUpdate(): Promise<UpdateState>;
+  downloadUpdate(): Promise<UpdateState>;
+  installUpdate(): Promise<UpdateState>;
+  onUpdate(listener:(state:UpdateState)=>void):()=>void;
   windowAction(action: ManagerWindowAction): void;
   setWindowMaterial(material: ManagerWindowMaterial): void;
   onWindowState(listener: (state: ManagerWindowState) => void): () => void;
