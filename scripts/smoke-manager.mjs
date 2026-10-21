@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const require = createRequire(path.join(root, "apps/manager/package.json"));
-const fixture = await fs.mkdtemp(path.join(os.tmpdir(), "vestra-manager-"));
+const fixture = await fs.mkdtemp(path.join(os.tmpdir(), "vestra-manager-~"));
 try {
   const define = {
     __VESTRA_MANAGER_DEV__: "false",
