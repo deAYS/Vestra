@@ -5,6 +5,7 @@ import {
   type VestraNativeChannel,
 } from "@vestra/shared";
 import { buildSplashSource } from "./splash.js";
+import { observeDiscordSession } from "./sessionGate.js";
 
 export interface PreloadOptions {
   capabilities?: readonly VestraNativeChannel[];
@@ -55,6 +56,12 @@ export function buildPreloadSource(options?: PreloadOptions): string {
     }
   });
   let splash;
+  let sessionReady = false;
+  let generation = 0;
+  let queue = Promise.resolve();
+  let payloadCache;
+  let initialized = false;
+  const loadedPlugins = new Set();
   ${
     options?.splash === false
       ? ""
@@ -64,46 +71,64 @@ export function buildPreloadSource(options?: PreloadOptions): string {
     splash = ${buildSplashSource()};
     splash.set(5, "Connecting to Discord…");
   }
-  // Start painting before DOMContentLoaded, which may arrive after Discord's UI.
-  if (document.documentElement) mountSplash();
-  else {
-    const observer = new MutationObserver(() => { if (document.documentElement) { observer.disconnect(); mountSplash(); } });
-    observer.observe(document, { childList: true });
-  }`
+  `
   }
   expose("__VESTRA_SPLASH__", {
     set(pct, label) { if (splash) splash.set(pct, label); },
     done() { if (splash) splash.done(); }
   });
-  async function boot() {
+  async function boot(ticket) {
     try {
       ${options?.splash === false ? "" : "mountSplash();"}
       if (splash) splash.set(12, "Loading Vestra runtime…");
-      const payload = await ipcRenderer.invoke(prefix + "bootstrap", {
+      const payload = payloadCache || await ipcRenderer.invoke(prefix + "bootstrap", {
         bundleFile: ${JSON.stringify(options?.bundleFile ?? "vestra.js")},
         loaderFile: ${JSON.stringify(options?.loaderFile ?? "vestra-loader.js")},
         storePlugins: ${options?.storePlugins !== false}
       });
       if (!payload || typeof payload.bundle !== "string" || typeof payload.loader !== "string") throw new Error("Invalid bootstrap response");
+      payloadCache = payload;
+      if (!sessionReady || generation !== ticket) return;
+      await webFrame.executeJavaScript("if(window[Symbol.for('vestra.sessionRuntime')])window.Vestra=window[Symbol.for('vestra.sessionRuntime')];void 0;");
       // Execute explicitly in the page world. DOM script tags are blocked by CSP.
-      await webFrame.executeJavaScript(payload.bundle + "\\n;window.Vestra = window.Vestra.Vestra || window.Vestra.default || window.Vestra; (async () => { await window.Vestra.Settings.connectStorage({readSettingsFile:()=>window.VestraNative.invoke('settings:read',[]).then(value=>value??undefined),writeSettingsFile:text=>window.VestraNative.invoke('settings:write',[text])}); window.Vestra.Settings.load(); })();\\n//# sourceURL=vestra.js");
+      if (!initialized) {
+        await webFrame.executeJavaScript(payload.bundle + "\\n;window.Vestra = window.Vestra.Vestra || window.Vestra.default || window.Vestra; (async () => { await window.Vestra.Settings.connectStorage({readSettingsFile:()=>window.VestraNative.invoke('settings:read',[]).then(value=>value??undefined),writeSettingsFile:text=>window.VestraNative.invoke('settings:write',[text])}); window.Vestra.Settings.load(); })();\\n//# sourceURL=vestra.js");
+        initialized = true;
+      }
       for (const plugin of payload.plugins || []) {
-        try { await webFrame.executeJavaScript(plugin.source + "\\n//# sourceURL=vestra-plugin-" + encodeURIComponent(plugin.name) + ".js"); }
+        if (!sessionReady || generation !== ticket) return;
+        if (loadedPlugins.has(plugin.name)) continue;
+        try { await webFrame.executeJavaScript(plugin.source + "\\n//# sourceURL=vestra-plugin-" + encodeURIComponent(plugin.name) + ".js"); loadedPlugins.add(plugin.name); }
         catch (err) {
           console.error("[Vestra] plugin failed:", plugin.name, err);
           try { await webFrame.executeJavaScript("window.Vestra.Toasts.error('Plugin failed to load'," + JSON.stringify(plugin.name) + ")"); } catch (_) {}
         }
       }
+      if (!sessionReady || generation !== ticket) return;
       if (splash) splash.set(55, "Starting plugins and themes…");
       await webFrame.executeJavaScript(payload.loader + "\\n//# sourceURL=vestra-loader.js");
     } catch (err) {
       console.error("[Vestra] bootstrap failed:", err);
     } finally {
-      if (splash) splash.done();
+      if (splash) { if (sessionReady && generation === ticket) splash.done(); else { splash.cancel(); splash = undefined; } }
     }
   }
-  if (document.readyState === "loading") window.addEventListener("DOMContentLoaded", boot, { once: true });
-  else void boot();
+  function watchSession() {
+    const observeSession = ${observeDiscordSession.toString()};
+    observeSession(ready => {
+      sessionReady = ready;
+      const ticket = ++generation;
+      if (!ready && splash) { splash.cancel(); splash = undefined; }
+      queue = queue.then(async () => {
+        if (ready) { if (sessionReady && generation === ticket) await boot(ticket); }
+        else {
+          await webFrame.executeJavaScript("(async()=>{const v=window.Vestra;if(v&&typeof v.stop==='function'){window[Symbol.for('vestra.sessionRuntime')]=v;v.UI.closeSettings();v.Toasts.clear();await v.stop();}delete window.__VESTRA_BOOT_PROMISE__;})()");
+        }
+      }).catch(error => console.error("[Vestra] session lifecycle failed:",error));
+    });
+  }
+  if (document.readyState === "loading") window.addEventListener("DOMContentLoaded", watchSession, { once: true });
+  else watchSession();
 })();
 `;
 }
