@@ -27,6 +27,27 @@ with a last-valid backup. Clearing Discord storage does not reset your preferenc
 The Manager keeps an original backup. **Uninstall** restores it while preserving
 Vestra preferences. **Repair** always reinstalls Vestra, even when the status is healthy.
 
+## Updates
+
+Manager checks this repository's published GitHub releases when opened and every
+six hours while running. Discord also checks after login and shows an update
+notification. Open **About Vestra → Open Manager**, then use **Download update**.
+Manager shows progress and verifies the complete file against GitHub's SHA-256
+asset digest before offering **Install update**.
+
+Installation asks before restarting Manager and the Discord channels already
+using Vestra. Calls and streams disconnect at this step. Preferences, themes,
+embedded wallpapers and local plugins stay in their existing folders. Both
+Setup and Portable are supported; Portable replaces its original executable
+and keeps a `.vestra-previous` backup. An interrupted handoff offers to finish
+the Discord update when the new Manager is opened again.
+
+Alpha builds receive newer prereleases as well as stable releases. Stable builds
+skip prereleases. Drafts, incomplete assets and packages without GitHub checksums
+are ignored. An offline or rate-limited check reports an error and can be retried.
+Automatic updating starts with a Manager that includes this feature; earlier
+releases need that first upgrade from the Downloads page.
+
 **Keep Vestra installed** is enabled after installation in Windows builds. A local
 recovery process starts at Windows sign-in, waits for Discord updates to finish,
 then restores Vestra into the current version and restarts that Discord channel.
@@ -46,6 +67,12 @@ when you switch from your library. Previous built-in presets upgrade automatical
 Native background gradients are replaced while the theme is active and restored
 when it is disabled.
 
+**Share a complete theme.** Use **Export** beside a library theme, or **Export
+theme** in its appearance panel to include the current preview. The resulting
+`.vestra-theme.json` contains CSS, appearance choices and an embedded wallpaper.
+Use **Import theme** to bring it into another Vestra library; imported packages
+start disabled so they do not replace the active look. CSS imports still work.
+
 **Your own atmosphere.** Select a theme, then use its appearance panel to adjust
 opacity, glass blur, background saturation and brightness, or corner radius.
 Choose a local picture, an HTTPS image URL or a background color. The sample
@@ -60,6 +87,8 @@ Open **Text & readability** for text color, glow color/strength/size and separat
 opacity controls for home pages, profiles/menus and settings. Glow starts off;
 role colors remain intact. The preview updates its stylesheet in place while
 dragging sliders, keeping its document and embedded background image loaded.
+Switch between **Chat**, **Home**, **Profile** and **Settings** to inspect each
+surface. Focusing its opacity slider selects the relevant preview automatically.
 These controls stay visible, and every opacity slider runs from 0% to 100%.
 The larger workspace gives the preview more room and stacks it above the controls
 in narrow windows. Manager uses its own draggable title bar and window controls,
@@ -86,6 +115,10 @@ automatically; enable Custom styling to apply them live.
 **Motion with a little personality.** A logo entrance, a startup reveal that opens
 from the center, a springy launcher and smooth settings transitions. System reduced
 motion preferences are respected.
+Vestra starts when the signed-in Discord workspace appears. The login screen
+stays untouched; logging out stops plugins, themes, the launcher and notifications.
+Notifications follow the workspace palette and pause while hovered or focused.
+Turn off **Show startup notification** in Overview for a quieter launch.
 
 ![Theme library](docs/images/themes.png)
 
