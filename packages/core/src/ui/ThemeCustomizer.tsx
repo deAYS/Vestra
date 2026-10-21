@@ -10,6 +10,8 @@ import {
   DEFAULT_THEME_CUSTOMIZATION,
 } from "../themeCustomization.js";
 import { ThemePreviewFrame } from "./ThemePreviewFrame.js";
+import { PREVIEW_SCENES, type PreviewScene } from "./previewScenes.js";
+import { downloadThemePackage } from "../themeTransfer.js";
 
 const controls = [
   { key: "opacity", label: "Panel opacity", min: 0, max: 100, unit: "%" },
@@ -117,6 +119,7 @@ export function ThemeCustomizer({
     ...theme.customization,
   }));
   const [changed, setChanged] = useState(false);
+  const [scene, setScene] = useState<PreviewScene>("chat");
   const [pending, setPending] = useState(false);
   const [status, setStatus] = useState("");
   const [error, setError] = useState("");
@@ -182,12 +185,19 @@ export function ThemeCustomizer({
         max={control.max}
         value={draft[control.key]}
         disabled={pending}
+        onFocus={() => previewControl(control.key)}
+        onPointerDown={() => previewControl(control.key)}
         onChange={(event) =>
           update({ [control.key]: Number(event.target.value) })
         }
       />
     </label>
   );
+  const previewControl = (key: string): void => {
+    if (key === "homeOpacity") setScene("home");
+    else if (key === "popupOpacity") setScene("profile");
+    else if (key === "settingsOpacity") setScene("settings");
+  };
 
   return (
     <section className="vs-theme-customizer" aria-label="Theme appearance">
@@ -268,14 +278,66 @@ export function ThemeCustomizer({
           </label>
         </div>
         <div className="vs-appearance-preview">
-          <ThemePreviewFrame
-            title={`${theme.name} appearance preview`}
-            css={preview}
-          />
+          <div
+            className="vs-preview-tabs"
+            role="tablist"
+            aria-label="Preview surface"
+          >
+            {PREVIEW_SCENES.map((item, index) => (
+              <button
+                key={item.id}
+                type="button"
+                role="tab"
+                tabIndex={scene === item.id ? 0 : -1}
+                aria-selected={scene === item.id}
+                aria-controls="vestra-appearance-sample"
+                onClick={() => setScene(item.id)}
+                onKeyDown={(event) => {
+                  const offset =
+                    event.key === "ArrowRight"
+                      ? 1
+                      : event.key === "ArrowLeft"
+                        ? -1
+                        : 0;
+                  const next =
+                    event.key === "Home"
+                      ? 0
+                      : event.key === "End"
+                        ? PREVIEW_SCENES.length - 1
+                        : offset
+                          ? (index + offset + PREVIEW_SCENES.length) %
+                            PREVIEW_SCENES.length
+                          : -1;
+                  if (next >= 0) {
+                    event.preventDefault();
+                    setScene(PREVIEW_SCENES[next]!.id);
+                    (
+                      event.currentTarget.parentElement?.children[
+                        next
+                      ] as HTMLButtonElement
+                    )?.focus();
+                  }
+                }}
+              >
+                {item.label}
+              </button>
+            ))}
+          </div>
+          <div
+            id="vestra-appearance-sample"
+            role="tabpanel"
+            aria-label={`${PREVIEW_SCENES.find((item) => item.id === scene)!.label} preview`}
+          >
+            <ThemePreviewFrame
+              title={`${theme.name} appearance preview`}
+              css={preview}
+              scene={scene}
+            />
+          </div>
           <span>
             {draft.backgroundImage.startsWith("https:")
               ? "External images appear in Discord after Apply."
-              : "Sample conversation · your messages stay private"}
+              : `Sample ${scene === "chat" ? "conversation" : scene === "home" ? "home page" : scene} · your account stays private`}
           </span>
         </div>
       </div>
@@ -370,6 +432,28 @@ export function ThemeCustomizer({
               : "Start with a slider or choose your own backdrop.")
           )}
         </div>
+        <button
+          type="button"
+          disabled={pending}
+          onClick={() => {
+            try {
+              downloadThemePackage(
+                changed ? { ...theme, customization: draft } : theme,
+              );
+              setStatus(
+                changed
+                  ? "Exported with your preview changes."
+                  : "Theme package exported.",
+              );
+            } catch (problem) {
+              setError(
+                problem instanceof Error ? problem.message : String(problem),
+              );
+            }
+          }}
+        >
+          Export theme ↗
+        </button>
         <button
           type="button"
           disabled={pending || (!theme.customization && !changed)}
