@@ -1,6 +1,6 @@
 # @vestra/api
 
-Vestra's own typed plugin API. Package version `0.1.1`, host API `1.0.0`.
+Vestra's own typed plugin API. Package version `0.1.2`, host API `1.0.0`.
 Requires Vestra; this package does not inject Discord or create a second runtime.
 
 ```ts
