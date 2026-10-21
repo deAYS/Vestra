@@ -2,6 +2,28 @@
 
 ## Findings
 
+### Glass readability and preview updates — 2026-10-21
+
+Glass now gives Friends, Shop and Quests a separate blurred backing. Default
+profiles and settings use denser local surfaces; custom-colored profiles retain
+their own styling. Appearance controls expose independent home, popup and settings
+opacity alongside optional text color and glow. Role colors remain unchanged;
+code and timestamps do not inherit decorative glow.
+
+The appearance iframe keeps a stable scriptless document. Slider updates replace
+only its theme stylesheet once per animation frame. Embedded image URLs live in
+stable CSS variables so rapid changes do not repeatedly navigate the frame or
+reparse the image into its stylesheet. Its sandbox allows same-origin DOM access
+for the parent, without allowing scripts; its CSP blocks scripts and external
+resource requests.
+
+The Electron fixture sends 144 rapid changes, checks the final slider value,
+and verifies unchanged document identity with zero additional loads. It also
+checks surface opacity, text/glow application, custom profile preservation and
+persistence. These are fixture checks, not a logged-in Discord validation.
+
+### Palette coverage
+
 The original presets only supplied `--background-primary`, `--background-secondary`
 and related legacy variables. Discord's Visual Refresh surfaces now consume
 `--background-base-lowest`, `--background-base-lower`, `--background-base-low`,
