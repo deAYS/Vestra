@@ -56,6 +56,30 @@ let stopThemes: (() => void) | undefined;
 let stopOverlay: (() => void) | undefined;
 let stopShortcuts: (() => void) | undefined;
 let stopPluginShortcuts: (() => void) | undefined;
+let updateTimer: ReturnType<typeof setInterval> | undefined;
+let lastUpdateNotice = "";
+
+async function checkUpdateNotice(): Promise<void> {
+  if (!Native.isAvailable()) return;
+  try {
+    const update = await Native.checkForUpdates();
+    if (
+      started &&
+      update.available &&
+      update.version &&
+      update.version !== lastUpdateNotice
+    ) {
+      lastUpdateNotice = update.version;
+      Toasts.info(
+        "Vestra update available",
+        `v${update.version} is ready to download. Open About Vestra → Updates.`,
+        10000,
+      );
+    }
+  } catch {
+    /* An offline update check must not interrupt Discord startup. */
+  }
+}
 let lifecycle: Promise<void> = Promise.resolve();
 
 // Serialize the whole runtime lifecycle, including concurrent start/stop calls.
@@ -158,14 +182,21 @@ async function startRuntime(): Promise<void> {
     }
     exposeGlobal(runtime);
     started = true;
+    clearInterval(updateTimer);
+    updateTimer = setInterval(
+      () => void checkUpdateNotice(),
+      6 * 60 * 60 * 1000,
+    );
+    void checkUpdateNotice();
     Logger.info("Vestra runtime started.");
     try {
       const enabled = pluginManager.list().filter((p) => p.enabled).length;
-      Toasts.success(
-        `${VESTRA_BRANDING.name} loaded`,
-        `v${VESTRA_VERSION} — ${enabled} plugin${enabled === 1 ? "" : "s"} enabled.`,
-        8000,
-      );
+      if (Settings.getPluginSetting("Vestra", "startupNotification") !== false)
+        Toasts.info(
+          `${VESTRA_BRANDING.name} is ready`,
+          `${enabled} plugin${enabled === 1 ? "" : "s"} active. Your workspace is ready.`,
+          5000,
+        );
     } catch (err: unknown) {
       Logger.captureError(err, "Vestra.start.Toast");
     }
@@ -186,6 +217,8 @@ export async function stop(): Promise<void> {
 }
 
 async function stopRuntime(): Promise<void> {
+  clearInterval(updateTimer);
+  updateTimer = undefined;
   if (!started) return;
   try {
     stopPluginShortcuts?.();
