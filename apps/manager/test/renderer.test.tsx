@@ -62,6 +62,12 @@ interface RecordedCall {
 }
 
 class FakeApi {
+  windowAction(action: string): void { this.calls.push({ method: "windowAction", args: action }); }
+  setWindowMaterial(): void {}
+  onWindowState(listener: (state: { maximized: boolean; material: "solid"; materialsSupported: boolean; appearanceError: string }) => void): () => void {
+    listener({ maximized: false, material: "solid", materialsSupported: false, appearanceError: "" });
+    return () => undefined;
+  }
   installations: DiscordInstallation[] = [
     installEntry("stable", "1.0.1000"),
     installEntry("canary", "1.0.1156"),
