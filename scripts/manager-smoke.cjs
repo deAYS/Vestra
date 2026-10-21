@@ -58,6 +58,62 @@ app
       app.exit(1);
     }, 20000);
     try {
+      const { createHash } = require("node:crypto");
+      const { ManagerUpdates } = await import(
+        pathToFileURL(path.join(__dirname, "manager/main/updates.mjs")).href
+      );
+      const bytes = Buffer.from("Fixture update package. Never executed.");
+      const hash = createHash("sha256").update(bytes).digest("hex");
+      const updateHome = path.join(__dirname, "update-home");
+      const service = {
+        context: { homeDir: updateHome },
+        status: async () => ({
+          statuses: [
+            summary.statuses[0],
+            { installation: { channel: "canary" }, vestraInstalled: false },
+          ],
+          stale: [],
+        }),
+      };
+      const tracked = [];
+      const repaired = [];
+      let handedOff;
+      let quitRequested = false;
+      const updater = new ManagerUpdates(
+        service,
+        { track: async (channel) => tracked.push(channel) },
+        {
+          version: "0.1.0-alpha.3",
+          supported: true,
+          request: async (url) => {
+            if (url.includes("api.github.com"))
+              return new Response(
+                JSON.stringify([
+                  {
+                    tag_name: "v0.1.0-alpha.4",
+                    draft: false,
+                    prerelease: true,
+                    assets: ["Setup", "Portable"].map((kind) => ({
+                      name: `Vestra-0.1.0-alpha.4-x64-${kind}.exe`,
+                      size: bytes.length,
+                      digest: `sha256:${hash}`,
+                      browser_download_url: `https://github.com/deAYS/Vestra/releases/download/v0.1.0-alpha.4/Vestra-0.1.0-alpha.4-x64-${kind}.exe`,
+                    })),
+                  },
+                ]),
+              );
+            return new Response(bytes);
+          },
+          handoff: async (options) => {
+            handedOff = options;
+          },
+          quit: () => {
+            quitRequested = true;
+          },
+        },
+      );
+      updater.register();
+      await updater.check();
       const { createManagerWindow } = await import(
         pathToFileURL(path.join(__dirname, "manager/main/window.mjs")).href
       );
@@ -87,6 +143,135 @@ app
         "Manager UI ready",
       );
       assert.equal(win.getNormalBounds().width, 960);
+      await wait(
+        () =>
+          evaluate(
+            "document.querySelector('.vs-update-card')?.textContent.includes('Download update')",
+          ),
+        "update available card",
+      );
+      assert.equal(
+        await evaluate(
+          "getComputedStyle(document.querySelector('h1')).userSelect",
+        ),
+        "none",
+        "ordinary Manager copy is not selectable",
+      );
+      await evaluate(
+        "Array.from(document.querySelectorAll('.vs-update-card button')).find(b=>b.textContent==='Download update').click()",
+      );
+      await wait(
+        () =>
+          evaluate(
+            "document.querySelector('.vs-update-card')?.textContent.includes('Verified')",
+          ),
+        "verified update download",
+      );
+      if (process.env.VESTRA_UPDATE_SCREENSHOT) {
+        await evaluate(
+          "document.querySelector('.vs-update-card').scrollIntoView({block:'center'});new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))",
+        );
+        await fs.writeFile(
+          process.env.VESTRA_UPDATE_SCREENSHOT,
+          (await win.webContents.capturePage()).toPNG(),
+        );
+      }
+      assert.equal(
+        handedOff,
+        undefined,
+        "downloading never installs or disconnects Discord",
+      );
+      await evaluate(
+        "Array.from(document.querySelectorAll('.vs-update-card button')).find(b=>b.textContent==='Install update…').click()",
+      );
+      await wait(
+        () =>
+          evaluate(
+            "Boolean(document.querySelector('[aria-label=\"Install Vestra update\"]'))",
+          ),
+        "restart confirmation",
+      );
+      assert.equal(
+        handedOff,
+        undefined,
+        "opening confirmation does not install",
+      );
+      await evaluate(
+        "Array.from(document.querySelectorAll('.vs-update-confirm button')).find(b=>b.textContent==='Install and restart').click()",
+      );
+      await wait(
+        () => Boolean(handedOff) && quitRequested,
+        "explicit confirmed handoff",
+      );
+      const pending = JSON.parse(
+        await fs.readFile(
+          path.join(updateHome, "updates/pending.json"),
+          "utf8",
+        ),
+      );
+      assert.deepEqual(
+        pending.channels,
+        ["stable"],
+        "only installations already using Vestra are updated",
+      );
+      let failFinish = true;
+      const finished = new ManagerUpdates(
+        service,
+        { track: async (channel) => tracked.push(channel) },
+        {
+          version: "0.1.0-alpha.4",
+          supported: true,
+          lifecycle: {
+            run: async (kind, channel) => {
+              if (failFinish) throw new Error("Fixture Discord busy. Retry.");
+              repaired.push([kind, channel]);
+              return { ok: true, results: [] };
+            },
+          },
+        },
+      );
+      await finished.finish();
+      assert.equal(
+        finished.snapshot().phase,
+        "ready",
+        "an interrupted handoff waits for user confirmation",
+      );
+      assert.equal(repaired.length, 0);
+      await finished.install();
+      assert.equal(
+        finished.snapshot().phase,
+        "ready",
+        "a failed Discord update stays retryable",
+      );
+      assert.equal(
+        await fs.stat(path.join(updateHome, "updates/pending.json")).then(
+          () => true,
+          () => false,
+        ),
+        true,
+        "failed updates retain their handoff",
+      );
+      failFinish = false;
+      await finished.install();
+      assert.deepEqual(repaired, [["repair", "stable"]]);
+      assert.deepEqual(tracked, ["stable"]);
+      assert.equal(finished.snapshot().phase, "current");
+      assert.equal(
+        await fs.stat(path.join(updateHome, "updates/pending.json")).then(
+          () => true,
+          () => false,
+        ),
+        false,
+        "successful updates consume their handoff",
+      );
+      await fs.writeFile(path.join(updateHome, "updates/pending.json"), "null");
+      await finished.finish();
+      assert.equal(
+        finished.snapshot().phase,
+        "error",
+        "malformed saved state does not crash Manager or touch Discord",
+      );
+      await fs.rm(path.join(updateHome, "updates/pending.json"));
       assert.equal(await evaluate("typeof require"), "undefined");
       assert.equal(
         await evaluate(
@@ -149,10 +334,22 @@ app
       );
       ipcMain.emit(
         "vestra-manager:window-material",
-        { sender: win.webContents, senderFrame: { url: win.webContents.getURL() } },
+        {
+          sender: win.webContents,
+          senderFrame: { url: win.webContents.getURL() },
+        },
         "acrylic",
       );
-      assert.equal(JSON.parse(await fs.readFile(path.join(__dirname,"session/window-appearance.json"),"utf8")).material,"solid","untrusted frames cannot change material preferences");
+      assert.equal(
+        JSON.parse(
+          await fs.readFile(
+            path.join(__dirname, "session/window-appearance.json"),
+            "utf8",
+          ),
+        ).material,
+        "solid",
+        "untrusted frames cannot change material preferences",
+      );
       ipcMain.emit(
         channel,
         {
@@ -238,8 +435,16 @@ app
         listeners,
         "closed windows release their action listener",
       );
-      const reopened=createManagerWindow(false);
-      await wait(()=>reopened.webContents.executeJavaScript("document.documentElement.dataset.windowMaterial==='solid'").catch(()=>false),'saved material restores in a new window');
+      const reopened = createManagerWindow(false);
+      await wait(
+        () =>
+          reopened.webContents
+            .executeJavaScript(
+              "document.documentElement.dataset.windowMaterial==='solid'",
+            )
+            .catch(() => false),
+        "saved material restores in a new window",
+      );
       reopened.destroy();
       clearTimeout(timer);
       console.log(
