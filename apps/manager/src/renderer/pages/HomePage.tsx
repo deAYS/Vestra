@@ -9,6 +9,7 @@ import { DiscordInstallList } from "../components/DiscordInstallList.js";
 import { ErrorPanel } from "../components/ErrorPanel.js";
 import { Header } from "../components/Header.js";
 import { RecoverySettings } from "../components/RecoverySettings.js";
+import { UpdateCard } from "../components/UpdateCard.js";
 
 export function HomePage({ manager }: { manager: ManagerState }): JSX.Element {
   const cards: CardModel[] = manager.installations.map((installation) => {
@@ -87,11 +88,19 @@ export function HomePage({ manager }: { manager: ManagerState }): JSX.Element {
         )}
       </section>
       <RecoverySettings busy={busy} />
+      <UpdateCard busy={busy} />
 
       {manager.notice !== null ? (
         <div className="vs-notice" data-testid="notice" role="status">
-          <span className="vs-notice__icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m6 12 4 4 8-8" /></svg></span>
-          <div className="vs-notice__copy"><strong>All set</strong><p>{manager.notice}</p></div>
+          <span className="vs-notice__icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24">
+              <path d="m6 12 4 4 8-8" />
+            </svg>
+          </span>
+          <div className="vs-notice__copy">
+            <strong>All set</strong>
+            <p>{manager.notice}</p>
+          </div>
           <button
             type="button"
             onClick={manager.dismissNotice}
@@ -100,7 +109,9 @@ export function HomePage({ manager }: { manager: ManagerState }): JSX.Element {
             aria-label="Close notification"
             title="Close notification"
           >
-            <svg viewBox="0 0 16 16" aria-hidden="true"><path d="m4 4 8 8M12 4l-8 8" /></svg>
+            <svg viewBox="0 0 16 16" aria-hidden="true">
+              <path d="m4 4 8 8M12 4l-8 8" />
+            </svg>
           </button>
         </div>
       ) : null}
