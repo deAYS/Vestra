@@ -12,7 +12,7 @@ import {
 import { ThemePreviewFrame } from "./ThemePreviewFrame.js";
 
 const controls = [
-  { key: "opacity", label: "Panel opacity", min: 5, max: 100, unit: "%" },
+  { key: "opacity", label: "Panel opacity", min: 0, max: 100, unit: "%" },
   { key: "blur", label: "Glass blur", min: 0, max: 48, unit: "px" },
   {
     key: "saturation",
@@ -24,7 +24,7 @@ const controls = [
   {
     key: "brightness",
     label: "Background brightness",
-    min: 35,
+    min: 0,
     max: 120,
     unit: "%",
   },
@@ -32,21 +32,21 @@ const controls = [
   {
     key: "homeOpacity",
     label: "Home panels opacity",
-    min: 30,
+    min: 0,
     max: 100,
     unit: "%",
   },
   {
     key: "popupOpacity",
     label: "Profiles & menus opacity",
-    min: 70,
+    min: 0,
     max: 100,
     unit: "%",
   },
   {
     key: "settingsOpacity",
     label: "Settings opacity",
-    min: 80,
+    min: 0,
     max: 100,
     unit: "%",
   },
@@ -59,6 +59,28 @@ const controls = [
   },
   { key: "glowSize", label: "Text glow size", min: 1, max: 18, unit: "px" },
 ] as const;
+
+function appearanceDefaults(theme: Theme): ThemeCustomization {
+  const glass = theme.css.includes("--glass-pane:");
+  return {
+    ...DEFAULT_THEME_CUSTOMIZATION,
+    ...(!glass
+      ? {
+          opacity: 100,
+          blur: 0,
+          saturation: 100,
+          radius: 12,
+          homeOpacity: 100,
+          popupOpacity: 100,
+          settingsOpacity: 100,
+        }
+      : {}),
+    glowColor:
+      theme.css.match(/--text-link:\s*(#[\da-f]{6})\b/i)?.[1] ??
+      DEFAULT_THEME_CUSTOMIZATION.glowColor,
+    surfaceOverrides: false,
+  };
+}
 
 async function readBackground(file: File): Promise<string> {
   if (!/^image\/(png|jpeg|webp|avif)$/.test(file.type))
@@ -91,7 +113,7 @@ export function ThemeCustomizer({
   settings: SettingsStore;
 }): JSX.Element {
   const [draft, setDraft] = useState<ThemeCustomization>(() => ({
-    ...DEFAULT_THEME_CUSTOMIZATION,
+    ...appearanceDefaults(theme),
     ...theme.customization,
   }));
   const [changed, setChanged] = useState(false);
@@ -108,7 +130,15 @@ export function ThemeCustomizer({
     ? customizedThemeCss({ ...theme, customization: draft })
     : customizedThemeCss(theme);
   const update = (values: Partial<ThemeCustomization>): void => {
-    setDraft((previous) => ({ ...previous, ...values }));
+    const surfaceChange = Object.keys(values).some(
+      (key) =>
+        !["textColor", "glowColor", "glowStrength", "glowSize"].includes(key),
+    );
+    setDraft((previous) => ({
+      ...previous,
+      ...values,
+      surfaceOverrides: previous.surfaceOverrides || surfaceChange,
+    }));
     setChanged(true);
     setStatus("");
     setError("");
@@ -123,7 +153,7 @@ export function ThemeCustomizer({
       );
       await settings.flush();
       if (reset) {
-        setDraft({ ...DEFAULT_THEME_CUSTOMIZATION });
+        setDraft(appearanceDefaults(theme));
         setImageUrl("");
       }
       setChanged(false);
@@ -176,8 +206,12 @@ export function ThemeCustomizer({
       <div className="vs-appearance-layout">
         <div className="vs-appearance-controls">
           {controls.slice(0, 5).map(rangeControl)}
-          <details className="vs-appearance-advanced">
-            <summary>Text & readability</summary>
+          <div
+            className="vs-appearance-advanced"
+            role="group"
+            aria-label="Text & readability"
+          >
+            <h4>Text & readability</h4>
             <div>
               {controls.slice(5).map(rangeControl)}
               <label className="vs-appearance-color">
@@ -212,7 +246,7 @@ export function ThemeCustomizer({
                 />
               </label>
             </div>
-          </details>
+          </div>
           <label className="vs-appearance-color">
             <span>Background color</span>
             <input
