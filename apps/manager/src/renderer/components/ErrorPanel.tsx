@@ -22,7 +22,7 @@ export function ErrorPanel({ code, detail, message, onRetry, onDismiss }: Props)
       <div className="vs-error__hint">{friendly.hint}</div>
       {detail !== undefined && detail !== "" ? (
         <div className="vs-error__details">
-          <button type="button" onClick={() => setShowDetails((v) => !v)} data-testid="show-details">
+          <button type="button" className="vs-btn vs-btn--secondary" onClick={() => setShowDetails((v) => !v)} data-testid="show-details">
             {showDetails ? "Hide details" : "Show details"}
           </button>
           {showDetails ? <pre data-testid="error-detail">{detail}</pre> : null}
@@ -30,13 +30,13 @@ export function ErrorPanel({ code, detail, message, onRetry, onDismiss }: Props)
       ) : null}
       <div className="vs-error__actions">
         {onRetry !== undefined ? (
-          <button type="button" onClick={onRetry} data-testid="error-retry">
+          <button type="button" className="vs-btn vs-btn--secondary" onClick={onRetry} data-testid="error-retry">
             Try Again
           </button>
         ) : null}
         {onDismiss !== undefined ? (
-          <button type="button" onClick={onDismiss} data-testid="error-dismiss">
-            Dismiss
+          <button type="button" className="vs-btn vs-btn--secondary" onClick={onDismiss} data-testid="error-dismiss">
+            Close message
           </button>
         ) : null}
       </div>
