@@ -1070,6 +1070,145 @@ app
         "document.getElementById('media-fixture').remove();document.getElementById('gif-fixture').remove();window.Vestra.Settings.setThemes([])",
       );
 
+      await page(() => {
+        document.getElementById("app-mount").insertAdjacentHTML(
+          "beforeend",
+          `
+          <nav class="guilds_spacing" id="rounded-rail" style="position:fixed;left:20px;top:100px;width:80px;height:240px;overflow:hidden">
+            <div style="position:absolute;inset:0"><div class="scroller_spacing" id="rail-scroll" style="height:100%;overflow-y:auto;padding-top:0">
+              <button id="rail-home" style="display:block;width:40px;height:40px;margin:0 auto">Home</button><div style="height:400px"></div><button id="rail-end" style="margin-bottom:35px">Last</button>
+            </div></div>
+          </nav>
+          <nav class="guilds_spacing" id="flat-rail" style="position:fixed;left:110px;top:100px;width:80px;height:240px;overflow:hidden"><button id="flat-home" style="display:block;width:40px;height:40px;margin:0 auto">Home</button></nav>
+          <div class="autocomplete_spacing" id="emoji-suggestions" style="position:fixed;left:220px;top:100px;width:360px;z-index:10;padding:12px">
+            <div class="autocompleteRow_spacing" id="emoji-native" style="height:40px;padding:8px"><div class="base_spacing" id="emoji-base">🐸 :pepehehe:</div></div>
+            <div role="option" id="emoji-option" aria-selected="false" style="height:40px;padding:8px">🐸 :pepehehe-1:</div>
+            <div class="base_spacing selectable_spacing" id="emoji-legacy" style="height:40px;padding:8px">🙂 :smile:</div>
+          </div>`,
+        );
+      });
+      for (const preset of [
+        ...presets,
+        {
+          name: "Saved custom theme",
+          css: ":root{--text-link:#a4e5cc;--background-floating:#15241f}",
+        },
+      ]) {
+        await page(
+          (preset) =>
+            window.Vestra.Settings.setThemes([
+              {
+                id: "interaction",
+                name: preset.name,
+                author: "Fixture",
+                css: preset.css,
+                enabled: true,
+              },
+            ]),
+          preset,
+        );
+        for (const radius of [0, 12, 22, 30]) {
+          await page((radius) => {
+            window.Vestra.Settings.setThemeCustomization("interaction", {
+              surfaceOverrides: true,
+              radius,
+            });
+            document.getElementById("rail-scroll").scrollTop = 0;
+          }, radius);
+          const spacing = await evaluate(
+            `(()=>{const rail=document.getElementById('rounded-rail').getBoundingClientRect();const home=document.getElementById('rail-home').getBoundingClientRect();const flat=document.getElementById('flat-rail').getBoundingClientRect();return {scroll:home.top-rail.top,flat:document.getElementById('flat-home').getBoundingClientRect().top-flat.top,height:rail.height,radius:getComputedStyle(document.getElementById('rounded-rail')).borderTopLeftRadius}})()`,
+          );
+          assert.ok(
+            Math.abs(spacing.scroll - Math.max(12, radius) - 1) < 1,
+            `${preset.name} gives the real scroller proportional top space at radius ${radius}: ${JSON.stringify(spacing)}`,
+          );
+          assert.ok(
+            Math.abs(spacing.flat - Math.max(12, radius) - 1) < 1,
+            `${preset.name} also spaces rails without a nested scroller`,
+          );
+          assert.equal(spacing.radius, `${radius}px`);
+          assert.equal(
+            spacing.height,
+            240,
+            "padding never grows the rail outside its allotted height",
+          );
+        }
+        for (const customization of [
+          undefined,
+          { surfaceOverrides: true, radius: 30, opacity: 20 },
+        ]) {
+          await page((value) => {
+            window.Vestra.Settings.setThemeCustomization("interaction", value);
+            document
+              .getElementById("emoji-base")
+              .classList.add("selected_spacing");
+          }, customization);
+          assert.notEqual(
+            await evaluate(
+              "getComputedStyle(document.getElementById('emoji-native')).boxShadow",
+            ),
+            "none",
+            `${preset.name} exposes Discord's inner keyboard-selected row`,
+          );
+          assert.notEqual(
+            await evaluate(
+              "getComputedStyle(document.getElementById('emoji-native')).backgroundColor",
+            ),
+            "rgba(0, 0, 0, 0)",
+          );
+          await evaluate(
+            "document.getElementById('emoji-base').classList.remove('selected_spacing');document.getElementById('emoji-option').setAttribute('aria-selected','true');document.getElementById('emoji-legacy').classList.add('selected_spacing')",
+          );
+          assert.notEqual(
+            await evaluate(
+              "getComputedStyle(document.getElementById('emoji-option')).boxShadow",
+            ),
+            "none",
+            `${preset.name} supports semantic selection`,
+          );
+          assert.notEqual(
+            await evaluate(
+              "getComputedStyle(document.getElementById('emoji-legacy')).boxShadow",
+            ),
+            "none",
+            `${preset.name} supports older selectable rows`,
+          );
+          await evaluate(
+            "document.getElementById('emoji-option').setAttribute('aria-selected','false');document.getElementById('emoji-legacy').classList.remove('selected_spacing')",
+          );
+          win.webContents.sendInputEvent({ type: "mouseMove", x: 650, y: 380 });
+          const point = await evaluate(
+            "(()=>{const r=document.getElementById('emoji-option').getBoundingClientRect();return {x:Math.round(r.left+20),y:Math.round(r.top+r.height/2)}})()",
+          );
+          win.webContents.sendInputEvent({ type: "mouseMove", ...point });
+          await waitFor(
+            "document.getElementById('emoji-option').matches(':hover')",
+            "emoji hover hit test",
+          );
+          assert.notEqual(
+            await evaluate(
+              "getComputedStyle(document.getElementById('emoji-option')).boxShadow",
+            ),
+            "none",
+            `${preset.name} highlights the hovered suggestion`,
+          );
+          win.webContents.sendInputEvent({ type: "mouseMove", x: 650, y: 380 });
+        }
+      }
+      await evaluate(
+        "window.Vestra.Settings.setThemes([]);document.getElementById('emoji-base').classList.add('selected_spacing')",
+      );
+      assert.equal(
+        await evaluate(
+          "getComputedStyle(document.getElementById('emoji-native')).boxShadow",
+        ),
+        "none",
+        "disabling the theme restores native suggestion styling",
+      );
+      await evaluate(
+        "for(const id of ['rounded-rail','flat-rail','emoji-suggestions'])document.getElementById(id).remove()",
+      );
+
       await page(async (names) => {
         window.__fixtureCopies = [];
         Object.defineProperty(navigator, "clipboard", {
