@@ -13,6 +13,11 @@ export const MANAGER_IPC = {
   windowAction: "vestra-manager:window-action",
   windowState: "vestra-manager:window-state",
   windowMaterial: "vestra-manager:window-material",
+  updateGet: "vestra-manager:update-get",
+  updateCheck: "vestra-manager:update-check",
+  updateDownload: "vestra-manager:update-download",
+  updateInstall: "vestra-manager:update-install",
+  updateState: "vestra-manager:update-state",
 } as const;
 
 export type ManagerWindowAction = "minimize" | "toggle-maximize" | "close";
