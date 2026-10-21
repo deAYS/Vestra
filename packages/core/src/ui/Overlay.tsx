@@ -161,8 +161,8 @@ const OVERLAY_CSS = `
 .vs-launcher-menu button{display:flex;align-items:center;justify-content:space-between;width:100%;padding:10px;border:0;border-radius:7px;background:transparent;color:inherit;font:inherit;cursor:pointer;text-align:left}
 .vs-launcher-menu button:hover,.vs-launcher-menu button:focus-visible{background:#c5baf81a;outline:none}
 .vs-launcher-menu p{font-size:10px;line-height:1.5;color:#9d92ad;margin:5px 10px 7px}
-.vs-overlay-backdrop{position:fixed;inset:0;z-index:2147483645;background:rgba(7,6,10,.76);-webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px);display:flex;align-items:center;justify-content:center;padding:32px 24px;box-sizing:border-box;animation:vs-overlay-fade .2s ease-out;font-family:system-ui,sans-serif}
-.vs-overlay-panel{position:relative;width:min(1040px,100%);height:min(730px,calc(100dvh - 64px));display:flex;flex-direction:column;background:#17161C;border:1px solid #FFFFFF0D;border-radius:17px;box-shadow:0 40px 120px #0009,0 0 0 1px #0004;color:#F2F0F7;overflow:hidden;animation:vs-overlay-pop .52s cubic-bezier(.16,1,.3,1)}
+.vs-overlay-backdrop{position:fixed;inset:0;z-index:2147483645;background:rgba(7,6,10,.76);-webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px);display:flex;align-items:center;justify-content:center;padding:24px;box-sizing:border-box;animation:vs-overlay-fade .2s ease-out;font-family:system-ui,sans-serif}
+.vs-overlay-panel{position:relative;width:min(1320px,100%);height:min(900px,calc(100dvh - 48px));display:flex;flex-direction:column;background:#17161C;border:1px solid #FFFFFF0D;border-radius:17px;box-shadow:0 40px 120px #0009,0 0 0 1px #0004;color:#F2F0F7;overflow:hidden;animation:vs-overlay-pop .52s cubic-bezier(.16,1,.3,1)}
 .vs-overlay-header{display:flex;align-items:center;gap:10px;padding:14px 18px;border-bottom:1px solid #202938;background:rgba(255,255,255,.015)}
 .vs-overlay-logo{width:26px;height:26px;flex:none;filter:drop-shadow(0 0 10px rgba(110,168,255,.55))}
 .vs-overlay-title{font-size:15px;font-weight:800;letter-spacing:.02em}
