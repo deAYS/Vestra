@@ -14,12 +14,12 @@ export function ConfirmDialog({ channel, onCancel, onConfirm, busy }: Props): JS
         <h2>Remove Vestra from {channelDisplayName(channel)}?</h2>
         <p>Your Vestra settings can be kept.</p>
         <div className="vs-dialog__actions">
-          <button type="button" onClick={onCancel} disabled={busy} data-testid="confirm-cancel">
+          <button type="button" className="vs-btn vs-btn--secondary" onClick={onCancel} disabled={busy} data-testid="confirm-cancel">
             Cancel
           </button>
           <button
             type="button"
-            className="vs-btn--danger"
+            className="vs-btn vs-btn--danger"
             onClick={onConfirm}
             disabled={busy}
             data-testid="confirm-uninstall"
