@@ -60,6 +60,13 @@ Open **Text & readability** for text color, glow color/strength/size and separat
 opacity controls for home pages, profiles/menus and settings. Glow starts off;
 role colors remain intact. The preview updates its stylesheet in place while
 dragging sliders, keeping its document and embedded background image loaded.
+These controls stay visible, and every opacity slider runs from 0% to 100%.
+The larger workspace gives the preview more room and stacks it above the controls
+in narrow windows. Manager uses its own draggable title bar and window controls,
+with styled operation results and a close button for notifications.
+Choose **Solid**, **Mica** or **Acrylic** from the Manager's **Window finish** menu.
+Native materials require Windows 11 22H2 or newer; other systems use Solid.
+The Manager remembers this choice independently of Discord.
 
 **A movable workspace button.** Drag it to a comfortable spot; its position survives
 a restart and stays within the window when resized. Keyboard users can use arrow
