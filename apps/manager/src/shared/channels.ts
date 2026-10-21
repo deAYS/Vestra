@@ -10,7 +10,19 @@ export const MANAGER_IPC = {
   progress: "vestra-manager:progress",
   maintenanceStatus: "vestra-manager:maintenance-status",
   maintenanceSet: "vestra-manager:maintenance-set",
+  windowAction: "vestra-manager:window-action",
+  windowState: "vestra-manager:window-state",
+  windowMaterial: "vestra-manager:window-material",
 } as const;
+
+export type ManagerWindowAction = "minimize" | "toggle-maximize" | "close";
+export type ManagerWindowMaterial = "solid" | "mica" | "acrylic";
+export interface ManagerWindowState {
+  maximized: boolean;
+  material: ManagerWindowMaterial;
+  materialsSupported: boolean;
+  appearanceError: string;
+}
 
 export type ManagerIpcChannel = (typeof MANAGER_IPC)[keyof typeof MANAGER_IPC];
 
