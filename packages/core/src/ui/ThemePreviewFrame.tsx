@@ -1,25 +1,33 @@
 import { useCallback, useLayoutEffect, useMemo, useRef } from "react";
-import { themePreviewDocument } from "./ThemePeek.js";
+import {
+  appearancePreviewDocument,
+  type PreviewScene,
+} from "./previewScenes.js";
 
 /** No scripts run in this frame; only its theme style is replaced between paints. */
 export function ThemePreviewFrame({
   title,
   css,
+  scene = "chat",
 }: {
   title: string;
   css: string;
+  scene?: PreviewScene;
 }): JSX.Element {
   const frame = useRef<HTMLIFrameElement>(null);
   const latest = useRef(css);
+  const latestScene = useRef(scene);
   const imageCount = useRef(0);
   latest.current = css;
-  const source = useMemo(() => themePreviewDocument("", true), []);
+  latestScene.current = scene;
+  const source = useMemo(appearancePreviewDocument, []);
   const apply = useCallback(() => {
     const doc = frame.current?.contentDocument;
     const style = doc?.querySelector<HTMLStyleElement>(
       "[data-vestra-preview-theme]",
     );
     if (!style || !doc) return;
+    doc.documentElement.dataset.previewScene = latestScene.current;
     const images: string[] = [];
     const next = latest.current.replace(
       /url\("(data:image\/[^\"]+)"\)/g,
@@ -49,7 +57,7 @@ export function ThemePreviewFrame({
     if (!owner) return;
     const pending = owner.requestAnimationFrame(apply);
     return () => owner.cancelAnimationFrame(pending);
-  }, [css, apply]);
+  }, [css, scene, apply]);
   return (
     <iframe
       ref={frame}
