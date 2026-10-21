@@ -465,10 +465,21 @@ app
       assert.equal(glassSurface.color, "rgba(22, 18, 30, 0.2)", "Glass main surfaces are translucent, not a solid navy palette");
       assert.ok(glassSurface.blur.includes("26px"), "Glass uses actual backdrop blur");
       assert.ok(glassSurface.wallpaper.includes("radial-gradient"), "visible light exists behind the glass panels");
+      await evaluate(`document.getElementById('app-mount').insertAdjacentHTML('beforeend','<div id="readability-fixture"><div class="container_home"><div class="tabBody_home"><div class="peopleColumn_home">Friends</div><aside class="nowPlayingColumn_home">Active Now</aside></div></div><section class="shop_home">Shop</section><section class="questHomePage_home">Quests</section><aside class="user-profile-popout" id="plain-profile">Default profile</aside><aside class="user-profile-popout custom-user-profile-theme" id="colored-profile" style="background:rgb(75,36,66)">Colored profile</aside><div class="standardSidebarView_home" role="dialog" id="discord-settings">Voice settings</div><div id="readable-message" class="markup_home" style="color:var(--text-normal)">Chat text</div><pre id="readable-code">Code</pre><span id="role-name" style="color:rgb(255,85,85)">Role color</span></div>')`);
+      const surfaces = await evaluate(`['plain-profile','discord-settings'].map(id=>{const s=getComputedStyle(document.getElementById(id));return {color:s.backgroundColor,blur:s.backdropFilter}})`);
+      assert.equal(surfaces[0].color, "rgba(24, 21, 32, 0.94)", "default profiles have a readable backing surface");
+      assert.equal(surfaces[1].color, "rgba(23, 20, 30, 0.96)", "Discord settings do not show the chat through their controls");
+      for (const item of surfaces) assert.ok(item.blur.includes('26px'));
+      for (const selector of ['.container_home','.shop_home','.questHomePage_home']) {
+        assert.equal(await page(selector=>getComputedStyle(document.querySelector(selector)).backgroundColor,selector),"rgba(22, 18, 30, 0.55)","Home routes get a separate backing panel");
+      }
+      assert.equal(await evaluate("getComputedStyle(document.getElementById('colored-profile')).backgroundColor"),"rgb(75, 36, 66)","custom profile colors remain intact");
       await evaluate("window.Vestra.UI.openSettings()");
       await waitFor("Boolean(document.querySelector('[aria-label=\"Vestra settings pages\"] button[aria-label=Themes]'))", "settings open for appearance controls");
       await evaluate("document.querySelector('[aria-label=\"Vestra settings pages\"] button[aria-label=Themes]').click()");
       await waitFor("Boolean(document.querySelector('[aria-label=\"Panel opacity\"]'))", "the active theme exposes appearance controls");
+      await waitFor("document.querySelector('.vs-appearance-preview iframe')?.contentDocument?.body?.textContent.includes('mira')", "the scriptless preview is ready");
+      await evaluate(`(() => {const frame=document.querySelector('.vs-appearance-preview iframe');window.__appearanceDocument=frame.contentDocument;window.__appearanceLoads=0;frame.addEventListener('load',()=>window.__appearanceLoads++);})()`);
       await evaluate(`(() => {const input=document.querySelector('[aria-label="Panel opacity"]');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,'68');input.dispatchEvent(new Event('input',{bubbles:true}));})()`);
       await pause(50);
       assert.equal(await evaluate("window.Vestra.Settings.getThemes()[0].customization"), undefined, "editing is a preview until Apply");
@@ -478,7 +489,8 @@ app
           Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,String(value));
           input.dispatchEvent(new Event('input',{bubbles:true}));
         }
-      }, { "Glass blur":14, "Background saturation":75, "Background brightness":90, "Corner radius":16 });
+      }, { "Glass blur":14, "Background saturation":75, "Background brightness":90, "Corner radius":16, "Text glow strength":35, "Text glow size":5, "Home panels opacity":60, "Profiles & menus opacity":95, "Settings opacity":98 });
+      await evaluate(`(() => {const input=document.querySelector('[aria-label="Text color"]');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,'#e8e3ff');input.dispatchEvent(new Event('input',{bubbles:true}));})()`);
       await page(async () => {
         const canvas=document.createElement('canvas');canvas.width=40;canvas.height=40;
         canvas.getContext('2d').fillStyle='#31495c';canvas.getContext('2d').fillRect(0,0,40,40);
@@ -487,6 +499,21 @@ app
         const input=document.querySelector('[aria-label="Choose background image"]');input.files=files.files;input.dispatchEvent(new Event('change',{bubbles:true}));
       });
       await waitFor("document.querySelector('.vs-appearance-background p')?.textContent.includes('Image saved inside')", "local background is resized and embedded");
+      await page(async () => {
+        const input=document.querySelector('[aria-label="Panel opacity"]');
+        for(let tick=0;tick<24;tick++){
+          for(let step=0;step<6;step++){
+            Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,String(10+(tick*7+step)%80));
+            input.dispatchEvent(new Event('input',{bubbles:true}));
+          }
+          await new Promise(requestAnimationFrame);
+        }
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,'68');
+        input.dispatchEvent(new Event('input',{bubbles:true}));
+      });
+      await waitFor("document.querySelector('.vs-appearance-preview iframe')?.contentDocument?.querySelector('[data-vestra-preview-theme]')?.textContent.includes('rgb(22 18 30 / 0.68)')", "the latest rapid slider change reaches the preview");
+      assert.equal(await evaluate("document.querySelector('.vs-appearance-preview iframe').contentDocument === window.__appearanceDocument && window.__appearanceLoads === 0"),true,"rapid changes never navigate or replace the preview document");
+      assert.equal(await evaluate("getComputedStyle(document.getElementById('fixture-chat')).backgroundColor"),"rgba(22, 18, 30, 0.2)","dragging stays a preview until Apply");
       await evaluate("Array.from(document.querySelectorAll('.vs-theme-customizer button')).find(button=>button.textContent==='Apply appearance').click()");
       await waitFor("window.Vestra.Settings.getThemes()[0]?.customization?.opacity === 68", "Apply stores the chosen opacity");
       await waitFor("document.querySelector('.vs-theme-customizer footer')?.textContent.includes('Appearance saved')", "saved feedback waits for disk confirmation");
@@ -495,16 +522,14 @@ app
       assert.equal(await evaluate("getComputedStyle(document.getElementById('fixture-chat')).borderRadius"), "16px", "radius changes the actual main surface");
       assert.equal(await evaluate("getComputedStyle(document.getElementById('app-mount'),'::before').filter"), "saturate(0.75) brightness(0.9)", "saturation and brightness apply to the backdrop only");
       assert.equal(await evaluate("getComputedStyle(document.getElementById('fixture-image')).filter"), "none", "chat images are not color-filtered");
+      assert.equal(await evaluate("window.Vestra.Settings.getThemes()[0].customization.textColor"),"#e8e3ff","text choice is saved");
+      assert.equal(await evaluate("getComputedStyle(document.getElementById('readable-message')).color"),"rgb(232, 227, 255)","text color updates independently from the wallpaper");
+      assert.notEqual(await evaluate("getComputedStyle(document.getElementById('readable-message')).textShadow"),"none","glow can be enabled");
+      assert.equal(await evaluate("getComputedStyle(document.getElementById('readable-code')).textShadow"),"none","code stays crisp");
+      assert.equal(await evaluate("getComputedStyle(document.getElementById('role-name')).color"),"rgb(255, 85, 85)","role colors are preserved");
+      assert.equal(await evaluate("getComputedStyle(document.getElementById('discord-settings')).backgroundColor"),"rgba(23, 20, 30, 0.98)","settings opacity has its own readable range");
       assert.ok((await evaluate("window.Vestra.Settings.getThemes()[0].customization.backgroundImage")).startsWith("data:image/webp;base64,"), "saved backgrounds do not depend on temporary files");
-      win.webContents.debugger.attach('1.3');
-      try {
-        const targets=await win.webContents.debugger.sendCommand('Target.getTargets');
-        const frame=targets.targetInfos.find(target=>target.type==='iframe' && target.url==='about:srcdoc');
-        assert.ok(frame,'the isolated appearance preview creates its own frame');
-        const {sessionId}=await win.webContents.debugger.sendCommand('Target.attachToTarget',{targetId:frame.targetId,flatten:true});
-        const snapshot=await win.webContents.debugger.sendCommand('DOMSnapshot.captureSnapshot',{computedStyles:[]},sessionId);
-        assert.ok(snapshot.documents.some(doc=>doc.nodes.nodeValue.some(index=>snapshot.strings[index]==='mira')), 'the isolated scriptless appearance preview contains its sample conversation');
-      } finally { win.webContents.debugger.detach(); }
+      assert.equal(await evaluate("document.querySelector('.vs-appearance-preview iframe').getAttribute('sandbox')"),"allow-same-origin","only origin access is enabled; frame scripts remain blocked");
       await evaluate("window.Vestra.Settings.flush()");
       await win.loadURL("https://discord.com/channels/789/123");
       await waitFor("Boolean(window.Vestra?.started) && document.getElementById('vestra-splash') === null", "customized Glass restores in a new renderer");
