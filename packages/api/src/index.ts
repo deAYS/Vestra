@@ -37,6 +37,7 @@ export interface PluginRecord {
   started: boolean;
 }
 export interface ThemeCustomization {
+  surfaceOverrides?: boolean;
   opacity: number;
   blur: number;
   saturation: number;
