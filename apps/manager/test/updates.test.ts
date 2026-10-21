@@ -165,81 +165,85 @@ test("download verifies streamed bytes, reuses a verified copy and removes inter
       await fs.rm(directory, { recursive: true, force: true });
   }
 });
-test("portable handoff replaces and verifies the original file, retains a backup and quotes apostrophes", async () => {
-  if (process.platform !== "win32") return;
-  const directory = await fs.mkdtemp(
-    path.join(os.tmpdir(), "vestra-update-fixture-"),
-  );
-  try {
-    const target = path.join(directory, "Vestra user's çam [app].exe");
-    const packageFile = path.join(directory, release.name);
-    const errorFile = path.join(directory, "error.txt");
-    await fs.writeFile(target, "old version");
-    await fs.writeFile(packageFile, bytes);
-    const script = handoffScript({
-      pid: 2147483647,
-      target,
-      packageFile,
-      errorFile,
-      portable: true,
-      release,
-      token: "test",
-    });
-    const filename = path.join(directory, "test.ps1");
-    await fs.writeFile(
-      filename,
-      `\uFEFFfunction Start-Process {param($FilePath,$ArgumentList,$WindowStyle) [IO.File]::WriteAllText('${path.join(directory, "launched.txt").replace(/'/g, "''")}', $FilePath + ' ' + $ArgumentList)}\n` +
-        script,
+test(
+  "portable handoff replaces and verifies the original file, retains a backup and quotes apostrophes",
+  { timeout: 30_000 },
+  async () => {
+    if (process.platform !== "win32") return;
+    const directory = await fs.mkdtemp(
+      path.join(os.tmpdir(), "vestra-update-fixture-"),
     );
-    await promisify(execFile)(
-      "powershell.exe",
-      [
-        "-NoProfile",
-        "-NonInteractive",
-        "-ExecutionPolicy",
-        "Bypass",
-        "-File",
+    try {
+      const target = path.join(directory, "Vestra user's çam [app].exe");
+      const packageFile = path.join(directory, release.name);
+      const errorFile = path.join(directory, "error.txt");
+      await fs.writeFile(target, "old version");
+      await fs.writeFile(packageFile, bytes);
+      const script = handoffScript({
+        pid: 2147483647,
+        target,
+        packageFile,
+        errorFile,
+        portable: true,
+        release,
+        token: "test",
+      });
+      const filename = path.join(directory, "test.ps1");
+      await fs.writeFile(
         filename,
-      ],
-      { windowsHide: true },
-    );
-    assert.deepEqual(
-      await fs.readFile(target),
-      bytes,
-      await fs.readFile(errorFile, "utf8").catch(() => ""),
-    );
-    assert.equal(
-      await fs.readFile(target + ".vestra-previous", "utf8"),
-      "old version",
-    );
-    assert.match(
-      await fs.readFile(path.join(directory, "launched.txt"), "utf8"),
-      /--finish-update=test/,
-    );
-    await fs.writeFile(packageFile, "corrupt download");
-    await promisify(execFile)(
-      "powershell.exe",
-      [
-        "-NoProfile",
-        "-NonInteractive",
-        "-ExecutionPolicy",
-        "Bypass",
-        "-File",
-        filename,
-      ],
-      { windowsHide: true },
-    );
-    assert.match(await fs.readFile(errorFile, "utf8"), /checksum changed/);
-    assert.deepEqual(
-      await fs.readFile(target),
-      bytes,
-      "a changed download does not overwrite the current executable",
-    );
-  } finally {
-    if (
-      path.dirname(directory) === path.resolve(os.tmpdir()) &&
-      path.basename(directory).startsWith("vestra-update-fixture-")
-    )
-      await fs.rm(directory, { recursive: true, force: true });
-  }
-});
+        `\uFEFFfunction Start-Process {param($FilePath,$ArgumentList,$WindowStyle) [IO.File]::WriteAllText('${path.join(directory, "launched.txt").replace(/'/g, "''")}', $FilePath + ' ' + $ArgumentList)}\n` +
+          script,
+      );
+      await promisify(execFile)(
+        "powershell.exe",
+        [
+          "-NoProfile",
+          "-NonInteractive",
+          "-ExecutionPolicy",
+          "Bypass",
+          "-File",
+          filename,
+        ],
+        { windowsHide: true, timeout: 12_000 },
+      );
+      assert.deepEqual(
+        await fs.readFile(target),
+        bytes,
+        await fs.readFile(errorFile, "utf8").catch(() => ""),
+      );
+      assert.equal(
+        await fs.readFile(target + ".vestra-previous", "utf8"),
+        "old version",
+      );
+      assert.match(
+        await fs.readFile(path.join(directory, "launched.txt"), "utf8"),
+        /--finish-update=test/,
+      );
+      await fs.writeFile(packageFile, "corrupt download");
+      await promisify(execFile)(
+        "powershell.exe",
+        [
+          "-NoProfile",
+          "-NonInteractive",
+          "-ExecutionPolicy",
+          "Bypass",
+          "-File",
+          filename,
+        ],
+        { windowsHide: true, timeout: 12_000 },
+      );
+      assert.match(await fs.readFile(errorFile, "utf8"), /checksum changed/);
+      assert.deepEqual(
+        await fs.readFile(target),
+        bytes,
+        "a changed download does not overwrite the current executable",
+      );
+    } finally {
+      if (
+        path.dirname(directory) === path.resolve(os.tmpdir()) &&
+        path.basename(directory).startsWith("vestra-update-fixture-")
+      )
+        await fs.rm(directory, { recursive: true, force: true });
+    }
+  },
+);
