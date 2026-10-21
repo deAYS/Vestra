@@ -5,6 +5,7 @@ import {
 } from "@vestra/shared";
 import { buildAddonsSource } from "./addonsSource.js";
 import { buildSettingsSource } from "./settingsSource.js";
+import { buildUpdatesSource } from "./updatesSource.js";
 
 export interface MainHookOptions {
   /**
@@ -175,6 +176,7 @@ export function buildMainHookSource(options: MainHookOptions): string {
   }
 
   ${buildAddonsSource()}
+  ${buildUpdatesSource()}
   const handlers = {
     "addons:openFolder": async (kind) => {
       const result = await shell.openPath(await addonFolder(kind));
@@ -209,21 +211,9 @@ export function buildMainHookSource(options: MainHookOptions): string {
       }
       return app.getPath(name);
     },
-    // Served from the updater's status file (written by "vestra-updater
-    // check" into the product home, a sibling of this appData dir).
-    // Best-effort: any failure means "no update known".
-    "updater:check": async () => {
-      try {
-        const statusPath = path.join(app.getPath("appData"), "Vestra", "update-status.json");
-        const raw = await fs.promises.readFile(statusPath, "utf8");
-        const parsed = JSON.parse(raw);
-        if (parsed && parsed.available === true && typeof parsed.version === "string" && parsed.version !== "") {
-          return { available: true, version: parsed.version };
-        }
-      } catch (_) {}
-      return { available: false };
-    },
-    "updater:install": async () => { throw new Error("Install updates through Vestra Manager or the updater CLI; in-app installation is not implemented."); },
+    // Public release checks are cached; installation stays in Manager.
+    "updater:check": async (force) => checkGithubUpdate(force === true),
+    "updater:install": async () => openUpdateManager(),
   };
 
   for (const channel of CAPABILITIES) {
