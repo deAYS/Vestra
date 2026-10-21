@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer } from "electron";
 import { MANAGER_IPC } from "../shared/channels.js";
+import type { UpdateState } from "../shared/updates.js";
 import type {
   CheckSummary,
   DiscordInstallation,
@@ -18,6 +19,11 @@ import type {
 declare const __VESTRA_MANAGER_DEV__: boolean;
 
 export interface VestraManagerApi {
+  updateState(): Promise<UpdateState>;
+  checkUpdate(): Promise<UpdateState>;
+  downloadUpdate(): Promise<UpdateState>;
+  installUpdate(): Promise<UpdateState>;
+  onUpdate(listener: (state: UpdateState) => void): () => void;
   windowAction(action: ManagerWindowAction): void;
   setWindowMaterial(material: ManagerWindowMaterial): void;
   onWindowState(listener: (state: ManagerWindowState) => void): () => void;
@@ -34,6 +40,16 @@ export interface VestraManagerApi {
 }
 
 const api: VestraManagerApi = {
+  updateState: () => ipcRenderer.invoke(MANAGER_IPC.updateGet),
+  checkUpdate: () => ipcRenderer.invoke(MANAGER_IPC.updateCheck),
+  downloadUpdate: () => ipcRenderer.invoke(MANAGER_IPC.updateDownload),
+  installUpdate: () => ipcRenderer.invoke(MANAGER_IPC.updateInstall),
+  onUpdate: (listener) => {
+    const wrapped = (_event: unknown, state: UpdateState): void =>
+      listener(state);
+    ipcRenderer.on(MANAGER_IPC.updateState, wrapped);
+    return () => ipcRenderer.removeListener(MANAGER_IPC.updateState, wrapped);
+  },
   windowAction: (action) => ipcRenderer.send(MANAGER_IPC.windowAction, action),
   setWindowMaterial: (material) =>
     ipcRenderer.send(MANAGER_IPC.windowMaterial, material),
