@@ -39,7 +39,7 @@ export async function packAsar(srcDir: string, asarPath: string): Promise<void> 
 export function readAsarFile(asarPath: string, filename: string): string {
   try {
     asar.uncache(asarPath);
-    return asar.extractFile(asarPath, filename).toString("utf8");
+    return asar.extractFile(asarPath, filename.split(/[\\/]/).join(path.sep)).toString("utf8");
   } catch (err: unknown) {
     throw new AsarError(`read failed for "${filename}" in "${asarPath}": ${describe(err)}`);
   }
