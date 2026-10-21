@@ -23,6 +23,11 @@ jobs:
         run: |
           $taskVersion = (Get-Content -Raw package.json | ConvertFrom-Json).version
           if ($env:GITHUB_REF_NAME -ne "v$taskVersion") { throw "The release tag must match package.json." }
+          foreach ($taskPackage in @('apps/manager/package.json', 'packages/shared/package.json')) {
+            if ((Get-Content -Raw -LiteralPath $taskPackage | ConvertFrom-Json).version -ne $taskVersion) { throw "Version mismatch: $taskPackage" }
+          }
+          $taskShared = Get-Content -Raw packages/shared/src/index.ts
+          if ($taskShared -notmatch ('VESTRA_VERSION\s*=\s*"' + [regex]::Escape($taskVersion) + '"')) { throw "The runtime version must match the release." }
       - run: bun install --frozen-lockfile
       - run: bun run typecheck
       - run: bun test
@@ -46,5 +51,22 @@ jobs:
             test "$(cat draft-state.txt)" = true || { echo "An already published release will not be overwritten."; exit 1; }
             gh release upload "$GITHUB_REF_NAME" "${files[@]}" --clobber
           else
-            gh release create "$GITHUB_REF_NAME" "${files[@]}" --draft --prerelease --verify-tag --title "Vestra $GITHUB_REF_NAME" --notes-file .github/RELEASE_NOTES.md
+            args=()
+            if [[ "$GITHUB_REF_NAME" == *-* ]]; then args+=(--prerelease); fi
+            gh release create "$GITHUB_REF_NAME" "${files[@]}" --draft "${args[@]}" --verify-tag --title "Vestra $GITHUB_REF_NAME" --notes-file .github/RELEASE_NOTES.md
           fi
+      - name: Verify updater assets
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $taskRelease = gh api "repos/$env:GITHUB_REPOSITORY/releases/tags/$env:GITHUB_REF_NAME" | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0) { throw "Could not verify release assets." }
+          $taskVersion = $env:GITHUB_REF_NAME.Substring(1)
+          foreach ($taskKind in @('Setup', 'Portable')) {
+            $taskName = "Vestra-$taskVersion-x64-$taskKind.exe"
+            $taskAsset = @($taskRelease.assets | Where-Object { $_.name -ceq $taskName })
+            if ($taskAsset.Count -ne 1 -or $taskAsset[0].digest -notmatch '^sha256:[0-9a-fA-F]{64}$') { throw "Updater asset or SHA-256 digest missing: $taskName" }
+            $taskLocal = (Get-FileHash -Algorithm SHA256 -LiteralPath "apps/manager/release/$taskName").Hash.ToLowerInvariant()
+            if ($taskAsset[0].digest -cne "sha256:$taskLocal") { throw "GitHub asset digest differs from the built package: $taskName" }
+          }
