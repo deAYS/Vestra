@@ -1,56 +1,29 @@
-Vestra for Windows — an early alpha with its own plugin API and theme library.
+Vestra v0.1.0-alpha.4 brings automatic update checks, complete theme sharing and a more readable workspace.
 
-### In this release
+### What's new
 
-- GitHub update checks, verified downloads and confirmed installation for Setup and Portable. Manager and installed Discord payloads update together, preserving preferences.
-- Chat, Home, Profile and Settings appearance previews with stable slider updates.
-- Theme package import/export includes appearance settings and embedded wallpapers.
-- Refreshed notifications with hover/focus pause and an optional quiet startup.
-- Vestra waits for login and stops its runtime when you log out.
-- Roomier theme controls and a custom Windows Manager title bar with optional Mica/Acrylic.
+- **Updates from GitHub:** Manager and Discord check for newer published releases. Download progress, SHA-256 verification and restart confirmation work with both Setup and Portable. Interrupted updates can be resumed; themes, plugins and preferences are preserved.
+- **Theme sharing:** export a `.vestra-theme.json` with CSS, appearance settings and embedded wallpaper. Import it into another library without replacing the active theme. CSS imports still work.
+- **Better previews:** switch between Chat, Home, Profile and Settings. Slider updates keep the same preview document loaded, including during rapid dragging.
+- **Text and readability:** customize text color, glow and separate opacity for home panels, profiles/menus and settings. Controls stay visible in a larger workspace.
+- **Quieter startup:** Vestra waits for the signed-in Discord workspace, stops on logout and restarts on login. Notifications follow the theme, pause on hover/focus and include an optional startup notification.
+- **A cohesive Manager:** custom window controls, clearer operation results and optional Windows Mica/Acrylic finishes.
+- **Refreshed themes:** six built-in looks, including Afterglow and Liquid Glass, with saved appearance preferences and migration for unedited older presets.
 
-- The Liquid Glass server rail gives the Discord Home logo space below the rounded top edge. Existing unedited Glass themes upgrade while keeping appearance preferences.
+### Fixes
 
-- Liquid Glass: frosted translucent main panels, pearl light, rounded composer and reflective edges.
-- Afterglow joins the built-in library alongside Midnight, Graphite, Rose and Aurora.
-- Per-theme appearance controls: opacity, blur, saturation, brightness, corner radius and background color/image.
-- Local background pictures are embedded in saved preferences and restored after restarting Discord.
-- Sample previews, disk-confirmed Apply, and Restore original for appearance changes.
-- Settings remember your last page and scroll; previews open beside their buttons.
-- QuickCSS search keeps keyboard input inside the editor; grouped timestamps no longer wrap into the message gutter.
-- Missing theme files retain a saved copy, and profile activity cards follow the theme.
-- The floating button and workspace can follow your theme, with a visible restore action for a hidden button.
+- Server rail spacing now follows corner radius, keeping the Discord Home logo clear of rounded corners, including layouts with an inner scroller.
+- Emoji suggestions visibly highlight mouse hover and keyboard selection across built-in and saved custom themes.
+- Glass styles leave image viewer placement and full-screen GIF popup containers intact.
+- Home pages, profile activity cards and settings have more readable backing surfaces.
+- Windows paths containing spaces, apostrophes, non-ASCII characters or short folder names work in the update/Manager flows.
 
-### Also included
+### Install or upgrade
 
-- Windows Manager with backup, installation, check, repair and uninstall.
-- Install and Repair close, replace, verify and relaunch the selected Discord.
-- Repair reinstalls even healthy installations.
-- Optional Windows sign-in recovery follows Discord updates into new version folders.
-- Theme CSS recovers after native stylesheet changes and removed style elements.
-- Desktop themes, shortcuts and plugin preferences persist in channel-specific files with atomic writes and backup recovery.
-- Theme selection waits for disk confirmation; storage failures are visible and retryable.
-- Six themes with modern Discord surface colors and optional appearance overrides.
-- Nine built-in plugins, including image zoom, message/code copying and focus mode.
-- A movable settings button with saved position and keyboard access.
-- Per-plugin settings and configurable shortcuts, with conflict checks.
-- Local plugin/theme folders, CSS import/export and manual file refresh.
-- A CSS editor with highlighting, completion, search and automatic scrolling.
-- Exclusive theme selection and replacement of native background layers.
-- Right-click launcher hiding with a rotating exit and a restore control.
-- Animated startup with a center-out reveal and reduced-motion support.
-- A standalone typed SDK, shipped as a separate tarball.
+Download the Windows x64 **Setup** or **Portable** executable below. Open Manager and choose **Install Vestra** for a new installation or **Repair** to upgrade an existing one. Discord closes and reopens; active calls and streams disconnect. Open Vestra with its floating button or **Ctrl+Shift+V**.
 
-### Install
+For older public releases, install this upgrade manually once to get the updater. Preview builds that already include the updater can download this release through Manager. Installation still asks before restarting Discord.
 
-Choose the x64 **Setup** or **Portable** executable. Select your Discord
-installation in the Manager and install Vestra. Discord closes and reopens
-automatically; active calls and streams disconnect. Open settings with the
-floating button or Ctrl+Shift+V. Keep Vestra installed enables a local Windows
-sign-in recovery process; turn it off in the Manager if you prefer manual repair.
+The separate **Plugin SDK 0.1.2** tarball is included for developers; host API compatibility remains **1.0.0**. This is not an npm publication, and BetterDiscord/Vencord plugins do not run unchanged.
 
-These builds are unsigned. Discord updates can require Repair or a compatibility
-update. The bundled utilities use Vestra's API; BetterDiscord/Vencord plugins do
-not run unchanged. The SDK tarball is not an npm publication.
-
-SHA-256 checksums are attached in `SHA256SUMS.txt`.
+**Early alpha:** Windows binaries are unsigned. Discord updates may need Repair or a compatibility update. SHA-256 checksums for the download assets are attached in `SHA256SUMS.txt`.
