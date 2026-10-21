@@ -7,6 +7,7 @@ import readabilityGlassCss from "../../../themes/history/liquid-glass-2.1.0.them
 import afterglowCss from "../../../themes/afterglow.theme.css";
 import releasedAfterglowCss from "../../../themes/history/afterglow-1.0.0.theme.css";
 import { customizedThemeCss } from "./themeCustomization.js";
+import { AUTOCOMPLETE_STATES_CSS } from "./themeInteractions.js";
 
 const LEGACY_MIDNIGHT_THEME = `/**
  * @name Vestra Midnight
@@ -434,6 +435,7 @@ export function startThemes(
     const active = store.getThemes().filter((theme) => theme.enabled);
     const desired = new Set(active.map((theme) => `theme-${theme.id}`));
     if (active.length) desired.add("theme-profile-surfaces");
+    if (active.length) desired.add("theme-autocomplete-states");
     for (const id of owned)
       if (!desired.has(id)) {
         styles.remove(id);
@@ -446,6 +448,8 @@ export function startThemes(
       owned.add(id);
     }
     if (active.length) {
+      styles.inject("theme-autocomplete-states", AUTOCOMPLETE_STATES_CSS);
+      owned.add("theme-autocomplete-states");
       styles.inject(
         "theme-profile-surfaces",
         `:root{--vestra-profile-activity-bg:var(--background-surface-high,var(--background-floating));--vestra-profile-activity-border:var(--border-subtle,#ffffff14)}:is(.custom-user-profile-theme,[class*="userPopout_"],[class*="userProfile_"]) :is([class*="biteSize_"],[class*="activityBiteSizePopout_"],[class*="activityCard_"],[class*="activity_"]){--background-surface-high:var(--vestra-profile-activity-bg)!important;--background-base-low:var(--vestra-profile-activity-bg)!important;background-color:var(--vestra-profile-activity-bg)!important;border-color:var(--vestra-profile-activity-border)!important;}`,
