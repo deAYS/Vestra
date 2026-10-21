@@ -4,6 +4,7 @@ import { createInstallerService } from "@vestra/installer";
 import { registerManagerIpc } from "./installerBridge.js";
 import { createServiceContext } from "./serviceContext.js";
 import { createManagerWindow } from "./window.js";
+import { ManagerUpdates } from "./updates.js";
 import * as path from "node:path";
 import { DiscordLifecycle, windowsDiscordSystem } from "./discordLifecycle.js";
 import {
@@ -29,9 +30,15 @@ if (background) {
   );
 }
 const primary = app.requestSingleInstanceLock();
-if (background) console.log("[Vestra recovery] startup", JSON.stringify({ primary, home: service.context.homeDir }));
+if (background)
+  console.log(
+    "[Vestra recovery] startup",
+    JSON.stringify({ primary, home: service.context.homeDir }),
+  );
 if (!primary) app.exit(0);
 registerManagerIpc(service, lifecycle, maintenance);
+const updates = new ManagerUpdates(service, maintenance);
+updates.register();
 
 async function runRecovery(): Promise<void> {
   const monitor = new RecoveryMonitor(service, lifecycle);
@@ -101,6 +108,13 @@ async function boot(): Promise<void> {
     return;
   }
   createManagerWindow();
+  await updates.finish();
+  if (updates.snapshot().phase !== "error") void updates.check();
+  const updateTimer = setInterval(
+    () => void updates.check(),
+    6 * 60 * 60 * 1000,
+  );
+  updateTimer.unref();
 }
 
 void app
