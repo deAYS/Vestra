@@ -513,6 +513,16 @@ app
       });
       await waitFor("document.querySelector('.vs-appearance-preview iframe')?.contentDocument?.querySelector('[data-vestra-preview-theme]')?.textContent.includes('rgb(22 18 30 / 0.68)')", "the latest rapid slider change reaches the preview");
       assert.equal(await evaluate("document.querySelector('.vs-appearance-preview iframe').contentDocument === window.__appearanceDocument && window.__appearanceLoads === 0"),true,"rapid changes never navigate or replace the preview document");
+      assert.equal(await evaluate("document.querySelector('.vs-appearance-advanced').tagName"),"DIV","text and readability controls stay open");
+      assert.equal(await evaluate("['Panel opacity','Home panels opacity','Profiles & menus opacity','Settings opacity'].every(label=>document.querySelector('[aria-label=\"'+label+'\"]').min==='0')"),true,"all opacity controls allow the complete range");
+      assert.equal(await evaluate("getComputedStyle(document.querySelector('.vs-appearance-background p')).fontSize"),"13px","background image help uses readable text");
+      const appearanceBounds = win.getBounds();
+      for(const width of [1280,960,540]){
+        win.setSize(width,800);
+        await pause(80);
+        assert.equal(await evaluate("(() => {const content=document.querySelector('.vs-settings-content');const card=document.querySelector('.vs-theme-customizer');const preview=document.querySelector('.vs-appearance-preview iframe');return content.scrollWidth<=content.clientWidth+1 && card.scrollWidth<=card.clientWidth+1 && preview.getBoundingClientRect().width>200})()"),true,`appearance fits a ${width}px window without horizontal overflow`);
+      }
+      win.setBounds(appearanceBounds);
       assert.equal(await evaluate("getComputedStyle(document.getElementById('fixture-chat')).backgroundColor"),"rgba(22, 18, 30, 0.2)","dragging stays a preview until Apply");
       await evaluate("Array.from(document.querySelectorAll('.vs-theme-customizer button')).find(button=>button.textContent==='Apply appearance').click()");
       await waitFor("window.Vestra.Settings.getThemes()[0]?.customization?.opacity === 68", "Apply stores the chosen opacity");
@@ -527,7 +537,7 @@ app
       assert.notEqual(await evaluate("getComputedStyle(document.getElementById('readable-message')).textShadow"),"none","glow can be enabled");
       assert.equal(await evaluate("getComputedStyle(document.getElementById('readable-code')).textShadow"),"none","code stays crisp");
       assert.equal(await evaluate("getComputedStyle(document.getElementById('role-name')).color"),"rgb(255, 85, 85)","role colors are preserved");
-      assert.equal(await evaluate("getComputedStyle(document.getElementById('discord-settings')).backgroundColor"),"rgba(23, 20, 30, 0.98)","settings opacity has its own readable range");
+      assert.equal(await evaluate("getComputedStyle(document.getElementById('discord-settings')).backgroundColor"),"rgba(22, 18, 30, 0.98)","settings opacity has its own readable range");
       assert.ok((await evaluate("window.Vestra.Settings.getThemes()[0].customization.backgroundImage")).startsWith("data:image/webp;base64,"), "saved backgrounds do not depend on temporary files");
       assert.equal(await evaluate("document.querySelector('.vs-appearance-preview iframe').getAttribute('sandbox')"),"allow-same-origin","only origin access is enabled; frame scripts remain blocked");
       await evaluate("window.Vestra.Settings.flush()");
@@ -538,6 +548,23 @@ app
       await evaluate("window.Vestra.Settings.setThemeCustomization('glass',undefined)");
       assert.equal(await evaluate("getComputedStyle(document.getElementById('fixture-chat')).backgroundColor"), "rgba(22, 18, 30, 0.2)", "Restore original returns to the authored Glass theme");
       await evaluate("window.Vestra.Settings.setThemes([])");
+
+      await page(async (names) => {
+        document.getElementById('app-mount').insertAdjacentHTML('beforeend','<div id="media-fixture" role="dialog" style="position:absolute;left:180px;top:140px;width:400px;height:300px"><div id="media-viewer" class="mediaViewer_fixture" style="position:fixed;inset:40px;display:grid;place-items:center"><img alt="Sample media" width="200" height="120"><button id="media-toolbar" style="position:fixed;left:24px;top:16px">Media tools</button></div></div><div id="gif-fixture" role="dialog" style="position:fixed;inset:0;pointer-events:none"><section class="expressionPicker_fixture" style="position:absolute;right:16px;bottom:80px;width:300px;height:240px">GIF picker</section></div>');
+      }, []);
+      for(const preset of presets){
+        await page(preset=>window.Vestra.Settings.setThemes([{id:'review',name:preset.name,author:'Vestra',css:preset.css,enabled:true}]),preset);
+        const nativeColor=await evaluate("getComputedStyle(document.getElementById('fixture-chat')).backgroundColor");
+        await evaluate("window.Vestra.Settings.setThemeCustomization('review',{surfaceOverrides:false,textColor:'#e8e3ff',glowStrength:35})");
+        assert.equal(await evaluate("getComputedStyle(document.getElementById('fixture-chat')).backgroundColor"),nativeColor,`${preset.name} keeps its palette when only text effects change`);
+        assert.equal(await evaluate("getComputedStyle(document.getElementById('media-fixture')).backdropFilter"),'none',`${preset.name} does not create a fixed-position containing block around media`);
+        assert.equal(await evaluate("document.getElementById('media-toolbar').getBoundingClientRect().left"),24,`${preset.name} keeps image tools anchored to the viewport`);
+        assert.equal(await evaluate("getComputedStyle(document.getElementById('gif-fixture')).backgroundColor"),'rgba(0, 0, 0, 0)',`${preset.name} does not paint a full-screen GIF carrier`);
+        await evaluate("window.Vestra.Settings.setThemeCustomization('review',{surfaceOverrides:true,opacity:35})");
+        assert.equal(await evaluate("getComputedStyle(document.getElementById('media-fixture')).backdropFilter"),'none',`${preset.name} custom surfaces also preserve media placement`);
+        assert.equal(await evaluate("getComputedStyle(document.getElementById('gif-fixture')).backgroundColor"),'rgba(0, 0, 0, 0)',`${preset.name} custom surfaces leave the GIF carrier clear`);
+      }
+      await evaluate("document.getElementById('media-fixture').remove();document.getElementById('gif-fixture').remove();window.Vestra.Settings.setThemes([])");
 
       await page(async (names) => {
         window.__fixtureCopies = [];
