@@ -1,4 +1,4 @@
-export const VESTRA_VERSION = "0.1.0-alpha.3";
+export const VESTRA_VERSION = "0.1.0-alpha.4";
 export const VESTRA_API_VERSION = "1.0.0";
 export {
   VESTRA_MARK_PATH,
