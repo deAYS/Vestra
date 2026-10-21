@@ -56,6 +56,11 @@ restarting Discord does not lose them. Liquid Glass uses frosted translucent
 panels over a lit backdrop; it approximates glass with CSS rather than native
 iOS optical refraction.
 
+Open **Text & readability** for text color, glow color/strength/size and separate
+opacity controls for home pages, profiles/menus and settings. Glow starts off;
+role colors remain intact. The preview updates its stylesheet in place while
+dragging sliders, keeping its document and embedded background image loaded.
+
 **A movable workspace button.** Drag it to a comfortable spot; its position survives
 a restart and stays within the window when resized. Keyboard users can use arrow
 keys, Shift+arrow for larger steps, or Home to reset its position.
