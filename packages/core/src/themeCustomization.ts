@@ -75,6 +75,9 @@ ${scope}{--vestra-custom-wallpaper:${wallpaper};--glass-home-rgb:${paneRgb};--gl
 #app-mount::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:-1;background:var(--vestra-custom-wallpaper);filter:saturate(${c.saturation}%) brightness(${c.brightness}%);}
 #app-mount :is([class*="app_"],[class*="appMount_"],[class*="bg_"],[class*="layers_"],[class*="layer_"],[class*="base_"],[class*="sidebar_"],[class*="sidebarList_"],[class*="chat_"],[class*="chatContent_"],[class*="content_"],[class*="page_"])${exclude}{background:transparent!important;}
 #app-mount :is([class*="guilds_"],[class*="sidebarList_"],[class*="privateChannels_"],[class*="chat_"],[class*="membersWrap_"],[class*="panels_"],[class*="channelTextArea_"])${exclude}{background:var(--glass-pane),${pane}!important;backdrop-filter:blur(${c.blur}px)!important;border:1px solid var(--glass-edge)!important;border-radius:${c.radius}px!important;box-shadow:var(--glass-shadow)!important;}
+#app-mount [class*="guilds_"]${exclude}{--vestra-rail-inset:max(12px,${c.radius}px);box-sizing:border-box!important;padding-top:var(--vestra-rail-inset)!important;}
+#app-mount [class*="guilds_"]${exclude}:has([class*="scroller_"]){padding-top:0!important;}
+#app-mount [class*="guilds_"]${exclude} [class*="scroller_"]:not([class*="scroller_"] [class*="scroller_"]){box-sizing:border-box!important;padding-top:var(--vestra-rail-inset)!important;scroll-padding-top:var(--vestra-rail-inset);}
 #app-mount :is([class*="members_"],[class*="scrollableContainer_"],[class*="themedBackground_"])${exclude}{background:transparent!important;}
 ${readableSurfaces}
 ${typography}
