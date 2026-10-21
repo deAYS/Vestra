@@ -13,7 +13,7 @@ export function ThemePreviewFrame({
   const latest = useRef(css);
   const imageCount = useRef(0);
   latest.current = css;
-  const source = useMemo(() => themePreviewDocument(""), []);
+  const source = useMemo(() => themePreviewDocument("", true), []);
   const apply = useCallback(() => {
     const doc = frame.current?.contentDocument;
     const style = doc?.querySelector<HTMLStyleElement>(
