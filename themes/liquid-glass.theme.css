@@ -2,7 +2,7 @@
  * @name Vestra Liquid Glass
  * @author Vestra
  * @description Pearl glass, translucent floating panels and soft prismatic light.
- * @version 2.1.0
+ * @version 2.2.0
  */
 :root,body,:is(.theme-dark,.theme-darker,.theme-midnight,.theme-light,.custom-theme-background):not(.custom-user-profile-theme){
   color-scheme:dark;
@@ -175,9 +175,9 @@ html,body{background:#262132!important;}
 
 /* Readable glass surfaces */
 :root{
-  --glass-home-bg:rgb(22 18 30 / var(--glass-home-opacity,.55));
-  --glass-popup-bg:rgb(24 21 32 / var(--glass-popup-opacity,.94));
-  --glass-settings-bg:rgb(23 20 30 / var(--glass-settings-opacity,.96));
+  --glass-home-bg:rgb(var(--glass-home-rgb,22 18 30) / var(--glass-home-opacity,.55));
+  --glass-popup-bg:rgb(var(--glass-popup-rgb,24 21 32) / var(--glass-popup-opacity,.94));
+  --glass-settings-bg:rgb(var(--glass-settings-rgb,23 20 30) / var(--glass-settings-opacity,.96));
 }
 #app-mount :is([class*="container_"]:has(>[class*="tabBody_"]),[class*="applicationStore_"],[class*="shop_"],[class*="shopView_"],[class*="storePage_"],[class*="questHomePage_"],[class*="homePage_"]):not(.custom-user-profile-theme):not(.custom-user-profile-theme *):not([data-vestra-root]){
   background:var(--glass-pane),var(--glass-home-bg)!important;
@@ -194,7 +194,7 @@ html,body{background:#262132!important;}
   background:var(--glass-popup-bg)!important;backdrop-filter:blur(var(--glass-blur,26px));
   border:1px solid var(--glass-edge)!important;box-shadow:var(--glass-shadow),0 20px 60px #0006;
 }
-#app-mount :is([role="dialog"],[class*="standardSidebarView_"],[class*="settingsModal_"],[class*="settingsLayer_"]):not(.custom-user-profile-theme):not(.custom-user-profile-theme *):not([data-vestra-root]):not(.user-profile-popout):not(.user-profile-modal):not(.user-profile-modal-v2):not(.vs-overlay-panel){
+#app-mount :is([class*="standardSidebarView_"],[class*="settingsModal_"],[class*="settingsLayer_"],[role="dialog"]:has([class*="sidebarRegion_"],[class*="settingsSidebar_"],[class*="settingsPage_"])):not(.custom-user-profile-theme):not(.custom-user-profile-theme *):not([data-vestra-root]):not(.user-profile-popout):not(.user-profile-modal):not(.user-profile-modal-v2):not(.vs-overlay-panel){
   --background-primary:var(--glass-settings-bg)!important;
   --background-secondary:var(--glass-settings-bg)!important;
   --background-base-low:var(--glass-settings-bg)!important;
