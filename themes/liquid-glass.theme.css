@@ -2,7 +2,7 @@
  * @name Vestra Liquid Glass
  * @author Vestra
  * @description Pearl glass, translucent floating panels and soft prismatic light.
- * @version 2.0.1
+ * @version 2.1.0
  */
 :root,body,:is(.theme-dark,.theme-darker,.theme-midnight,.theme-light,.custom-theme-background):not(.custom-user-profile-theme){
   color-scheme:dark;
@@ -172,3 +172,35 @@ html,body{background:#262132!important;}
 .vs-settings-launcher[data-theme-follow=true],.vs-launcher-menu[data-theme-follow=true],.vs-overlay-panel:has(.vs-settings-root[data-theme-follow=true]){background:linear-gradient(135deg,#ffffff23,#ffffff08),#2b2633b8!important;backdrop-filter:blur(30px) saturate(140%);border-color:#ffffff40!important;box-shadow:var(--glass-shadow),0 16px 60px #00000035!important;}
 @media(max-width:1000px){#app-mount [class*="guilds_"]{margin-left:4px;margin-right:5px;}#app-mount [class*="chat_"]{margin-right:5px;}}
 @supports not (backdrop-filter:blur(1px)){#app-mount :is([class*="chat_"],[class*="sidebarList_"],[class*="privateChannels_"],[class*="membersWrap_"],[class*="panels_"]){background:#302936ed!important;}}
+
+/* Readable glass surfaces */
+:root{
+  --glass-home-bg:rgb(22 18 30 / var(--glass-home-opacity,.55));
+  --glass-popup-bg:rgb(24 21 32 / var(--glass-popup-opacity,.94));
+  --glass-settings-bg:rgb(23 20 30 / var(--glass-settings-opacity,.96));
+}
+#app-mount :is([class*="container_"]:has(>[class*="tabBody_"]),[class*="applicationStore_"],[class*="shop_"],[class*="shopView_"],[class*="storePage_"],[class*="questHomePage_"],[class*="homePage_"]):not(.custom-user-profile-theme):not(.custom-user-profile-theme *):not([data-vestra-root]){
+  background:var(--glass-pane),var(--glass-home-bg)!important;
+  backdrop-filter:blur(var(--glass-blur,26px));
+  border:1px solid var(--glass-edge)!important;border-radius:var(--glass-radius,22px)!important;
+  box-shadow:var(--glass-shadow);margin:0 10px 10px 0;min-height:0;
+}
+#app-mount [class*="tabBody_"]:not(.custom-user-profile-theme):not(.custom-user-profile-theme *):not([data-vestra-root]){background:transparent!important;}
+#app-mount [class*="nowPlayingColumn_"]:not(.custom-user-profile-theme):not(.custom-user-profile-theme *):not([data-vestra-root]){background:#ffffff06!important;border-left:1px solid var(--glass-edge)!important;}
+#app-mount :is(.user-profile-popout,.user-profile-modal,.user-profile-modal-v2,.user-profile-sidebar,.user-profile-sidebar-redesign,[class*="userPopout_"],[class*="userProfileModal_"]):not(.custom-user-profile-theme):not(.custom-user-profile-theme *):not([data-vestra-root]){
+  --background-surface-high:var(--glass-popup-bg)!important;
+  --background-base-low:var(--glass-popup-bg)!important;
+  --background-base-lower:var(--glass-popup-bg)!important;
+  background:var(--glass-popup-bg)!important;backdrop-filter:blur(var(--glass-blur,26px));
+  border:1px solid var(--glass-edge)!important;box-shadow:var(--glass-shadow),0 20px 60px #0006;
+}
+#app-mount :is([role="dialog"],[class*="standardSidebarView_"],[class*="settingsModal_"],[class*="settingsLayer_"]):not(.custom-user-profile-theme):not(.custom-user-profile-theme *):not([data-vestra-root]):not(.user-profile-popout):not(.user-profile-modal):not(.user-profile-modal-v2):not(.vs-overlay-panel){
+  --background-primary:var(--glass-settings-bg)!important;
+  --background-secondary:var(--glass-settings-bg)!important;
+  --background-base-low:var(--glass-settings-bg)!important;
+  --background-base-lower:var(--glass-settings-bg)!important;
+  background:var(--glass-settings-bg)!important;backdrop-filter:blur(var(--glass-blur,26px));
+}
+#app-mount :is([class*="sidebarRegion_"],[class*="contentRegion_"]):not(.custom-user-profile-theme):not(.custom-user-profile-theme *):not([data-vestra-root]){background:transparent!important;}
+.vs-overlay-panel:has(.vs-settings-root[data-theme-follow=true]){background:var(--glass-settings-bg)!important;backdrop-filter:blur(var(--glass-blur,26px));}
+#app-mount :is([class*="autocomplete_"],[class*="menu_"][role="menu"],[class*="messagesPopoutWrap_"],[class*="recentMentionsPopout_"]):not(.custom-user-profile-theme):not(.custom-user-profile-theme *):not([data-vestra-root]){background:var(--glass-popup-bg)!important;backdrop-filter:blur(var(--glass-blur,26px));}
