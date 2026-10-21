@@ -256,8 +256,8 @@ export class NativeBridge {
   }
 
   /** Ask the updater whether a release is available. Never throws on shape drift. */
-  async checkForUpdates(): Promise<UpdateCheckResult> {
-    const raw: unknown = await this.invoke("updater:check");
+  async checkForUpdates(force = false): Promise<UpdateCheckResult> {
+    const raw: unknown = await this.invoke("updater:check", force);
     if (typeof raw === "object" && raw !== null) {
       const available = (raw as Record<string, unknown>)["available"];
       const version = (raw as Record<string, unknown>)["version"];
@@ -273,7 +273,7 @@ export class NativeBridge {
     return { available: false };
   }
 
-  /** Hand control to the updater to install (host may relaunch). */
+  /** Open Manager's update flow; installation still needs the user's confirmation. */
   async installUpdate(): Promise<void> {
     await this.invoke("updater:install");
   }
