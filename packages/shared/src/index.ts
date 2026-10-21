@@ -82,3 +82,42 @@ export function assertSafeVersion(value: string): void {
     throw new TypeError("Invalid version directory.");
   }
 }
+
+/** Numeric-aware version compare (empty/invalid sorts lowest). */
+export function compareVersions(a: string, b: string): number {
+  const norm = (v: string): { nums: bigint[]; pre: string[] } | undefined => {
+    try {
+      assertSafeVersion(v);
+    } catch {
+      return undefined;
+    }
+    const withoutBuild = v.split("+")[0]!;
+    const dash = withoutBuild.indexOf("-");
+    const core = dash === -1 ? withoutBuild : withoutBuild.slice(0, dash);
+    const pre = dash === -1 ? [] : withoutBuild.slice(dash + 1).split(".");
+    return { nums: core.split(".").map((s) => BigInt(s)), pre };
+  };
+  const pa = norm(a);
+  const pb = norm(b);
+  if (!pa || !pb) return pa ? 1 : pb ? -1 : 0;
+  for (let i = 0; i < Math.max(pa.nums.length, pb.nums.length); i++) {
+    const na = pa.nums[i] ?? 0n;
+    const nb = pb.nums[i] ?? 0n;
+    if (na !== nb) return na > nb ? 1 : -1;
+  }
+  if (!pa.pre.length || !pb.pre.length)
+    return pa.pre.length ? -1 : pb.pre.length ? 1 : 0;
+  for (let i = 0; i < Math.max(pa.pre.length, pb.pre.length); i++) {
+    const left = pa.pre[i];
+    const right = pb.pre[i];
+    if (left === right) continue;
+    if (left === undefined || right === undefined)
+      return left === undefined ? -1 : 1;
+    const ln = /^\d+$/.test(left);
+    const rn = /^\d+$/.test(right);
+    if (ln && rn) return BigInt(left) > BigInt(right) ? 1 : -1;
+    if (ln !== rn) return ln ? -1 : 1;
+    return left > right ? 1 : -1;
+  }
+  return 0;
+}
