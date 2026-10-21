@@ -2,6 +2,7 @@ import { Settings, type SettingsStore, type Theme } from "./api/settings.js";
 import { Styles, type StylesManager } from "./api/styles.js";
 import { Native, type NativeBridge } from "./api/native.js";
 import glassCss from "../../../themes/liquid-glass.theme.css";
+import releasedGlassCss from "../../../themes/history/liquid-glass-2.0.1.theme.css";
 import afterglowCss from "../../../themes/afterglow.theme.css";
 import { customizedThemeCss } from "./themeCustomization.js";
 
@@ -286,11 +287,17 @@ export const MIDNIGHT_THEME = THEME_LIBRARY[0]!.css;
 /** Exact shipped CSS only: a custom theme sharing our name is never replaced. */
 export function upgradeBuiltinThemes(store: SettingsStore): void {
   let changed = false;
-  const previousGlass = glassCss
+  const previousGlass = releasedGlassCss
     .replace("@version 2.0.1", "@version 2.0.0")
     .replace("padding-top:12px!important;box-sizing:border-box;", "");
   const next = store.getThemes().map((theme) => {
-    if (theme.name === "Vestra Liquid Glass" && theme.author === "Vestra" && theme.css.replace(/\r\n/g, "\n") === previousGlass) {
+    if (
+      theme.name === "Vestra Liquid Glass" &&
+      theme.author === "Vestra" &&
+      [previousGlass, releasedGlassCss].includes(
+        theme.css.replace(/\r\n/g, "\n"),
+      )
+    ) {
       changed = true;
       return { ...theme, css: glassCss };
     }
