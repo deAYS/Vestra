@@ -1,6 +1,6 @@
 {
   "name": "@vestra/api",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Typed plugin SDK for the Vestra Discord modification framework",
   "repository": {
     "type": "git",
