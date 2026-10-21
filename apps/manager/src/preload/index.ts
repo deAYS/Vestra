@@ -8,11 +8,19 @@ import type {
   StatusSummary,
   MaintenanceStatus,
 } from "../shared/types.js";
-import type { DiscordChannel } from "../shared/channels.js";
+import type {
+  DiscordChannel,
+  ManagerWindowAction,
+  ManagerWindowState,
+  ManagerWindowMaterial,
+} from "../shared/channels.js";
 
 declare const __VESTRA_MANAGER_DEV__: boolean;
 
 export interface VestraManagerApi {
+  windowAction(action: ManagerWindowAction): void;
+  setWindowMaterial(material: ManagerWindowMaterial): void;
+  onWindowState(listener: (state: ManagerWindowState) => void): () => void;
   discover(): Promise<DiscordInstallation[]>;
   status(args?: { channels?: DiscordChannel[] }): Promise<StatusSummary>;
   check(args?: { channels?: DiscordChannel[] }): Promise<CheckSummary>;
@@ -26,6 +34,16 @@ export interface VestraManagerApi {
 }
 
 const api: VestraManagerApi = {
+  windowAction: (action) => ipcRenderer.send(MANAGER_IPC.windowAction, action),
+  setWindowMaterial: (material) =>
+    ipcRenderer.send(MANAGER_IPC.windowMaterial, material),
+  onWindowState: (listener) => {
+    const wrapped = (_event: unknown, state: ManagerWindowState): void =>
+      listener(state);
+    ipcRenderer.on(MANAGER_IPC.windowState, wrapped);
+    ipcRenderer.send(MANAGER_IPC.windowAction, "sync");
+    return () => ipcRenderer.removeListener(MANAGER_IPC.windowState, wrapped);
+  },
   discover: () => ipcRenderer.invoke(MANAGER_IPC.discover),
   status: (args) => ipcRenderer.invoke(MANAGER_IPC.status, args ?? {}),
   check: (args) => ipcRenderer.invoke(MANAGER_IPC.check, args ?? {}),
@@ -50,8 +68,6 @@ const api: VestraManagerApi = {
       : false,
 };
 
-// TEMPORARY dev-only diagnostics (validation phase): trace preload boot.
-// Production remains quiet. No extra APIs exposed.
 if (typeof __VESTRA_MANAGER_DEV__ !== "undefined" && __VESTRA_MANAGER_DEV__) {
   console.log("[Vestra Manager] preload loaded");
 }
