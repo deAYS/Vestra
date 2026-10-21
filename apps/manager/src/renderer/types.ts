@@ -1,4 +1,9 @@
-import type { DiscordChannel } from "../shared/channels.js";
+import type {
+  DiscordChannel,
+  ManagerWindowAction,
+  ManagerWindowState,
+  ManagerWindowMaterial,
+} from "../shared/channels.js";
 import type {
   CheckSummary,
   DiscordInstallation,
@@ -9,6 +14,9 @@ import type {
 } from "../shared/types.js";
 
 export interface VestraManagerApi {
+  windowAction(action: ManagerWindowAction): void;
+  setWindowMaterial(material: ManagerWindowMaterial): void;
+  onWindowState(listener: (state: ManagerWindowState) => void): () => void;
   discover(): Promise<DiscordInstallation[]>;
   status(args?: { channels?: DiscordChannel[] }): Promise<StatusSummary>;
   check(args?: { channels?: DiscordChannel[] }): Promise<CheckSummary>;
