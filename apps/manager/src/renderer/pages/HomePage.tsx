@@ -63,6 +63,7 @@ export function HomePage({ manager }: { manager: ManagerState }): JSX.Element {
             <div className="vs-error__actions">
               <button
                 type="button"
+                className="vs-btn vs-btn--secondary"
                 onClick={() => void manager.refresh()}
                 data-testid="discovery-retry"
               >
@@ -89,13 +90,17 @@ export function HomePage({ manager }: { manager: ManagerState }): JSX.Element {
 
       {manager.notice !== null ? (
         <div className="vs-notice" data-testid="notice" role="status">
-          {manager.notice}
+          <span className="vs-notice__icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m6 12 4 4 8-8" /></svg></span>
+          <div className="vs-notice__copy"><strong>All set</strong><p>{manager.notice}</p></div>
           <button
             type="button"
             onClick={manager.dismissNotice}
             data-testid="notice-dismiss"
+            className="vs-notice__close"
+            aria-label="Close notification"
+            title="Close notification"
           >
-            Dismiss
+            <svg viewBox="0 0 16 16" aria-hidden="true"><path d="m4 4 8 8M12 4l-8 8" /></svg>
           </button>
         </div>
       ) : null}
