@@ -1,10 +1,14 @@
 import { VESTRA_MARK_PATH } from "@vestra/shared";
 
 // DOM-only. Every dependency used by the serialized function is an argument.
-export function installSplash(markPath: string): { set(pct: number, label: string): void; done(): void } {
+export function installSplash(markPath: string): {
+  set(pct: number, label: string): void;
+  done(): void;
+  cancel(): void;
+} {
   const host = document.documentElement;
   const existing = document.getElementById("vestra-splash");
-  if (!host || existing) return { set() {}, done() {} };
+  if (!host || existing) return { set() {}, done() {}, cancel() {} };
   const style = document.createElement("style");
   style.id = "vestra-splash-style";
   style.textContent = `
@@ -50,7 +54,9 @@ export function installSplash(markPath: string): { set(pct: number, label: strin
   let current = 0;
   const fill = el.querySelector<HTMLElement>(".vs-boot-fill")!;
   const labels = el.querySelectorAll(".vs-boot-status span");
-  const onKey = (event: KeyboardEvent): void => { if (event.key === "Escape") dismiss(); };
+  const onKey = (event: KeyboardEvent): void => {
+    if (event.key === "Escape") dismiss();
+  };
   const timeout = setTimeout(dismiss, 12000);
   function dismiss(): void {
     if (completed) return;
@@ -59,13 +65,19 @@ export function installSplash(markPath: string): { set(pct: number, label: strin
     if (finishTimer !== undefined) clearTimeout(finishTimer);
     window.removeEventListener("keydown", onKey);
     el.classList.add("vs-done");
-    setTimeout(() => { el.remove(); style.remove(); }, 1000);
+    setTimeout(() => {
+      el.remove();
+      style.remove();
+    }, 1000);
   }
   function done(): void {
     if (completed || finishTimer !== undefined) return;
     // Runtime starts immediately; only the visual exit waits for a visible paint.
     // Escape and the failsafe bypass this minimum duration.
-    finishTimer = setTimeout(dismiss, Math.max(0, 1100 - (Date.now() - mountedAt)));
+    finishTimer = setTimeout(
+      dismiss,
+      Math.max(0, 1100 - (Date.now() - mountedAt)),
+    );
   }
   el.querySelector("button")!.addEventListener("click", dismiss);
   window.addEventListener("keydown", onKey);
@@ -79,6 +91,14 @@ export function installSplash(markPath: string): { set(pct: number, label: strin
       if (current === 100) done();
     },
     done,
+    cancel() {
+      completed = true;
+      clearTimeout(timeout);
+      clearTimeout(finishTimer);
+      window.removeEventListener("keydown", onKey);
+      el.remove();
+      style.remove();
+    },
   };
 }
 
@@ -87,4 +107,6 @@ export function buildSplashSource(): string {
   return `(${installSplash.toString()})(${JSON.stringify(VESTRA_MARK_PATH)})`;
 }
 
-export function showSplash(): ReturnType<typeof installSplash> { return installSplash(VESTRA_MARK_PATH); }
+export function showSplash(): ReturnType<typeof installSplash> {
+  return installSplash(VESTRA_MARK_PATH);
+}
