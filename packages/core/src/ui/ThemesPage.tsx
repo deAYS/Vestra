@@ -15,6 +15,11 @@ import type { PageProps } from "./types.js";
 import { ThemePeek } from "./ThemePeek.js";
 import { ThemeCustomizer } from "./ThemeCustomizer.js";
 import { customizedThemeCss } from "../themeCustomization.js";
+import {
+  importThemePackage,
+  downloadThemePackage,
+  MAX_THEME_PACKAGE_BYTES,
+} from "../themeTransfer.js";
 
 function ThemePreview({ colors }: { colors: readonly string[] }): JSX.Element {
   return (
@@ -238,14 +243,14 @@ export function ThemesPage({ settings }: PageProps): JSX.Element {
           onClick={() => input.current?.click()}
         >
           <Icon name="upload" size={12} />
-          Import CSS
+          Import theme
         </button>
       </div>
       <input
         ref={input}
         type="file"
-        accept=".css,text/css"
-        aria-label="Choose CSS theme"
+        accept=".css,.json,text/css,application/json"
+        aria-label="Choose theme file"
         hidden
         onChange={async (event) => {
           const file = event.target.files?.[0];
@@ -253,8 +258,18 @@ export function ThemesPage({ settings }: PageProps): JSX.Element {
           if (!file) return;
           setPending(true);
           try {
+            if (file.name.toLowerCase().endsWith(".json")) {
+              if (file.size > MAX_THEME_PACKAGE_BYTES)
+                throw new Error("Theme packages must be smaller than 3 MB.");
+              importThemePackage(settings, await file.text());
+              await settings.flush();
+              setError("");
+              return;
+            }
             if (!file.name.toLowerCase().endsWith(".css"))
-              throw new Error("Choose a .css file.");
+              throw new Error(
+                "Choose a CSS theme or a .vestra-theme.json package.",
+              );
             if (file.size > 512_000)
               throw new Error("Themes must be smaller than 512 KB.");
             if (settings.getThemes().length >= 32)
@@ -265,6 +280,7 @@ export function ThemesPage({ settings }: PageProps): JSX.Element {
               await Native.writeThemeFile(file.name, css);
               await refreshLocalThemes(settings);
             } else importTheme(settings, css, file.name);
+            await settings.flush();
             setError("");
           } catch (err) {
             setError(err instanceof Error ? err.message : String(err));
@@ -311,6 +327,23 @@ export function ThemesPage({ settings }: PageProps): JSX.Element {
             </p>
           </div>
           <ThemePeek name={theme.name} css={customizedThemeCss(theme)} />
+          <button
+            type="button"
+            disabled={pending}
+            aria-label={`Export ${theme.name}`}
+            onClick={() => {
+              try {
+                downloadThemePackage(theme);
+                setError("");
+              } catch (problem) {
+                setError(
+                  problem instanceof Error ? problem.message : String(problem),
+                );
+              }
+            }}
+          >
+            Export ↗
+          </button>
           <input
             type="checkbox"
             checked={theme.enabled}
