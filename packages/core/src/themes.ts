@@ -3,7 +3,9 @@ import { Styles, type StylesManager } from "./api/styles.js";
 import { Native, type NativeBridge } from "./api/native.js";
 import glassCss from "../../../themes/liquid-glass.theme.css";
 import releasedGlassCss from "../../../themes/history/liquid-glass-2.0.1.theme.css";
+import readabilityGlassCss from "../../../themes/history/liquid-glass-2.1.0.theme.css";
 import afterglowCss from "../../../themes/afterglow.theme.css";
+import releasedAfterglowCss from "../../../themes/history/afterglow-1.0.0.theme.css";
 import { customizedThemeCss } from "./themeCustomization.js";
 
 const LEGACY_MIDNIGHT_THEME = `/**
@@ -119,7 +121,7 @@ const palettes: Palette[] = [
  * Old background-primary alone only affects legacy surfaces. No hashed classes.
  * References and compatibility scope: docs/DISCORD_COMPATIBILITY.md.
  */
-function presetCss(name: string, p: Palette, revision = 3): string {
+function presetCss(name: string, p: Palette, revision = 4): string {
   const tokens: Record<string, string> = {
     "app-frame-background": p.base,
     "app-frame-border": "#ffffff12",
@@ -257,11 +259,21 @@ function presetCss(name: string, p: Palette, revision = 3): string {
     revision >= 3
       ? `\n${mount}{background:var(--vestra-theme-base)!important;}\n${surface('[class*="bg_"],[class*="guilds_"]', "base")}\n${surface('[class*="chat_"],[class*="chatContent_"]', "chat")}\n${surface('[class*="sidebarList_"],[class*="privateChannels_"],[class*="members_"],[class*="membersWrap_"]', "side")}\n${surface('[class*="channelTextArea_"],[class*="scrollableContainer_"]', "input")}`
       : "";
+  const refinements = revision >= 4 ? `
+${mount} :is([class*="container_"]:has(>[class*="tabBody_"]),[class*="applicationStore_"],[class*="shop_"],[class*="questHomePage_"],[class*="storePage_"]):not(.custom-user-profile-theme):not(.custom-user-profile-theme *){background:${p.chat}!important;}
+${mount} :is(.user-profile-popout,.user-profile-modal,.user-profile-sidebar,[class*="menu_"][role="menu"],[class*="expressionPicker_"]):not(.custom-user-profile-theme):not(.custom-user-profile-theme *){background:${p.raised}!important;border-color:${p.accent}30!important;}
+${mount} :is([class*="standardSidebarView_"],[class*="settingsModal_"],[class*="settingsLayer_"]):not(.custom-user-profile-theme):not(.custom-user-profile-theme *){background:${p.chat}!important;}
+${mount} [class*="channelTextArea_"]:not(.custom-user-profile-theme *){border:1px solid ${p.accent}30!important;border-radius:12px!important;box-shadow:0 6px 24px #0002;}
+${mount} [class*="channelTextArea_"]:focus-within{border-color:${p.accent}80!important;box-shadow:0 0 0 3px ${p.accent}0c;}
+${mount} :is([class*="modeSelected_"] [class*="link_"],[class*="interactiveSelected_"]):not(.custom-user-profile-theme *){border-radius:10px!important;background:linear-gradient(100deg,${p.accent}26,${p.accent}0b)!important;box-shadow:inset 2px 0 ${p.accent};}
+${mount} [class*="subtitleContainer_"]>section{background:linear-gradient(110deg,${p.accent}12,transparent)!important;border-bottom:1px solid ${p.accent}16;}
+:root,body,:is(${scopes}):not(.custom-user-profile-theme){--control-primary-text-default:#111018!important;--control-primary-text-hover:#111018!important;--control-primary-text-active:#111018!important;--control-primary-icon-default:#111018!important;--control-primary-icon-hover:#111018!important;--control-primary-icon-active:#111018!important;}
+` : "";
   return `/** @name ${name}\n * @author Vestra\n * @vestra-preset ${revision}\n */\n:root,body,:is(${scopes}):not(.custom-user-profile-theme){\n  color-scheme:dark;\n${Object.entries(
     tokens,
   )
     .map(([key, value]) => `  --${key}:${value}!important;`)
-    .join("\n")}\n}${surfaces}`;
+    .join("\n")}\n}${surfaces}${refinements}`;
 }
 
 export const THEME_LIBRARY = [
@@ -294,17 +306,22 @@ export function upgradeBuiltinThemes(store: SettingsStore): void {
     if (
       theme.name === "Vestra Liquid Glass" &&
       theme.author === "Vestra" &&
-      [previousGlass, releasedGlassCss].includes(
+      [previousGlass, releasedGlassCss, readabilityGlassCss].includes(
         theme.css.replace(/\r\n/g, "\n"),
       )
     ) {
       changed = true;
       return { ...theme, css: glassCss };
     }
+    if (theme.name === "Vestra Afterglow" && theme.author === "Vestra" && theme.css.replace(/\r\n/g,"\n") === releasedAfterglowCss) {
+      changed = true;
+      return { ...theme, css: afterglowCss };
+    }
     const index = LEGACY_THEME_LIBRARY.findIndex(
       (preset, index) =>
         (preset.css === theme.css ||
-          presetCss(preset.name, palettes[index]!, 2) === theme.css) &&
+          presetCss(preset.name, palettes[index]!, 2) === theme.css ||
+          presetCss(preset.name, palettes[index]!, 3) === theme.css) &&
         preset.name === theme.name &&
         theme.author === "Vestra",
     );
