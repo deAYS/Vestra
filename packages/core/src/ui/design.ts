@@ -127,8 +127,8 @@ export function ensureSettingsDesign(): void {
 .vs-theme-action{display:flex;align-items:center;justify-content:space-between;color:#7E728D;font-size:10px}
 .vs-theme-action button{padding:6px 10px!important;font-size:10px!important;line-height:15px!important}
 .vs-theme-swatch{width:7px;height:7px;border-radius:50%;display:inline-block;margin-right:3px}
-.vs-theme-installed{display:flex;align-items:center;gap:12px;padding:15px 0;border-bottom:1px solid #FFFFFF08}
-.vs-theme-installed>div{flex:1}.vs-theme-installed strong{font-size:12px;font-weight:550}.vs-theme-installed p{font-size:10px;color:#8D819D;margin:3px 0 0}
+.vs-theme-installed{display:flex;flex-wrap:wrap;align-items:center;gap:12px;padding:15px 0;border-bottom:1px solid #FFFFFF08}
+.vs-theme-installed>div{flex:1 1 140px;min-width:0;overflow-wrap:anywhere}.vs-theme-installed strong{font-size:12px;font-weight:550}.vs-theme-installed p{font-size:10px;color:#8D819D;margin:3px 0 0}
 .vs-theme-installed>button{border:0;background:transparent;color:#93849F;cursor:pointer;font-size:11px}
 .vs-theme-customizer{container:vs-appearance/inline-size;margin:0 0 32px;border:1px solid #c5baf82b;border-radius:18px;padding:28px;background:radial-gradient(ellipse at 90% 0,#c5baf80b,transparent 65%),#ffffff03}
 .vs-theme-customizer header{display:flex;justify-content:space-between;align-items:flex-start;gap:18px}
@@ -147,6 +147,9 @@ export function ensureSettingsDesign(): void {
 .vs-appearance-preview{min-width:0;display:flex;flex-direction:column;align-self:start;position:sticky;top:12px}
 .vs-appearance-preview iframe{width:100%;height:390px;border:1px solid #ffffff26;border-radius:15px;background:#17131f;pointer-events:none}
 .vs-appearance-preview>span{font-size:12px;line-height:1.6;color:#b9adc6;text-align:center;margin-top:12px}
+.vs-preview-tabs{display:flex;gap:4px;padding:5px;margin-bottom:12px;border:1px solid #ffffff14;border-radius:12px;background:#00000018}
+.vs-theme-customizer .vs-preview-tabs button{flex:1;min-width:0;padding:8px 4px;font-size:12px;border:1px solid transparent;background:transparent;color:#bcb0ca}
+.vs-theme-customizer .vs-preview-tabs button[aria-selected=true]{background:#c5baf81a;border-color:#c5baf82b;color:#eee7ff}
 .vs-theme-customizer button{cursor:pointer;border:1px solid #c5baf835;background:#c5baf809;border-radius:9px;color:#ded3f0;padding:10px 13px;font-size:13px;line-height:1.5;white-space:nowrap}
 .vs-theme-customizer button:disabled{opacity:.4;cursor:default}
 .vs-appearance-background{border-top:1px solid #ffffff16;padding-top:24px;display:flex;align-items:center;gap:12px;flex-wrap:wrap}
