@@ -2,7 +2,7 @@
  * @name Vestra Afterglow
  * @author Vestra
  * @description Dumanlı siyah, erimiş bakır ve sıcak ufuk çizgileri.
- * @version 1.0.0
+ * @version 1.1.0
  */
 :root,body,:is(.theme-dark,.theme-darker,.theme-midnight,.theme-light,.custom-theme-background):not(.custom-user-profile-theme){
   color-scheme:dark;
@@ -167,7 +167,7 @@
   background:linear-gradient(90deg,#e6ad8324,#c980a710)!important;
   box-shadow:inset 2px 0 0 #e6ad83,inset 0 0 0 1px #e6ad8315;
 }
-:is(#app-mount,[class*="appMount_"]) :is([role="dialog"]):not(.custom-user-profile-theme):not(.custom-user-profile-theme *){border:1px solid #e6ad832b;border-radius:12px;box-shadow:0 24px 100px #00000070;}
+:is(#app-mount,[class*="appMount_"]) :is([class*="standardSidebarView_"],[class*="settingsModal_"],[class*="userPopout_"]):not(.custom-user-profile-theme):not(.custom-user-profile-theme *){border:1px solid #e6ad832b;border-radius:12px;box-shadow:0 24px 100px #00000070;}
 :is(#app-mount,[class*="appMount_"]) :is([class*="embedFull_"]):not(.custom-user-profile-theme):not(.custom-user-profile-theme *){border-radius:8px!important;border-top:1px solid #e6ad8313;border-right:1px solid #e6ad8313;border-bottom:1px solid #e6ad8313;}
 :is(#app-mount,[class*="appMount_"]) :is([class*="chat_"] > [class*="content_"]):not(.custom-user-profile-theme):not(.custom-user-profile-theme *){border-top:1px solid #e6ad8309;}
 :is(#app-mount,[class*="appMount_"]) a[href]:focus-visible,:is(#app-mount,[class*="appMount_"]) button:focus-visible{outline:2px solid #e6ad83;outline-offset:2px;}
@@ -182,4 +182,7 @@
 }
 
 :root{--vestra-profile-activity-bg:var(--background-surface-high,var(--background-floating))}
+:root,body,:is(.theme-dark,.theme-darker,.theme-midnight,.theme-light,.custom-theme-background):not(.custom-user-profile-theme){--control-primary-text-default:#21130d!important;--control-primary-text-hover:#21130d!important;--control-primary-text-active:#21130d!important;--control-primary-icon-default:#21130d!important;--control-primary-icon-hover:#21130d!important;--control-primary-icon-active:#21130d!important;}
+#app-mount :is([class*="container_"]:has(>[class*="tabBody_"]),[class*="applicationStore_"],[class*="shop_"],[class*="questHomePage_"],[class*="storePage_"],[class*="standardSidebarView_"],[class*="settingsModal_"]):not(.custom-user-profile-theme):not(.custom-user-profile-theme *){background:#1d1414!important;}
+#app-mount :is(.user-profile-popout,.user-profile-modal,.user-profile-sidebar,[class*="menu_"][role="menu"],[class*="expressionPicker_"]):not(.custom-user-profile-theme):not(.custom-user-profile-theme *){background:#302020!important;border-color:#e6ad8330!important;}
 :is(.custom-user-profile-theme,[class*="userPopout_"],[class*="userProfile_"]) :is([class*="biteSize_"],[class*="activityBiteSizePopout_"],[class*="activityCard_"],[class*="activity_"]){background-color:var(--vestra-profile-activity-bg)!important;--background-surface-high:var(--vestra-profile-activity-bg)!important;--background-base-low:var(--vestra-profile-activity-bg)!important}
