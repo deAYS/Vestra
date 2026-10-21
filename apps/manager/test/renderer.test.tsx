@@ -62,10 +62,43 @@ interface RecordedCall {
 }
 
 class FakeApi {
-  windowAction(action: string): void { this.calls.push({ method: "windowAction", args: action }); }
+  async updateState() {
+    return {
+      phase: "current" as const,
+      currentVersion: "0.1.0-alpha.3",
+      supported: true,
+    };
+  }
+  async checkUpdate() {
+    return this.updateState();
+  }
+  async downloadUpdate() {
+    return this.updateState();
+  }
+  async installUpdate() {
+    return this.updateState();
+  }
+  onUpdate() {
+    return () => {};
+  }
+  windowAction(action: string): void {
+    this.calls.push({ method: "windowAction", args: action });
+  }
   setWindowMaterial(): void {}
-  onWindowState(listener: (state: { maximized: boolean; material: "solid"; materialsSupported: boolean; appearanceError: string }) => void): () => void {
-    listener({ maximized: false, material: "solid", materialsSupported: false, appearanceError: "" });
+  onWindowState(
+    listener: (state: {
+      maximized: boolean;
+      material: "solid";
+      materialsSupported: boolean;
+      appearanceError: string;
+    }) => void,
+  ): () => void {
+    listener({
+      maximized: false,
+      material: "solid",
+      materialsSupported: false,
+      appearanceError: "",
+    });
     return () => undefined;
   }
   installations: DiscordInstallation[] = [
