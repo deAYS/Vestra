@@ -130,13 +130,41 @@ export function ensureSettingsDesign(): void {
 .vs-theme-installed{display:flex;align-items:center;gap:12px;padding:15px 0;border-bottom:1px solid #FFFFFF08}
 .vs-theme-installed>div{flex:1}.vs-theme-installed strong{font-size:12px;font-weight:550}.vs-theme-installed p{font-size:10px;color:#8D819D;margin:3px 0 0}
 .vs-theme-installed>button{border:0;background:transparent;color:#93849F;cursor:pointer;font-size:11px}
-.vs-theme-customizer{margin:0 0 28px;border:1px solid #c5baf82b;border-radius:16px;padding:22px;background:radial-gradient(ellipse at 90% 0,#c5baf80b,transparent 65%),#ffffff03}
-.vs-theme-customizer header{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}.vs-appearance-eyebrow{font-size:8px;letter-spacing:.16em;color:#b7a8cb}.vs-theme-customizer h3{font-size:18px;letter-spacing:-.035em;margin:8px 0;color:#eee7f5}.vs-theme-customizer header p,.vs-appearance-background p{font-size:10px;color:#a296b0;line-height:1.7;margin:0}
-.vs-appearance-badge{border:1px solid #ffffff16;border-radius:20px;white-space:nowrap;font-size:9px;padding:6px 9px;color:#b7a8cb}.vs-appearance-layout{display:grid;grid-template-columns:minmax(160px,.8fr) minmax(200px,1.2fr);gap:24px;margin:23px 0}.vs-appearance-controls{display:grid;gap:15px}.vs-appearance-slider>span{display:flex;justify-content:space-between;gap:10px;font-size:10px;color:#d5c9e2}.vs-appearance-slider output{font:10px Consolas,monospace;color:#c5baf8}.vs-appearance-slider input{width:100%;accent-color:#c5baf8;margin:9px 0 0;cursor:pointer}.vs-appearance-color{display:flex;gap:10px;align-items:center;font-size:10px;color:#d5c9e2}.vs-appearance-color>span{flex:1}.vs-appearance-color input{width:30px;height:25px;padding:2px;border:1px solid #ffffff20;border-radius:7px;background:none;cursor:pointer}
-.vs-appearance-preview{min-width:0;display:flex;flex-direction:column;justify-content:center}.vs-appearance-preview iframe{width:100%;height:280px;border:1px solid #ffffff18;border-radius:13px;background:#17131f;pointer-events:none}.vs-appearance-preview>span{font-size:8px;color:#8e819e;text-align:center;margin-top:9px}.vs-theme-customizer button{cursor:pointer;border:1px solid #c5baf829;background:#c5baf809;border-radius:8px;color:#d6cbea;padding:8px 10px;font-size:10px;white-space:nowrap}.vs-theme-customizer button:disabled{opacity:.4;cursor:default}.vs-appearance-background{border-top:1px solid #ffffff0d;padding-top:18px;display:flex;align-items:center;gap:9px;flex-wrap:wrap}.vs-appearance-background>div{flex:1;min-width:140px}.vs-appearance-background strong{font-size:11px;color:#d5c9e2}.vs-appearance-background p{font-size:9px;margin-top:4px}.vs-appearance-url{display:flex;gap:8px;margin-top:12px}.vs-appearance-url input{flex:1;min-width:0;font-size:10px!important}.vs-theme-customizer footer{display:flex;gap:8px;align-items:center;border-top:1px solid #ffffff0d;margin-top:18px;padding-top:16px;flex-wrap:wrap}.vs-theme-customizer footer>div{flex:1;min-width:180px;font-size:9px;color:#9e91ae;line-height:1.7}.vs-theme-customizer [role=alert]{color:#e5a0ae}.vs-theme-customizer .vs-appearance-apply{background:#c5baf8;color:#211b2d;border-color:transparent;font-weight:600}
-@media(max-width:760px){.vs-appearance-layout{grid-template-columns:1fr}.vs-appearance-preview iframe{height:250px}.vs-theme-customizer{padding:16px}.vs-appearance-badge{display:none}}
-.vs-appearance-advanced{border-block:1px solid #ffffff12;padding:12px 0}.vs-appearance-advanced summary{font-size:11px;color:#d5c9e2;cursor:pointer}.vs-appearance-advanced>div{display:grid;gap:15px;padding-top:16px}.vs-appearance-preview{align-self:start;position:sticky;top:12px}
-@media(max-width:760px){.vs-appearance-preview{position:static}}
+.vs-theme-customizer{container:vs-appearance/inline-size;margin:0 0 32px;border:1px solid #c5baf82b;border-radius:18px;padding:28px;background:radial-gradient(ellipse at 90% 0,#c5baf80b,transparent 65%),#ffffff03}
+.vs-theme-customizer header{display:flex;justify-content:space-between;align-items:flex-start;gap:18px}
+.vs-appearance-eyebrow{font-size:11px;letter-spacing:.13em;color:#bfb2d0}
+.vs-theme-customizer h3{font-size:22px;letter-spacing:-.035em;margin:10px 0;color:#eee7f5}
+.vs-theme-customizer header p,.vs-appearance-background p{font-size:13px;color:#b9adc6;line-height:1.65;margin:0}
+.vs-appearance-badge{border:1px solid #ffffff20;border-radius:20px;white-space:nowrap;font-size:11px;padding:8px 11px;color:#c6b9d7}
+.vs-appearance-layout{display:grid;grid-template-columns:minmax(260px,.8fr) minmax(380px,1.2fr);gap:28px;margin:30px 0}
+.vs-appearance-controls{display:grid;gap:22px;min-width:0}
+.vs-appearance-slider>span{display:flex;justify-content:space-between;align-items:baseline;gap:12px;font-size:14px;line-height:1.5;color:#e0d6eb}
+.vs-appearance-slider output{flex:none;font:12px Consolas,monospace;color:#d0c3ff}
+.vs-appearance-slider input{display:block;width:100%;height:22px;accent-color:#c5baf8;margin:10px 0 0;cursor:pointer}
+.vs-appearance-color{display:flex;gap:12px;align-items:center;font-size:14px;line-height:1.5;color:#e0d6eb;min-width:0}
+.vs-appearance-color>span{flex:1}
+.vs-appearance-color input{width:40px;height:34px;padding:3px;border:1px solid #ffffff30;border-radius:8px;background:none;cursor:pointer;flex:none}
+.vs-appearance-preview{min-width:0;display:flex;flex-direction:column;align-self:start;position:sticky;top:12px}
+.vs-appearance-preview iframe{width:100%;height:390px;border:1px solid #ffffff26;border-radius:15px;background:#17131f;pointer-events:none}
+.vs-appearance-preview>span{font-size:12px;line-height:1.6;color:#b9adc6;text-align:center;margin-top:12px}
+.vs-theme-customizer button{cursor:pointer;border:1px solid #c5baf835;background:#c5baf809;border-radius:9px;color:#ded3f0;padding:10px 13px;font-size:13px;line-height:1.5;white-space:nowrap}
+.vs-theme-customizer button:disabled{opacity:.4;cursor:default}
+.vs-appearance-background{border-top:1px solid #ffffff16;padding-top:24px;display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.vs-appearance-background>div{flex:1;min-width:220px}
+.vs-appearance-background strong{font-size:15px;color:#e0d6eb}
+.vs-appearance-background p{margin-top:7px}
+.vs-appearance-url{display:flex;gap:12px;margin-top:18px}
+.vs-appearance-url input{flex:1;min-width:0;font-size:13px!important;line-height:1.6!important;padding:12px!important}
+.vs-theme-customizer footer{display:flex;gap:12px;align-items:center;border-top:1px solid #ffffff16;margin-top:24px;padding-top:22px;flex-wrap:wrap}
+.vs-theme-customizer footer>div{flex:1;min-width:220px;font-size:13px;color:#b9adc6;line-height:1.65}
+.vs-theme-customizer [role=alert]{color:#e5a0ae}
+.vs-theme-customizer .vs-appearance-apply{background:#c5baf8;color:#211b2d;border-color:transparent;font-weight:600}
+.vs-appearance-advanced{border-block:1px solid #ffffff18;padding:22px 0}
+.vs-appearance-advanced h4{font-size:15px;font-weight:600;line-height:1.5;margin:0 0 20px;color:#eee7f5}
+.vs-appearance-advanced>div{display:grid;gap:22px}
+@container vs-appearance (max-width:680px){.vs-appearance-layout{grid-template-columns:minmax(0,1fr)}.vs-appearance-preview{position:static;grid-row:1}.vs-appearance-controls{grid-template-columns:repeat(2,minmax(0,1fr));gap:22px 24px}.vs-appearance-advanced{grid-column:1/-1}.vs-appearance-advanced>div{grid-template-columns:repeat(2,minmax(0,1fr));gap:22px 24px}.vs-appearance-badge{display:none}}
+@container vs-appearance (max-width:420px){.vs-appearance-controls,.vs-appearance-advanced>div{grid-template-columns:minmax(0,1fr)}.vs-appearance-preview iframe{height:350px}.vs-appearance-url{flex-wrap:wrap}.vs-appearance-url input{flex-basis:100%}}
+@media(max-width:720px){.vs-theme-customizer{padding:20px}}
 .vs-empty{border:1px dashed #3A3244;border-radius:11px;padding:22px;text-align:center;color:#8D829D;font-size:12px}
 .vs-editor-toolbar{display:flex;align-items:center;gap:8px;border:1px solid #302B39;border-bottom:0;border-radius:11px 11px 0 0;background:#1D1924;padding:12px 15px;font:11px Consolas,monospace;color:#9D90AF}
 .vs-editor-toolbar span:last-child{margin-left:auto;font:10px inherit;color:#8EB69B}
