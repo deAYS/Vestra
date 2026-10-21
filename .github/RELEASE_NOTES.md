@@ -2,7 +2,14 @@ Vestra for Windows — an early alpha with its own plugin API and theme library.
 
 ### In this release
 
-- Alpha.3 fixes the Liquid Glass server rail: the Discord Home logo now has space below the rounded top edge. Existing unedited Glass themes upgrade while keeping appearance preferences.
+- GitHub update checks, verified downloads and confirmed installation for Setup and Portable. Manager and installed Discord payloads update together, preserving preferences.
+- Chat, Home, Profile and Settings appearance previews with stable slider updates.
+- Theme package import/export includes appearance settings and embedded wallpapers.
+- Refreshed notifications with hover/focus pause and an optional quiet startup.
+- Vestra waits for login and stops its runtime when you log out.
+- Roomier theme controls and a custom Windows Manager title bar with optional Mica/Acrylic.
+
+- The Liquid Glass server rail gives the Discord Home logo space below the rounded top edge. Existing unedited Glass themes upgrade while keeping appearance preferences.
 
 - Liquid Glass: frosted translucent main panels, pearl light, rounded composer and reflective edges.
 - Afterglow joins the built-in library alongside Midnight, Graphite, Rose and Aurora.
