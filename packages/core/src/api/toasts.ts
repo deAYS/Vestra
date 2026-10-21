@@ -33,6 +33,8 @@ export class ToastManager {
   private readonly listeners = new Set<ToastListener>();
   private readonly toasts: Toast[] = [];
   private readonly timers = new Map<number, ReturnType<typeof setTimeout>>();
+  private readonly deadlines = new Map<number, number>();
+  private readonly remaining = new Map<number, number>();
   private nextId = 1;
 
   constructor(options?: ToastManagerOptions) {
@@ -41,16 +43,27 @@ export class ToastManager {
 
   /** Show a toast. Returns its id. Throws (TypeError) on bad input. */
   show(options: ToastOptions): number {
-    if (options === undefined || typeof options.title !== "string" || options.title.trim() === "") {
+    if (
+      options === undefined ||
+      typeof options.title !== "string" ||
+      options.title.trim() === ""
+    ) {
       throw new TypeError("Toasts.show() requires a non-empty title.");
     }
     const type = options.type ?? "info";
-    if (type !== "info" && type !== "success" && type !== "warn" && type !== "error") {
+    if (
+      type !== "info" &&
+      type !== "success" &&
+      type !== "warn" &&
+      type !== "error"
+    ) {
       throw new TypeError(`Toasts.show() unknown type "${type}".`);
     }
     const durationMs = options.durationMs ?? DEFAULT_DURATION_MS;
     if (!Number.isInteger(durationMs) || durationMs < 0) {
-      throw new TypeError("Toasts.show() requires durationMs to be a non-negative integer.");
+      throw new TypeError(
+        "Toasts.show() requires durationMs to be a non-negative integer.",
+      );
     }
     const toast: Toast = {
       id: this.nextId++,
@@ -66,6 +79,7 @@ export class ToastManager {
       if (dropped !== undefined) this.clearTimer(dropped.id);
     }
     if (durationMs > 0) {
+      this.deadlines.set(toast.id, Date.now() + durationMs);
       try {
         const timer = setTimeout(() => {
           this.dismiss(toast.id);
@@ -104,9 +118,37 @@ export class ToastManager {
     this.emit();
   }
 
+  pause(id: number): void {
+    const deadline = this.deadlines.get(id);
+    if (deadline === undefined) return;
+    const left = Math.max(0, deadline - Date.now());
+    this.clearTimer(id);
+    this.remaining.set(id, left);
+  }
+
+  resume(id: number): void {
+    if (this.timers.has(id)) return;
+    const left = this.remaining.get(id);
+    if (left === undefined || !this.toasts.some((toast) => toast.id === id))
+      return;
+    this.remaining.delete(id);
+    this.deadlines.set(id, Date.now() + left);
+    this.timers.set(
+      id,
+      setTimeout(() => this.dismiss(id), left),
+    );
+  }
+
+  remainingMs(id: number): number {
+    const deadline = this.deadlines.get(id);
+    return deadline === undefined
+      ? (this.remaining.get(id) ?? 0)
+      : Math.max(0, deadline - Date.now());
+  }
+
   /** Remove every toast. Never throws. */
   clear(): void {
-    for (const id of [...this.timers.keys()]) this.clearTimer(id);
+    for (const toast of this.toasts) this.clearTimer(toast.id);
     if (this.toasts.length === 0) return;
     this.toasts.length = 0;
     this.emit();
@@ -124,6 +166,8 @@ export class ToastManager {
   }
 
   private clearTimer(id: number): void {
+    this.deadlines.delete(id);
+    this.remaining.delete(id);
     const timer = this.timers.get(id);
     if (timer === undefined) return;
     this.timers.delete(id);
@@ -150,6 +194,8 @@ export class ToastManager {
 export const Toasts = new ToastManager();
 
 /** Create an isolated manager (tests). */
-export function createToastManager(options?: ToastManagerOptions): ToastManager {
+export function createToastManager(
+  options?: ToastManagerOptions,
+): ToastManager {
   return new ToastManager(options);
 }
