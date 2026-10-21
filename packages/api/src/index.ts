@@ -44,6 +44,13 @@ export interface ThemeCustomization {
   radius: number;
   backgroundColor: string;
   backgroundImage: string;
+  homeOpacity?: number;
+  popupOpacity?: number;
+  settingsOpacity?: number;
+  textColor?: string;
+  glowColor?: string;
+  glowStrength?: number;
+  glowSize?: number;
 }
 export interface Theme {
   id: string;
