@@ -16,6 +16,15 @@ try {
   };
   await Promise.all([
     build({
+      entryPoints: [path.join(root, "apps/manager/src/main/updates.ts")],
+      bundle: true,
+      platform: "node",
+      format: "esm",
+      external: ["electron", "original-fs"],
+      define,
+      outfile: path.join(fixture, "manager/main/updates.mjs"),
+    }),
+    build({
       entryPoints: [path.join(root, "apps/manager/src/main/window.ts")],
       bundle: true,
       platform: "node",
