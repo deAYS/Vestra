@@ -17,14 +17,15 @@ export const CustomCssSchema = z.object({
 export type CustomCss = z.infer<typeof CustomCssSchema>;
 
 export const ThemeCustomizationSchema = z.object({
-  opacity: z.number().min(5).max(100).default(28),
+  surfaceOverrides: z.boolean().default(true),
+  opacity: z.number().min(0).max(100).default(28),
   blur: z.number().min(0).max(48).default(26),
   saturation: z.number().min(0).max(200).default(125),
-  brightness: z.number().min(35).max(120).default(100),
+  brightness: z.number().min(0).max(120).default(100),
   radius: z.number().min(0).max(30).default(22),
-  homeOpacity: z.number().min(30).max(100).default(55),
-  popupOpacity: z.number().min(70).max(100).default(94),
-  settingsOpacity: z.number().min(80).max(100).default(96),
+  homeOpacity: z.number().min(0).max(100).default(55),
+  popupOpacity: z.number().min(0).max(100).default(94),
+  settingsOpacity: z.number().min(0).max(100).default(96),
   textColor: z.string().regex(/^(?:#[0-9a-fA-F]{6})?$/).default(""),
   glowColor: z.string().regex(/^#[0-9a-fA-F]{6}$/).default("#c5baf8"),
   glowStrength: z.number().min(0).max(100).default(0),
