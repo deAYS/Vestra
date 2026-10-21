@@ -94,14 +94,17 @@ build commands publishes automatically.
 
 Theme appearance is available on Vestra 0.1.0-alpha.2 and newer through
 `Settings.setThemeCustomization(id, appearance)`. Pass `undefined` to restore the
-authored theme. `ThemeCustomization` contains `opacity` (5–100), `blur` (0–48),
-`saturation` (0–200), `brightness` (35–120), `radius` (0–30), `backgroundColor`
+authored theme. `ThemeCustomization` contains `opacity` (0–100), `blur` (0–48),
+`saturation` (0–200), `brightness` (0–120), `radius` (0–30), `backgroundColor`
 (empty or hex), and `backgroundImage` (empty, an HTTPS image URL, or a supported
 base64 image). These preferences belong to each theme and are preserved when its
 local CSS file refreshes. Older hosts do not expose this additive method.
 
-Newer hosts also accept optional `homeOpacity` (30–100), `popupOpacity` (70–100),
-`settingsOpacity` (80–100), `textColor` (empty or hex), `glowColor` (hex),
+Newer hosts also accept optional `homeOpacity` (0–100), `popupOpacity` (0–100),
+`settingsOpacity` (0–100), `textColor` (empty or hex), `glowColor` (hex),
 `glowStrength` (0–100) and `glowSize` (1–18). Missing values use readable defaults:
 55%, 94%, 96%, the authored text color and no glow. Check host support before
 depending on these controls in plugins built for older Vestra releases.
+Set `surfaceOverrides: false` for typography-only changes that preserve the theme's
+authored surfaces. It defaults to `true` for compatibility with existing appearance
+preferences. New UI edits enable surface overrides when a surface control changes.
