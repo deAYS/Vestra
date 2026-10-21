@@ -1,0 +1,206 @@
+/**
+ * @name Vestra Liquid Glass
+ * @author Vestra
+ * @description Pearl glass, translucent floating panels and soft prismatic light.
+ * @version 2.1.0
+ */
+:root,body,:is(.theme-dark,.theme-darker,.theme-midnight,.theme-light,.custom-theme-background):not(.custom-user-profile-theme){
+  color-scheme:dark;
+  --glass-pane:linear-gradient(135deg,#ffffff1c,#ffffff06 38%,#ffffff0c);
+  --vestra-wallpaper:radial-gradient(ellipse 58vw 83vh at 70% 25%,transparent 56%,#fbe9da65 57%,#f9e4d52e 59%,transparent 65%),radial-gradient(ellipse 46vw 65vh at 8% 92%,transparent 48%,#d9c6ff40 51%,transparent 59%),radial-gradient(ellipse 42vw 58vh at 83% 10%,#e3b69d8c,transparent 83%),radial-gradient(ellipse 30vw 80vh at 4% 75%,#9b84d6b3,transparent 87%),radial-gradient(ellipse 46vw 18vh at 54% 83%,#b2dcce70,transparent 82%),radial-gradient(ellipse 30vw 50vh at 65% 40%,#d2c2ee80,transparent 85%),linear-gradient(125deg,#211e2e 2%,#5c4a67 42%,#433c48 64%,#292f37 100%);
+  --glass-edge:#ffffff2d;
+  --glass-shadow:inset 0 1px 0 #ffffff45,inset 1px 0 0 #ffffff14,inset 0 -1px 0 #00000028,0 12px 40px #0907112b;
+  --app-frame-background:transparent!important;
+  --app-frame-border:transparent!important;
+  --background-primary:transparent!important;
+  --background-secondary:transparent!important;
+  --background-secondary-alt:transparent!important;
+  --background-tertiary:transparent!important;
+  --background-base-lowest:transparent!important;
+  --background-base-lower:transparent!important;
+  --background-base-low:transparent!important;
+  --bg-base-primary:transparent!important;
+  --bg-base-secondary:transparent!important;
+  --bg-base-tertiary:transparent!important;
+  --chat-background:transparent!important;
+  --chat-background-default:transparent!important;
+  --chat-background-selected:#ffffff0d!important;
+  --home-background:transparent!important;
+  --custom-channel-members-bg:transparent!important;
+  --background-floating:#28252fcc!important;
+  --background-surface-high:#ffffff12!important;
+  --background-surface-higher:#ffffff1a!important;
+  --background-surface-highest:#ffffff22!important;
+  --background-accent:#ffffff18!important;
+  --background-code:#11101980!important;
+  --background-mod-normal:#ffffff10!important;
+  --background-mod-subtle:#ffffff08!important;
+  --background-mod-muted:#ffffff0d!important;
+  --background-mod-strong:#ffffff1c!important;
+  --background-modifier-hover:#ffffff12!important;
+  --background-modifier-active:#ffffff18!important;
+  --background-modifier-selected:#ffffff20!important;
+  --background-modifier-accent:#ffffff16!important;
+  --bg-surface-overlay:#28252fcc!important;
+  --bg-surface-raised:#ffffff10!important;
+  --bg-surface-overlay-tmp:#28252fcc!important;
+  --channeltextarea-background:transparent!important;
+  --input-background:#ffffff0d!important;
+  --input-background-default:#ffffff0d!important;
+  --input-text-default:#f9f6ff!important;
+  --input-placeholder-text-default:#d0cbd8!important;
+  --modal-background:#25212ccc!important;
+  --modal-footer-background:#ffffff06!important;
+  --card-primary-bg:#ffffff0a!important;
+  --card-background-default:#ffffff0a!important;
+  --activity-card-background:#ffffff0d!important;
+  --brand-500:#ddd2ff!important;
+  --brand-560:#c9b9f4!important;
+  --brand-600:#b7a1e8!important;
+  --brand-experiment:#ddd2ff!important;
+  --background-brand:#ddd2ff!important;
+  --text-normal:#f1edf7!important;
+  --text-primary:#f1edf7!important;
+  --text-default:#f1edf7!important;
+  --text-secondary:#d6cfdf!important;
+  --text-muted:#c1b9cc!important;
+  --header-primary:#ffffff!important;
+  --header-secondary:#d6cfdf!important;
+  --text-link:#e6dcff!important;
+  --text-link-low-saturation:#e6dcff!important;
+  --channels-default:#d6cfdf!important;
+  --interactive-normal:#d6cfdf!important;
+  --interactive-hover:#ffffff!important;
+  --interactive-active:#ffffff!important;
+  --interactive-muted:#9e94ab!important;
+  --interactive-text-default:#d6cfdf!important;
+  --interactive-text-hover:#ffffff!important;
+  --interactive-text-active:#ffffff!important;
+  --interactive-icon-default:#d6cfdf!important;
+  --interactive-icon-hover:#ffffff!important;
+  --interactive-icon-active:#ffffff!important;
+  --interactive-background-hover:#ffffff12!important;
+  --interactive-background-selected:#ffffff20!important;
+  --interactive-background-active:#ffffff18!important;
+  --icon-default:#d6cfdf!important;
+  --icon-muted:#b3a9c0!important;
+  --icon-strong:#ffffff!important;
+  --icon-subtle:#d6cfdf!important;
+  --border-subtle:#ffffff18!important;
+  --border-normal:#ffffff28!important;
+  --border-strong:#ffffff40!important;
+  --border-faint:#ffffff0a!important;
+  --mention-background:#ddcfff20!important;
+  --mention-foreground:#eee5ff!important;
+  --background-mentioned:#e5c5ff12!important;
+  --background-mentioned-hover:#e5c5ff1e!important;
+  --message-mentioned-background-default:#e5c5ff12!important;
+  --message-mentioned-background-hover:#e5c5ff1e!important;
+  --message-background-hover:#ffffff08!important;
+  --scrollbar-auto-track:transparent!important;
+  --scrollbar-auto-thumb:#ffffff30!important;
+  --scrollbar-thin-track:transparent!important;
+  --scrollbar-thin-thumb:#ffffff30!important;
+  --control-primary-background-default:#ddd2ff!important;
+  --control-primary-background-hover:#eee7ff!important;
+  --control-primary-background-active:#c9b9f4!important;
+  --control-primary-text-default:#24202d!important;
+  --control-primary-text-hover:#24202d!important;
+  --control-primary-text-active:#24202d!important;
+  --control-primary-icon-default:#24202d!important;
+  --control-primary-icon-hover:#24202d!important;
+  --control-primary-icon-active:#24202d!important;
+  --control-secondary-background-default:#ffffff12!important;
+  --control-secondary-background-hover:#ffffff20!important;
+  --control-secondary-background-active:#ffffff28!important;
+  --background-gradient-app-frame:initial!important;
+  --background-gradient-chat:initial!important;
+  --background-gradient-chat-preview:initial!important;
+  --background-gradient-low:initial!important;
+  --background-gradient-lower:initial!important;
+  --background-gradient-lowest:initial!important;
+  --background-gradient-high:initial!important;
+  --background-gradient-higher:initial!important;
+  --background-gradient-highest:initial!important;
+  --vestra-theme-base:transparent!important;
+  --vestra-theme-chat:transparent!important;
+  --vestra-theme-side:transparent!important;
+  --vestra-theme-input:#ffffff10!important;
+}
+html,body{background:#262132!important;}
+#app-mount{
+  background:var(--vestra-wallpaper)!important;
+  background-attachment:fixed!important;
+}
+#app-mount :is([class*="app_"],[class*="appMount_"],[class*="bg_"],[class*="layers_"],[class*="layer_"],[class*="base_"],[class*="sidebar_"],[class*="sidebarList_"],[class*="sidebarListRounded_"],[class*="chat_"],[class*="chatContent_"],[class*="content_"],[class*="page_"]):not(.custom-user-profile-theme):not(.custom-user-profile-theme *):not([data-vestra-root]){
+  background:transparent!important;
+}
+#app-mount :is(div,main,section):has(> :is([class*="chat_"],[class*="sidebar_"],[class*="sidebarList_"],[class*="membersWrap_"])):not(.custom-user-profile-theme):not(.custom-user-profile-theme *){background:transparent!important;}
+#app-mount :is([class*="guilds_"],[class*="sidebarList_"],[class*="privateChannels_"],[class*="chat_"],[class*="membersWrap_"]):not(.custom-user-profile-theme):not(.custom-user-profile-theme *):not([data-vestra-root]){
+  background:var(--glass-pane),#16121e3d!important;
+  backdrop-filter:blur(26px) saturate(125%);
+  border:1px solid var(--glass-edge)!important;
+  border-radius:22px!important;
+  box-shadow:var(--glass-shadow)!important;
+  overflow:hidden;
+}
+#app-mount [class*="guilds_"]:not(.custom-user-profile-theme *){margin:0 8px 10px 8px;border-radius:24px!important;padding-top:12px!important;box-sizing:border-box;}
+#app-mount :is([class*="sidebarList_"],[class*="privateChannels_"]):not(.custom-user-profile-theme *){margin:0 8px 8px 0;}
+#app-mount [class*="chat_"]:not(.custom-user-profile-theme):not(.custom-user-profile-theme *):not([data-vestra-root]){margin:0 10px 10px 0;background:var(--glass-pane),#16121e33!important;}
+#app-mount :is([class*="chatContent_"],[class*="messagesWrapper_"],[class*="scrollerContent_"],[class*="members_"],[class*="member_"],[class*="nowPlayingColumn_"]):not(.custom-user-profile-theme):not(.custom-user-profile-theme *){background:transparent!important;}
+#app-mount [class*="membersWrap_"]:not(.custom-user-profile-theme *){margin:10px 10px 10px 0;border-radius:18px!important;}
+#app-mount :is([class*="subtitleContainer_"] > section,[class*="title_"][role="region"]):not(.custom-user-profile-theme *){background:linear-gradient(110deg,#ffffff14,#ffffff04)!important;border-bottom:1px solid #ffffff1c!important;box-shadow:0 1px 0 #0000000a!important;}
+#app-mount :is([class*="panels_"],[class*="channelTextArea_"]):not(.custom-user-profile-theme):not(.custom-user-profile-theme *){
+  background:linear-gradient(135deg,#ffffff26,#ffffff0b 55%,#ffffff16),#2821314d!important;
+  backdrop-filter:blur(30px) saturate(140%);
+  border:1px solid #ffffff38!important;
+  border-radius:22px!important;
+  box-shadow:var(--glass-shadow)!important;
+}
+#app-mount [class*="channelTextArea_"]:focus-within{border-color:#ffffff65!important;box-shadow:var(--glass-shadow),0 0 0 3px #ddcfff0c!important;}
+#app-mount :is([class*="scrollableContainer_"],[class*="form_"],[class*="themedBackground_"],[class*="typing_"]):not(.custom-user-profile-theme):not(.custom-user-profile-theme *){background:transparent!important;}
+#app-mount :is([class*="form_"],[class*="content_"])::before{display:none!important;}
+#app-mount :is([class*="autocomplete_"],[class*="menu_"][role="menu"],[class*="messagesPopoutWrap_"],[class*="recentMentionsPopout_"],[class*="browser_"]):not(.custom-user-profile-theme):not(.custom-user-profile-theme *){
+  background:linear-gradient(135deg,#ffffff1f,#ffffff08),#25212bd9!important;
+  backdrop-filter:blur(32px) saturate(135%);
+  border:1px solid #ffffff38!important;
+  border-radius:18px!important;
+  box-shadow:var(--glass-shadow),0 20px 70px #00000040!important;
+}
+#app-mount :is([class*="link_"][aria-selected="true"],[class*="modeSelected_"] [class*="link_"],[class*="interactiveSelected_"]):not(.custom-user-profile-theme *){background:linear-gradient(120deg,#ffffff2b,#ffffff0d)!important;box-shadow:inset 0 1px 0 #ffffff32,inset 0 0 0 1px #ffffff1c!important;border-radius:12px!important;}
+#app-mount :is([class*="embedFull_"],[class*="activityCard_"],[class*="activity_"],[class*="biteSize_"]):not(.custom-user-profile-theme):not(.custom-user-profile-theme *){background:#ffffff0b!important;border-radius:14px!important;box-shadow:inset 0 0 0 1px #ffffff13;}
+.vs-settings-launcher[data-theme-follow=true],.vs-launcher-menu[data-theme-follow=true],.vs-overlay-panel:has(.vs-settings-root[data-theme-follow=true]){background:linear-gradient(135deg,#ffffff23,#ffffff08),#2b2633b8!important;backdrop-filter:blur(30px) saturate(140%);border-color:#ffffff40!important;box-shadow:var(--glass-shadow),0 16px 60px #00000035!important;}
+@media(max-width:1000px){#app-mount [class*="guilds_"]{margin-left:4px;margin-right:5px;}#app-mount [class*="chat_"]{margin-right:5px;}}
+@supports not (backdrop-filter:blur(1px)){#app-mount :is([class*="chat_"],[class*="sidebarList_"],[class*="privateChannels_"],[class*="membersWrap_"],[class*="panels_"]){background:#302936ed!important;}}
+
+/* Readable glass surfaces */
+:root{
+  --glass-home-bg:rgb(22 18 30 / var(--glass-home-opacity,.55));
+  --glass-popup-bg:rgb(24 21 32 / var(--glass-popup-opacity,.94));
+  --glass-settings-bg:rgb(23 20 30 / var(--glass-settings-opacity,.96));
+}
+#app-mount :is([class*="container_"]:has(>[class*="tabBody_"]),[class*="applicationStore_"],[class*="shop_"],[class*="shopView_"],[class*="storePage_"],[class*="questHomePage_"],[class*="homePage_"]):not(.custom-user-profile-theme):not(.custom-user-profile-theme *):not([data-vestra-root]){
+  background:var(--glass-pane),var(--glass-home-bg)!important;
+  backdrop-filter:blur(var(--glass-blur,26px));
+  border:1px solid var(--glass-edge)!important;border-radius:var(--glass-radius,22px)!important;
+  box-shadow:var(--glass-shadow);margin:0 10px 10px 0;min-height:0;
+}
+#app-mount [class*="tabBody_"]:not(.custom-user-profile-theme):not(.custom-user-profile-theme *):not([data-vestra-root]){background:transparent!important;}
+#app-mount [class*="nowPlayingColumn_"]:not(.custom-user-profile-theme):not(.custom-user-profile-theme *):not([data-vestra-root]){background:#ffffff06!important;border-left:1px solid var(--glass-edge)!important;}
+#app-mount :is(.user-profile-popout,.user-profile-modal,.user-profile-modal-v2,.user-profile-sidebar,.user-profile-sidebar-redesign,[class*="userPopout_"],[class*="userProfileModal_"]):not(.custom-user-profile-theme):not(.custom-user-profile-theme *):not([data-vestra-root]){
+  --background-surface-high:var(--glass-popup-bg)!important;
+  --background-base-low:var(--glass-popup-bg)!important;
+  --background-base-lower:var(--glass-popup-bg)!important;
+  background:var(--glass-popup-bg)!important;backdrop-filter:blur(var(--glass-blur,26px));
+  border:1px solid var(--glass-edge)!important;box-shadow:var(--glass-shadow),0 20px 60px #0006;
+}
+#app-mount :is([role="dialog"],[class*="standardSidebarView_"],[class*="settingsModal_"],[class*="settingsLayer_"]):not(.custom-user-profile-theme):not(.custom-user-profile-theme *):not([data-vestra-root]):not(.user-profile-popout):not(.user-profile-modal):not(.user-profile-modal-v2):not(.vs-overlay-panel){
+  --background-primary:var(--glass-settings-bg)!important;
+  --background-secondary:var(--glass-settings-bg)!important;
+  --background-base-low:var(--glass-settings-bg)!important;
+  --background-base-lower:var(--glass-settings-bg)!important;
+  background:var(--glass-settings-bg)!important;backdrop-filter:blur(var(--glass-blur,26px));
+}
+#app-mount :is([class*="sidebarRegion_"],[class*="contentRegion_"]):not(.custom-user-profile-theme):not(.custom-user-profile-theme *):not([data-vestra-root]){background:transparent!important;}
+.vs-overlay-panel:has(.vs-settings-root[data-theme-follow=true]){background:var(--glass-settings-bg)!important;backdrop-filter:blur(var(--glass-blur,26px));}
+#app-mount :is([class*="autocomplete_"],[class*="menu_"][role="menu"],[class*="messagesPopoutWrap_"],[class*="recentMentionsPopout_"]):not(.custom-user-profile-theme):not(.custom-user-profile-theme *):not([data-vestra-root]){background:var(--glass-popup-bg)!important;backdrop-filter:blur(var(--glass-blur,26px));}
