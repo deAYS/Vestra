@@ -1,4 +1,4 @@
-import { useDeferredValue, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import {
   ThemeCustomizationSchema,
   type SettingsStore,
@@ -9,7 +9,7 @@ import {
   customizedThemeCss,
   DEFAULT_THEME_CUSTOMIZATION,
 } from "../themeCustomization.js";
-import { themePreviewDocument } from "./ThemePeek.js";
+import { ThemePreviewFrame } from "./ThemePreviewFrame.js";
 
 const controls = [
   { key: "opacity", label: "Panel opacity", min: 5, max: 100, unit: "%" },
@@ -29,6 +29,35 @@ const controls = [
     unit: "%",
   },
   { key: "radius", label: "Corner radius", min: 0, max: 30, unit: "px" },
+  {
+    key: "homeOpacity",
+    label: "Home panels opacity",
+    min: 30,
+    max: 100,
+    unit: "%",
+  },
+  {
+    key: "popupOpacity",
+    label: "Profiles & menus opacity",
+    min: 70,
+    max: 100,
+    unit: "%",
+  },
+  {
+    key: "settingsOpacity",
+    label: "Settings opacity",
+    min: 80,
+    max: 100,
+    unit: "%",
+  },
+  {
+    key: "glowStrength",
+    label: "Text glow strength",
+    min: 0,
+    max: 100,
+    unit: "%",
+  },
+  { key: "glowSize", label: "Text glow size", min: 1, max: 18, unit: "px" },
 ] as const;
 
 async function readBackground(file: File): Promise<string> {
@@ -75,11 +104,9 @@ export function ThemeCustomizer({
       : "",
   );
   const input = useRef<HTMLInputElement>(null);
-  const preview = useDeferredValue(
-    changed
-      ? customizedThemeCss({ ...theme, customization: draft })
-      : customizedThemeCss(theme),
-  );
+  const preview = changed
+    ? customizedThemeCss({ ...theme, customization: draft })
+    : customizedThemeCss(theme);
   const update = (values: Partial<ThemeCustomization>): void => {
     setDraft((previous) => ({ ...previous, ...values }));
     setChanged(true);
@@ -109,6 +136,29 @@ export function ThemeCustomizer({
       setPending(false);
     }
   };
+  const rangeControl = (control: (typeof controls)[number]): JSX.Element => (
+    <label className="vs-appearance-slider" key={control.key}>
+      <span>
+        {control.label}
+        <output>
+          {draft[control.key]}
+          {control.unit}
+        </output>
+      </span>
+      <input
+        type="range"
+        aria-label={control.label}
+        min={control.min}
+        max={control.max}
+        value={draft[control.key]}
+        disabled={pending}
+        onChange={(event) =>
+          update({ [control.key]: Number(event.target.value) })
+        }
+      />
+    </label>
+  );
+
   return (
     <section className="vs-theme-customizer" aria-label="Theme appearance">
       <header>
@@ -125,28 +175,44 @@ export function ThemeCustomizer({
       </header>
       <div className="vs-appearance-layout">
         <div className="vs-appearance-controls">
-          {controls.map((control) => (
-            <label className="vs-appearance-slider" key={control.key}>
-              <span>
-                {control.label}
-                <output>
-                  {draft[control.key]}
-                  {control.unit}
-                </output>
-              </span>
-              <input
-                type="range"
-                aria-label={control.label}
-                min={control.min}
-                max={control.max}
-                value={draft[control.key]}
-                disabled={pending}
-                onChange={(event) =>
-                  update({ [control.key]: Number(event.target.value) })
-                }
-              />
-            </label>
-          ))}
+          {controls.slice(0, 5).map(rangeControl)}
+          <details className="vs-appearance-advanced">
+            <summary>Text & readability</summary>
+            <div>
+              {controls.slice(5).map(rangeControl)}
+              <label className="vs-appearance-color">
+                <span>Text color</span>
+                <input
+                  type="color"
+                  aria-label="Text color"
+                  value={draft.textColor || "#f1edf7"}
+                  disabled={pending}
+                  onChange={(event) =>
+                    update({ textColor: event.target.value })
+                  }
+                />
+                <button
+                  type="button"
+                  disabled={pending || !draft.textColor}
+                  onClick={() => update({ textColor: "" })}
+                >
+                  Original
+                </button>
+              </label>
+              <label className="vs-appearance-color">
+                <span>Glow color</span>
+                <input
+                  type="color"
+                  aria-label="Glow color"
+                  value={draft.glowColor}
+                  disabled={pending}
+                  onChange={(event) =>
+                    update({ glowColor: event.target.value })
+                  }
+                />
+              </label>
+            </div>
+          </details>
           <label className="vs-appearance-color">
             <span>Background color</span>
             <input
@@ -168,12 +234,9 @@ export function ThemeCustomizer({
           </label>
         </div>
         <div className="vs-appearance-preview">
-          <iframe
+          <ThemePreviewFrame
             title={`${theme.name} appearance preview`}
-            sandbox=""
-            referrerPolicy="no-referrer"
-            srcDoc={themePreviewDocument(preview)}
-            tabIndex={-1}
+            css={preview}
           />
           <span>
             {draft.backgroundImage.startsWith("https:")
