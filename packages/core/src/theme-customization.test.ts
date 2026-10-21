@@ -33,6 +33,11 @@ test("appearance, embedded backgrounds and exclusive selection survive a fresh d
     opacity: 61,
     blur: 12,
     saturation: 83,
+    textColor: "#e8e3ff",
+    glowColor: "#aabbee",
+    glowStrength: 35,
+    popupOpacity: 95,
+    settingsOpacity: 98,
     backgroundImage: "data:image/png;base64,aGVsbG8=",
   };
   first.setThemeCustomization(glass.id, customization);
@@ -105,6 +110,10 @@ test("appearance rejects invalid controls and unsafe image schemes", () => {
     { radius: 50 },
     { saturation: Number.NaN },
     { backgroundColor: "red;background:url(x)" },
+    { textColor: "red;opacity:0" },
+    { glowStrength: 101 },
+    { popupOpacity: 0 },
+    { settingsOpacity: 5 },
   ]) {
     assert.equal(ThemeCustomizationSchema.safeParse(settings).success, false);
   }
