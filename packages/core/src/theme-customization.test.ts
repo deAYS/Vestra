@@ -112,11 +112,17 @@ test("appearance rejects invalid controls and unsafe image schemes", () => {
     { backgroundColor: "red;background:url(x)" },
     { textColor: "red;opacity:0" },
     { glowStrength: 101 },
-    { popupOpacity: 0 },
-    { settingsOpacity: 5 },
+    { popupOpacity: -1 },
+    { settingsOpacity: 101 },
   ]) {
     assert.equal(ThemeCustomizationSchema.safeParse(settings).success, false);
   }
+  assert.equal(
+    ThemeCustomizationSchema.safeParse({
+      opacity: 0, homeOpacity: 0, popupOpacity: 0, settingsOpacity: 0, brightness: 0,
+    }).success,
+    true,
+  );
   assert.equal(
     ThemeCustomizationSchema.safeParse({
       backgroundImage: "https://example.com/image.webp",
