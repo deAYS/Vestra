@@ -260,7 +260,11 @@ export const FullTimestamps = eventPlugin(
           ownTitle = text;
           element.setAttribute("title", text);
           if (!element.closest('h2,[class*="header_"]')) {
-            element.setAttribute("data-vestra-time-compact", new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(new Date(element.getAttribute("datetime")!)));
+            element.setAttribute("data-vestra-time-compact", new Intl.DateTimeFormat(undefined, {
+              hour: "2-digit",
+              minute: "2-digit",
+              hourCycle: booleanOption("FullTimestamps", "twelveHour", false) ? "h12" : "h23",
+            }).format(new Date(element.getAttribute("datetime")!)));
           } else element.removeAttribute("data-vestra-time-compact");
         } else {
           element.removeAttribute("data-vestra-time");
