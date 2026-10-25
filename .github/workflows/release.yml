@@ -60,7 +60,9 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          $taskRelease = gh api "repos/$env:GITHUB_REPOSITORY/releases/tags/$env:GITHUB_REF_NAME" | ConvertFrom-Json
+          $taskReleaseId = gh release view "$env:GITHUB_REF_NAME" --repo "$env:GITHUB_REPOSITORY" --json databaseId --jq .databaseId
+          if ($LASTEXITCODE -ne 0 -or -not $taskReleaseId) { throw "Could not find the draft release." }
+          $taskRelease = gh api "repos/$env:GITHUB_REPOSITORY/releases/$taskReleaseId" | ConvertFrom-Json
           if ($LASTEXITCODE -ne 0) { throw "Could not verify release assets." }
           $taskVersion = $env:GITHUB_REF_NAME.Substring(1)
           foreach ($taskKind in @('Setup', 'Portable')) {
