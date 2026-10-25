@@ -77,6 +77,49 @@ test("status and check report drift when only the backup is missing", async () =
   }
 });
 
+for (const operation of ["install", "repair"] as const) {
+  test(`${operation} can retry after a receipt write failure`, async () => {
+    const { fixture, service } = await harness();
+    try {
+      const native = await fs.readFile(fixture.asarPath);
+      const receipt = path.join(fixture.resourcesDir, RECEIPT_FILE);
+      await fs.mkdir(receipt);
+      assert.equal((await service.install()).ok, false);
+      assert.deepEqual(await fs.readFile(fixture.asarPath), native);
+      await fs.rmdir(receipt);
+      assert.equal((await service[operation]()).ok, true);
+      assert.equal((await service.check()).statuses[0]?.health, "healthy");
+      assert.deepEqual(await fs.readFile(fixture.asarPath + BACKUP_SUFFIX), native);
+      assert.equal((await service.uninstall()).ok, true);
+      assert.deepEqual(await fs.readFile(fixture.asarPath), native);
+    } finally {
+      await fixture.cleanup();
+    }
+  });
+}
+
+test("Repair preserves a native update when its old receipt is corrupt", async () => {
+  const { fixture, service } = await harness();
+  try {
+    const native = await fs.readFile(fixture.asarPath);
+    assert.equal((await service.install()).ok, true);
+    const source = path.join(fixture.base, "updated-native");
+    await fs.mkdir(source);
+    await fs.writeFile(path.join(source, "package.json"), JSON.stringify({ main: "new-main.js" }));
+    await fs.writeFile(path.join(source, "new-main.js"), "module.exports = 'new native';\n");
+    await packAsar(source, fixture.asarPath);
+    const updated = await fs.readFile(fixture.asarPath);
+    assert.notDeepEqual(updated, native);
+    await fs.writeFile(path.join(fixture.resourcesDir, RECEIPT_FILE), "{ interrupted");
+    assert.equal((await service.repair()).ok, true);
+    assert.deepEqual(await fs.readFile(fixture.asarPath + BACKUP_SUFFIX), updated);
+    assert.equal((await service.uninstall()).ok, true);
+    assert.deepEqual(await fs.readFile(fixture.asarPath), updated);
+  } finally {
+    await fixture.cleanup();
+  }
+});
+
 test("Repair replaces healthy archives and checks every bootstrap file", async () => {
   const { fixture, service } = await harness();
   try {

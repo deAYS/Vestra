@@ -167,7 +167,7 @@ function requireReceiptPath(install: DiscordInstall): string {
   return path.join(install.resourcesDir, RECEIPT_FILE);
 }
 
-/** Clear any previous patch (receipt-backed or stale) so a fresh inject can run. Never throws for IO conditions. */
+/** Clear previous patch state, preserving native updates and refusing unsafe recovery. */
 async function prepareFreshInstall(
   install: DiscordInstall,
   safety?: SafetyOptions,
@@ -176,21 +176,17 @@ async function prepareFreshInstall(
   // Preserve the new native archive; restoring an old backup would roll it back.
   const main = readAsarMain(install.asarPath);
   if (!readAsarFile(install.asarPath, main).includes("// __VESTRA_HOOK__")) {
-    if (readReceipt(install) !== undefined) {
-      assertDestructiveTestTargetAllowed(install.asarPath, safety ?? {});
-      await getRealFs().promises.rm(`${install.asarPath}${BACKUP_SUFFIX}`, {
-        force: true,
-      });
-      await fs.promises.rm(requireReceiptPath(install), { force: true });
-    }
+    // A previous rollback or native update can leave either sidecar behind,
+    // including an unreadable receipt. The readable native archive wins.
+    assertDestructiveTestTargetAllowed(install.asarPath, safety ?? {});
+    await fs.promises.rm(requireReceiptPath(install), { force: true });
+    await getRealFs().promises.rm(`${install.asarPath}${BACKUP_SUFFIX}`, {
+      force: true,
+    });
     return;
   }
   if (isInjected(install)) {
-    try {
-      await uninject(install, safety);
-    } catch {
-      // Fall through to backup reset below.
-    }
+    try { await uninject(install, safety); } catch { /* Retry from the backup below. */ }
   }
   await resetToBackup(install, safety);
 }
@@ -259,9 +255,7 @@ export async function installAll(
           continue;
         }
       }
-      if (options?.force === true) {
-        await prepareFreshInstall(install, safety);
-      }
+      await prepareFreshInstall(install, safety);
       const { plan } = planInject(install, payload, safety);
       await applyInject(plan, payload, safety);
       await done({
