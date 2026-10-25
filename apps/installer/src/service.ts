@@ -1,6 +1,8 @@
 import {
   isInjected,
+  hasInjectionBackup,
   listInstalls,
+  readReceipt,
   type DiscordChannel,
   type DiscordInstall,
   type DiscoveryOptions,
@@ -385,13 +387,23 @@ export function createInstallerService(
             detail: "not installed",
           };
         }
-        if (registry[install.asarPath] === undefined) {
+        if (!hasInjectionBackup(install)) {
           return {
             installation,
             health: "drifted" as const,
             vestraInstalled: true,
             repairable: true,
-            detail: "injected but not registered",
+            detail: "backup missing",
+            code: "backup-missing" as const,
+          };
+        }
+        if (registry[install.asarPath] === undefined || readReceipt(install) === undefined) {
+          return {
+            installation,
+            health: "drifted" as const,
+            vestraInstalled: true,
+            repairable: true,
+            detail: "injected but registry or receipt missing or invalid",
             code: "receipt-invalid" as const,
           };
         }

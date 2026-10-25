@@ -307,10 +307,10 @@ describe("installer service", () => {
         ),
         { force: true },
       );
-      // Dropping the receipt makes the install read unhealthy (not injected).
+      // A missing receipt is drift; the remaining hook still counts as installed.
       const drifted = await installer.check({ channels: ["canary"] });
-      assert.notEqual(drifted.statuses[0]?.health, "healthy");
-      assert.equal(drifted.statuses[0]?.vestraInstalled, false);
+      assert.equal(drifted.statuses[0]?.health, "drifted");
+      assert.equal(drifted.statuses[0]?.vestraInstalled, true);
 
       // Stable-scoped repair must not touch canary.
       const stableRepair = await installer.repair({ channels: ["stable"] });

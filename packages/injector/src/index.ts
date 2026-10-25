@@ -15,6 +15,7 @@ export {
   applyInject,
   uninject,
   isInjected,
+  hasInjectionBackup,
   readReceipt,
   VESTRA_DIR,
   RECEIPT_FILE,

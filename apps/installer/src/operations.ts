@@ -11,6 +11,7 @@ import {
   RECEIPT_FILE,
   applyInject,
   getRealFs,
+  hasInjectionBackup,
   isInjected,
   listInstalls,
   planInject,
@@ -423,7 +424,9 @@ export async function checkHealth(
   } catch (err: unknown) {
     detail = `asar unreadable: ${describe(err)}`;
   }
-  const healthy = asarOk && staged.ok && entry !== undefined;
+  const receiptOk = readReceipt(install) !== undefined;
+  const backupOk = hasInjectionBackup(install);
+  const healthy = asarOk && staged.ok && entry !== undefined && receiptOk && backupOk;
   return {
     ...base,
     injected,
@@ -431,7 +434,7 @@ export async function checkHealth(
     payloadOk: staged.ok,
     asarOk,
     healthy,
-    detail: healthy ? "healthy" : detail,
+    detail: !receiptOk ? "receipt missing or invalid" : !backupOk ? "backup missing" : healthy ? "healthy" : detail,
   };
 }
 

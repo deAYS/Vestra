@@ -8,7 +8,8 @@ import {
   fixtureDiscovery,
   writeTestBundle,
 } from "./test-fixtures.js";
-import { packAsar, readAsarFile, unpackAsar } from "@vestra/injector";
+import { BACKUP_SUFFIX, RECEIPT_FILE, packAsar, readAsarFile, unpackAsar } from "@vestra/injector";
+import { layoutHome } from "./home.js";
 
 async function harness() {
   const fixture = await createTestDiscordInstall({ channel: "stable" });
@@ -22,6 +23,59 @@ async function harness() {
   });
   return { fixture, service };
 }
+
+for (const receiptState of ["corrupt", "missing"] as const) {
+  test(`Uninstall restores native bytes with a ${receiptState} receipt and no registry`, async () => {
+    const { fixture, service } = await harness();
+    try {
+      const native = await fs.readFile(fixture.asarPath);
+      assert.equal((await service.install()).ok, true);
+      const receipt = path.join(fixture.resourcesDir, RECEIPT_FILE);
+      if (receiptState === "corrupt") await fs.writeFile(receipt, "{ interrupted receipt");
+      else await fs.unlink(receipt);
+      await fs.unlink(layoutHome(path.join(fixture.base, "home")).registryPath);
+      assert.equal((await service.check()).statuses[0]?.health, "drifted");
+      assert.equal((await service.status()).statuses[0]?.health, "drifted");
+      const result = await service.uninstall({ channels: ["stable"] });
+      assert.equal(result.ok, true);
+      assert.equal(result.results[0]?.action, "uninstalled");
+      assert.deepEqual(await fs.readFile(fixture.asarPath), native);
+      assert.equal((await service.check()).statuses[0]?.health, "not-installed");
+    } finally {
+      await fixture.cleanup();
+    }
+  });
+}
+
+test("Uninstall reports failure when a remaining hook has no usable backup", async () => {
+  const { fixture, service } = await harness();
+  try {
+    assert.equal((await service.install()).ok, true);
+    await fs.unlink(fixture.asarPath + BACKUP_SUFFIX);
+    await fs.unlink(path.join(fixture.resourcesDir, RECEIPT_FILE));
+    const hooked = await fs.readFile(fixture.asarPath);
+    const result = await service.uninstall();
+    assert.equal(result.ok, false);
+    assert.equal(result.results[0]?.action, "failed");
+    assert.deepEqual(await fs.readFile(fixture.asarPath), hooked);
+    assert.equal((await service.check()).statuses[0]?.health, "drifted");
+  } finally {
+    await fixture.cleanup();
+  }
+});
+
+test("status and check report drift when only the backup is missing", async () => {
+  const { fixture, service } = await harness();
+  try {
+    assert.equal((await service.install()).ok, true);
+    await fs.unlink(fixture.asarPath + BACKUP_SUFFIX);
+    assert.equal((await service.check()).statuses[0]?.health, "drifted");
+    assert.equal((await service.status()).statuses[0]?.health, "drifted");
+    assert.equal((await service.uninstall()).ok, false);
+  } finally {
+    await fixture.cleanup();
+  }
+});
 
 test("Repair replaces healthy archives and checks every bootstrap file", async () => {
   const { fixture, service } = await harness();

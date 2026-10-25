@@ -69,13 +69,24 @@ export function readReceipt(
   }
 }
 
-/** True when a receipt + backup exist (no unpacking needed). */
-export function isInjected(install: DiscordInstall): boolean {
-  if (readReceipt(install) === undefined) return false;
+/** Whether the physical recovery sidecar exists (without reading archive contents). */
+export function hasInjectionBackup(install: DiscordInstall): boolean {
   // Physical backup probe (`app.asar.vestra-backup` contains `.asar`
   // mid-path): must use the unpatched filesystem under Electron.
   try {
     return getRealFs().statSync(backupPathFor(install)).isFile();
+  } catch {
+    return false;
+  }
+}
+
+/** Receipt + backup is the fast path; a surviving hook also proves injection. */
+export function isInjected(install: DiscordInstall): boolean {
+  if (readReceipt(install) !== undefined && hasInjectionBackup(install)) return true;
+  // Missing metadata must not conceal a hook left inside the archive.
+  try {
+    return readAsarFile(install.asarPath, readAsarMain(install.asarPath))
+      .includes(HOOK_REQUIRE_PREFIX);
   } catch {
     return false;
   }
