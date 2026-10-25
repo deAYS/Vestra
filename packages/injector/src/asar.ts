@@ -1,11 +1,37 @@
 import * as fs from "node:fs";
 import * as asar from "@electron/asar";
 import * as path from "node:path";
+import { getRealFs } from "./realFs.js";
 
 export class AsarError extends Error {
   constructor(message: string) {
     super(message);
     this.name = "AsarError";
+  }
+}
+
+/** Validate all packed file extents before using an archive for recovery. */
+export function validateAsar(asarPath: string): void {
+  try {
+    asar.uncache(asarPath);
+    const { header, headerSize } = asar.getRawHeader(asarPath);
+    const contentSize = getRealFs().statSync(asarPath).size - 8 - headerSize;
+    const visit = (directory: asar.DirectoryRecord): void => {
+      for (const entry of Object.values(directory.files)) {
+        if ("files" in entry) visit(entry);
+        else if (!("link" in entry) && !entry.unpacked) {
+          const offset = Number(entry.offset);
+          if (!Number.isSafeInteger(offset) || offset < 0 ||
+              !Number.isSafeInteger(entry.size) || entry.size < 0 ||
+              offset > contentSize || entry.size > contentSize - offset) {
+            throw new Error("Packed file extends beyond archive boundary.");
+          }
+        }
+      }
+    };
+    visit(header);
+  } catch (err: unknown) {
+    throw new AsarError(`Invalid recovery archive "${asarPath}": ${describe(err)}`);
   }
 }
 

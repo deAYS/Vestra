@@ -143,6 +143,31 @@ test("Repair refuses an unreadable backup without replacing a readable hooked ar
   }
 });
 
+for (const operation of ["repair", "uninstall"] as const) {
+  test(`${operation} refuses a truncated backup even when package.json and main remain readable`, async () => {
+    const { fixture, service } = await harness();
+    try {
+      const source = path.join(fixture.base, "native-with-runtime");
+      await fs.mkdir(source);
+      await fs.writeFile(path.join(source, "package.json"), JSON.stringify({ main: "index.js" }));
+      await fs.writeFile(path.join(source, "index.js"), "module.exports = require('./z-runtime.js');\n");
+      await fs.writeFile(path.join(source, "z-runtime.js"), "module.exports = 'native runtime';\n");
+      await packAsar(source, fixture.asarPath);
+      const native = await fs.readFile(fixture.asarPath);
+      assert.equal((await service.install()).ok, true);
+      const hooked = await fs.readFile(fixture.asarPath);
+      const backup = native.subarray(0, native.length - 1);
+      await fs.writeFile(fixture.asarPath + BACKUP_SUFFIX, backup);
+      assert.match(readAsarFile(fixture.asarPath + BACKUP_SUFFIX, "index.js"), /require/);
+      assert.equal((await service[operation]()).ok, false);
+      assert.deepEqual(await fs.readFile(fixture.asarPath), hooked);
+      assert.deepEqual(await fs.readFile(fixture.asarPath + BACKUP_SUFFIX), backup);
+    } finally {
+      await fixture.cleanup();
+    }
+  });
+}
+
 test("Repair preserves a native update when its old receipt is corrupt", async () => {
   const { fixture, service } = await harness();
   try {

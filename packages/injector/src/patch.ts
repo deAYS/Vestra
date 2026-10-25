@@ -5,7 +5,7 @@ import {
   assertDestructiveTestTargetAllowed,
   type SafetyOptions,
 } from "@vestra/shared/node/testSafety.js";
-import { packAsar, readAsarFile, readAsarMain, unpackAsar } from "./asar.js";
+import { packAsar, readAsarFile, readAsarMain, unpackAsar, validateAsar } from "./asar.js";
 import type { DiscordInstall } from "./paths.js";
 import { getRealFs } from "./realFs.js";
 
@@ -257,6 +257,7 @@ export async function uninject(
   }
   if (restore) {
     const backup = backupPathFor(install);
+    validateAsar(backup);
     const main = readAsarMain(backup);
     if (readAsarFile(backup, main).includes(HOOK_REQUIRE_PREFIX)) {
       throw new Error(`Backup is already hooked: ${backup}`);
