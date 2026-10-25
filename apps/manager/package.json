@@ -1,6 +1,6 @@
 {
   "name": "@vestra/manager",
-  "version": "0.1.0-alpha.4",
+  "version": "0.1.0-alpha.5",
   "private": true,
   "type": "module",
   "description": "Vestra Manager — Discord installation management GUI (Electron).",
