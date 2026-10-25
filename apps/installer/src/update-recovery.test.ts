@@ -98,6 +98,51 @@ for (const operation of ["install", "repair"] as const) {
   });
 }
 
+test("Repair recovers an unreadable live ASAR from its pristine backup", async () => {
+  const { fixture, service } = await harness();
+  try {
+    const native = await fs.readFile(fixture.asarPath);
+    assert.equal((await service.install()).ok, true);
+    await fs.writeFile(fixture.asarPath, "interrupted app.asar write");
+    const result = await service.repair();
+    assert.equal(result.ok, true);
+    assert.equal((await service.check()).statuses[0]?.health, "healthy");
+    assert.deepEqual(await fs.readFile(fixture.asarPath + BACKUP_SUFFIX), native);
+    assert.equal((await service.uninstall()).ok, true);
+    assert.deepEqual(await fs.readFile(fixture.asarPath), native);
+  } finally {
+    await fixture.cleanup();
+  }
+});
+
+test("Repair preserves both files when neither the live ASAR nor its backup is readable", async () => {
+  const { fixture, service } = await harness();
+  try {
+    assert.equal((await service.install()).ok, true);
+    await fs.writeFile(fixture.asarPath, "damaged live archive");
+    await fs.writeFile(fixture.asarPath + BACKUP_SUFFIX, "damaged backup");
+    assert.equal((await service.repair()).ok, false);
+    assert.equal(await fs.readFile(fixture.asarPath, "utf8"), "damaged live archive");
+    assert.equal(await fs.readFile(fixture.asarPath + BACKUP_SUFFIX, "utf8"), "damaged backup");
+  } finally {
+    await fixture.cleanup();
+  }
+});
+
+test("Repair refuses an unreadable backup without replacing a readable hooked archive", async () => {
+  const { fixture, service } = await harness();
+  try {
+    assert.equal((await service.install()).ok, true);
+    const hooked = await fs.readFile(fixture.asarPath);
+    await fs.writeFile(fixture.asarPath + BACKUP_SUFFIX, "damaged backup");
+    assert.equal((await service.repair()).ok, false);
+    assert.deepEqual(await fs.readFile(fixture.asarPath), hooked);
+    assert.equal(await fs.readFile(fixture.asarPath + BACKUP_SUFFIX, "utf8"), "damaged backup");
+  } finally {
+    await fixture.cleanup();
+  }
+});
+
 test("Repair preserves a native update when its old receipt is corrupt", async () => {
   const { fixture, service } = await harness();
   try {

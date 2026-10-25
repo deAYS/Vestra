@@ -130,7 +130,8 @@ async function ensurePayload(ctx: OperationContext): Promise<string> {
 
 /**
  * Best-effort reset to the pristine backup (stale hook without receipt).
- * Returns true when a backup was restored. Never throws for IO conditions.
+ * Returns true when recovery succeeds. Readable native updates are preserved.
+ * Never throws for IO conditions.
  * When a backup exists (a write is about to happen), the Discord-mutation
  * guard runs first and MAY throw in test mode for unsafe targets.
  */
@@ -138,25 +139,10 @@ export async function resetToBackup(
   install: DiscordInstall,
   safety?: SafetyOptions,
 ): Promise<boolean> {
-  let backupIsFile = false;
-  try {
-    backupIsFile = getRealFs()
-      .statSync(`${install.asarPath}${BACKUP_SUFFIX}`)
-      .isFile();
-  } catch {
-    backupIsFile = false;
-  }
-  if (!backupIsFile) return false;
+  if (!hasInjectionBackup(install)) return false;
   assertDestructiveTestTargetAllowed(install.asarPath, safety ?? {});
   try {
-    await getRealFs().promises.copyFile(
-      `${install.asarPath}${BACKUP_SUFFIX}`,
-      install.asarPath,
-    );
-    await fs.promises.rm(requireReceiptPath(install), { force: true });
-    await getRealFs().promises.rm(`${install.asarPath}${BACKUP_SUFFIX}`, {
-      force: true,
-    });
+    await uninject(install, safety);
     return true;
   } catch {
     return false;
@@ -174,8 +160,15 @@ async function prepareFreshInstall(
 ): Promise<void> {
   // An updater may replace app.asar in place while leaving our receipt behind.
   // Preserve the new native archive; restoring an old backup would roll it back.
-  const main = readAsarMain(install.asarPath);
-  if (!readAsarFile(install.asarPath, main).includes("// __VESTRA_HOOK__")) {
+  let hooked: boolean;
+  try {
+    const main = readAsarMain(install.asarPath);
+    hooked = readAsarFile(install.asarPath, main).includes("// __VESTRA_HOOK__");
+  } catch (err: unknown) {
+    if (await resetToBackup(install, safety)) return;
+    throw err;
+  }
+  if (!hooked) {
     // A previous rollback or native update can leave either sidecar behind,
     // including an unreadable receipt. The readable native archive wins.
     assertDestructiveTestTargetAllowed(install.asarPath, safety ?? {});
@@ -185,10 +178,7 @@ async function prepareFreshInstall(
     });
     return;
   }
-  if (isInjected(install)) {
-    try { await uninject(install, safety); } catch { /* Retry from the backup below. */ }
-  }
-  await resetToBackup(install, safety);
+  await uninject(install, safety);
 }
 
 /**

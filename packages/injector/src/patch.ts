@@ -245,19 +245,24 @@ export async function uninject(
   safety?: SafetyOptions,
 ): Promise<void> {
   assertDestructiveTestTargetAllowed(install.asarPath, safety ?? {});
-  let backupIsFile = false;
-  try {
-    backupIsFile = getRealFs().statSync(backupPathFor(install)).isFile();
-  } catch {
-    backupIsFile = false;
-  }
-  if (!backupIsFile) {
+  if (!hasInjectionBackup(install)) {
     throw new Error(`Not injected (no backup): ${install.asarPath}`);
   }
-  const main = readAsarMain(install.asarPath);
-  if (readAsarFile(install.asarPath, main).includes(HOOK_REQUIRE_PREFIX)) {
+  let restore = true;
+  try {
+    const main = readAsarMain(install.asarPath);
+    restore = readAsarFile(install.asarPath, main).includes(HOOK_REQUIRE_PREFIX);
+  } catch {
+    // An interrupted archive write can only be recovered from the backup.
+  }
+  if (restore) {
+    const backup = backupPathFor(install);
+    const main = readAsarMain(backup);
+    if (readAsarFile(backup, main).includes(HOOK_REQUIRE_PREFIX)) {
+      throw new Error(`Backup is already hooked: ${backup}`);
+    }
     await getRealFs().promises.copyFile(
-      backupPathFor(install),
+      backup,
       install.asarPath,
     );
   }
