@@ -49,6 +49,8 @@ interface AuthoredFacts {
   cssWallpaper: string | undefined;
   /** Declared `--glass-blur`/`--glass-saturation`: the theme's own pane blur. */
   glass: { blur: number; saturation: number } | undefined;
+  /** How the renderer handles the theme's own wallpaper (computed on first use). */
+  ownWallpaper: WallpaperSource | undefined;
 }
 
 /** Generator work counters; tests use them to observe cache hits. */
@@ -81,17 +83,42 @@ function declarationValue(css: string, from: number): string {
   return css.slice(from);
 }
 
-/** The first `pattern` declaration's value, `!important` removed. */
+/**
+ * The first `pattern` declaration's value, `!important` removed; with
+ * `important`, the first one marked `!important`. `pattern` must be global.
+ */
 function authoredValue(
   css: string,
   pattern: RegExp,
   important = false,
 ): string | undefined {
-  const match = pattern.exec(css);
-  if (!match) return undefined;
-  const value = declarationValue(css, match.index + match[0].length);
-  if (important && !/!important\s*$/.test(value)) return undefined;
-  return value.replace(/!important\s*$/, "").trim() || undefined;
+  for (const match of css.matchAll(pattern)) {
+    const value = declarationValue(css, match.index + match[0].length);
+    if (important && !/!important\s*$/.test(value)) continue;
+    return value.replace(/!important\s*$/, "").trim() || undefined;
+  }
+  return undefined;
+}
+
+/**
+ * Replace `var(--name)` (or `var(--name,fallback)`) with the value the theme
+ * itself declares for `--name`, else the fallback. Unknown variables and
+ * cycles stay as they are (and make the wallpaper undrawable).
+ */
+function resolveVariables(css: string, value: string): string {
+  let result = value;
+  for (let pass = 0; pass < 4 && /var\(/i.test(result); pass++) {
+    const next = result.replace(
+      /var\(\s*(--[\w-]+)\s*(?:,([^()]*))?\)/g,
+      (whole, name: string, fallback: string | undefined) =>
+        authoredValue(css, new RegExp(`(?<![\\w-])${name}\\s*:`, "g")) ??
+        fallback?.trim() ??
+        whole,
+    );
+    if (next === result) break;
+    result = next;
+  }
+  return result;
 }
 
 function authoredFacts(css: string): AuthoredFacts {
@@ -111,8 +138,9 @@ function authoredFacts(css: string): AuthoredFacts {
     base: authoredColor("background-tertiary") ?? primary,
     paneRgb: rgbColor(primary ?? "#16121e"),
     popupRgb: rgbColor(authoredColor("background-floating") ?? "#181520"),
-    wallpaper: authoredValue(css, /#app-mount\s*\{\s*background:/, true),
-    cssWallpaper: authoredValue(css, /--vestra-wallpaper:/),
+    wallpaper: authoredValue(css, /#app-mount\s*\{\s*background:/g, true),
+    cssWallpaper: authoredValue(css, /--vestra-wallpaper:/g),
+    ownWallpaper: undefined,
     glass: undefined,
   };
   const blur = css.match(/--glass-blur:\s*(\d+(?:\.\d+)?)px/)?.[1];
@@ -224,6 +252,7 @@ function classifyWallpaper(value: string | undefined): WallpaperSource {
 function customWallpaper(
   c: ThemeCustomization,
   authored: AuthoredFacts,
+  css: string,
 ): WallpaperSource & { value: string } {
   const base = c.backgroundColor || (authored.base ?? "#262132");
   if (c.backgroundImage)
@@ -238,10 +267,10 @@ function customWallpaper(
     return { value, image: null, css: value, forceLayer: false };
   }
   const original = authored.wallpaper || base;
-  return {
-    value: `var(--vestra-wallpaper,${original})`,
-    ...classifyWallpaper(authored.cssWallpaper ?? original),
-  };
+  authored.ownWallpaper ??= classifyWallpaper(
+    resolveVariables(css, authored.cssWallpaper ?? original),
+  );
+  return { value: `var(--vestra-wallpaper,${original})`, ...authored.ownWallpaper };
 }
 
 /**
@@ -255,7 +284,7 @@ export function glassInputs(theme: ThemeInput): GlassInputs | null {
     ? ThemeCustomizationSchema.parse(theme.customization)
     : undefined;
   if (c?.surfaceOverrides) {
-    const wallpaper = customWallpaper(c, authored);
+    const wallpaper = customWallpaper(c, authored, theme.css);
     return {
       image: wallpaper.image,
       css: wallpaper.css,
@@ -282,7 +311,7 @@ export function themeCustomizationCss(theme: ThemeInput): string {
   const c = ThemeCustomizationSchema.parse(theme.customization);
   const authored = authoredFacts(theme.css);
   const { paneRgb, popupRgb } = authored;
-  const custom = customWallpaper(c, authored);
+  const custom = customWallpaper(c, authored, theme.css);
   const wallpaper = custom.value;
   // Previews have no renderer; they blur the panes wherever the app does.
   const previewFilter =

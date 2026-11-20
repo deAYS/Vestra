@@ -108,8 +108,9 @@ export function defineWrapper<T>(name: string, options: DefineWrapperOptions<T>)
     get(): T | undefined {
       if (settled) return cached;
       const now = Date.now();
-      if (missCount !== undefined && now - missAt < missRetryMs) {
-        if (now - countCheckedAt < MISS_COUNT_CHECK_MS) return undefined;
+      // A clock that moved backwards ends the wait instead of extending it.
+      if (missCount !== undefined && now >= missAt && now - missAt < missRetryMs) {
+        if (now >= countCheckedAt && now - countCheckedAt < MISS_COUNT_CHECK_MS) return undefined;
         countCheckedAt = now;
         if (moduleCount() === missCount) return undefined;
       }

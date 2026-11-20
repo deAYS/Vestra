@@ -527,6 +527,32 @@ test("a wrapper miss checks the module count at most every 100 ms and backs off 
   }
 });
 
+test("a wrapper miss survives the clock jumping backwards", () => {
+  let size = 10;
+  let resolves = 0;
+  const wrapper = defineWrapper("Skew", {
+    finder: { getModuleCacheSize: () => size } as unknown as WebpackFinder,
+    resolve: () => {
+      resolves += 1;
+      return undefined;
+    },
+  });
+  const clock = fakeNow();
+  try {
+    clock.set(60_000);
+    wrapper.get();
+    clock.set(0);
+    size += 1;
+    wrapper.get();
+    assert.equal(resolves, 2, "a count change is still noticed after the clock moved back");
+    clock.set(-60_000);
+    wrapper.get();
+    assert.equal(resolves, 3, "a miss from the future counts as expired");
+  } finally {
+    clock.restore();
+  }
+});
+
 test("a finder without a module count keeps the 1 s retry", () => {
   let resolves = 0;
   const wrapper = defineWrapper("NoCount", {

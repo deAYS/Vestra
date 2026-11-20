@@ -490,3 +490,19 @@ test("a customized theme's own image wallpaper is drawn as an image or blurred a
     "previews blur an undrawable wallpaper like the app's layer",
   );
 });
+
+test("wallpaper variables declared by the theme resolve before the renderer decides", () => {
+  const custom = { ...DEFAULT_THEME_CUSTOMIZATION, blur: 18 };
+  const inputsFor = (css: string) => glassInputs({ css, customization: custom });
+  const data = "data:image/png;base64,QQ==";
+  assert.equal(
+    inputsFor(`#app-mount{background:#111;}#app-mount{background:url("${data}") center/cover!important;}`)?.image,
+    data,
+    "the first #app-mount background with !important is the wallpaper",
+  );
+  assert.equal(inputsFor(`:root{--my-wall:url(${data}) center/cover;--vestra-wallpaper:var(--my-wall)}`)?.image, data);
+  assert.equal(inputsFor(":root{--a:linear-gradient(red,blue);--vestra-wallpaper:var(--a)}")?.css, "linear-gradient(red,blue)");
+  const flat = inputsFor(":root{--my-color:#202020;--vestra-wallpaper:var(--my-color)}");
+  assert.deepEqual([flat?.image, flat?.css, flat?.forceLayer], [null, null, undefined], "a variable holding a flat colour tints");
+  assert.equal(inputsFor(":root{--a:var(--a);--vestra-wallpaper:var(--a)}")?.forceLayer, true, "a cycle stays undrawable");
+});
