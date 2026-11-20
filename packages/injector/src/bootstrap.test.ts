@@ -292,7 +292,8 @@ function mainFixture(
         return JSON.stringify(opts.receipt);
       return realFs.readFileSync(guardedRead(file), enc as "utf8");
     },
-    statSync() {
+    statSync(file: string) {
+      if (opts.appData !== undefined && file.startsWith(opts.appData)) return realFs.statSync(file);
       throw new Error("ENOENT");
     },
     mkdirSync: guarded(realFs.mkdirSync),
@@ -699,7 +700,7 @@ function shellFixture() {
     "//host/share/x.exe",
     "\\\\?\\C:\\Windows\\notepad.exe",
     "\\\\.\\C:\\Windows\\notepad.exe",
-    path.join(home, "..", "outside", "evil.exe"),
+    home + "\..\outside\evil.exe",
     path.join(junction, "evil.exe"),
     path.join(home, "missing.txt"),
     "plugins\\a.txt",
@@ -715,20 +716,31 @@ test("shell channels open only existing paths inside the Vestra folder", async (
   const { appData, home, inside, bad, handlers, sender, shellCalls } =
     shellFixture();
   try {
-    for (const [channel, call] of [
-      ["vestra:native:shell:openPath", "openPath"],
-      ["vestra:native:shell:showItemInFolder", "showItemInFolder"],
-    ] as const) {
-      const handler = handlers.get(channel)!;
-      shellCalls.length = 0;
-      assert.equal(await handler(sender, [inside]), true);
-      assert.equal(await handler(sender, [home]), true);
-      assert.deepEqual(shellCalls, [[call, inside], [call, home]]);
-      shellCalls.length = 0;
+    const showItem = handlers.get("vestra:native:shell:showItemInFolder")!;
+    assert.equal(await showItem(sender, [inside]), true);
+    assert.equal(await showItem(sender, [home]), true);
+    assert.deepEqual(shellCalls, [["showItemInFolder", inside], ["showItemInFolder", home]]);
+    shellCalls.length = 0;
+    const open = handlers.get("vestra:native:shell:openPath")!;
+    assert.equal(await open(sender, [home]), true);
+    assert.equal(await open(sender, [path.dirname(inside)]), true);
+    assert.deepEqual(shellCalls, [["openPath", home], ["openPath", path.dirname(inside)]]);
+    shellCalls.length = 0;
+    for (const handler of [showItem, open])
       for (const p of bad)
         await assert.rejects(() => handler(sender, [p]), /outside Vestra folders/, String(p));
-      assert.deepEqual(shellCalls, []);
-    }
+    assert.deepEqual(shellCalls, []);
+  } finally {
+    realFs.rmSync(appData, { recursive: true, force: true });
+  }
+});
+
+test("shell:openPath refuses files even inside the Vestra folder", async () => {
+  const { appData, inside, handlers, sender, shellCalls } = shellFixture();
+  try {
+    const open = handlers.get("vestra:native:shell:openPath")!;
+    await assert.rejects(() => open(sender, [inside]), /not a folder/);
+    assert.deepEqual(shellCalls, []);
   } finally {
     realFs.rmSync(appData, { recursive: true, force: true });
   }

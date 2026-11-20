@@ -282,7 +282,10 @@ export function buildMainHookSource(options: MainHookOptions): string {
       return writeSettings(text);
     },
     "shell:openPath": async (p) => {
-      const res = await shell.openPath(vestraPath("shell:openPath", p));
+      const target = vestraPath("shell:openPath", p);
+      // Folders only: opening a file could hand it to Windows Script Host.
+      if (!fs.statSync(fs.realpathSync(target)).isDirectory()) throw new TypeError("shell:openPath: not a folder");
+      const res = await shell.openPath(target);
       if (res !== "") throw new Error(res);
       return true;
     },
