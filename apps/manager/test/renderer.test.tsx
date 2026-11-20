@@ -630,6 +630,32 @@ describe("manager renderer", () => {
     assert.match(statusOf("canary"), /^Vestra active · started /);
   });
 
+  test("a background re-install moves the row on when the window regains focus", async () => {
+    fake.recovery.canary = {
+      phase: "waiting-for-exit",
+      version: "1.0.1156",
+      at: Date.now() - 1000,
+      attempts: 0,
+    };
+    await mount();
+    assert.equal(statusOf("canary"), "Waiting for Discord restart");
+    // The user reopened Discord themselves; recovery patched it meanwhile.
+    fake.installed.add("canary");
+    fake.recovery.canary = {
+      phase: "patched",
+      version: "1.0.1156",
+      at: Date.now(),
+      attempts: 0,
+    };
+    await act(async () => {
+      happyWindow.dispatchEvent(new happyWindow.Event("focus"));
+    });
+    await settle();
+    assert.equal(statusOf("canary"), "Installed · will start next time Discord opens");
+    assert.equal(byTestId("install-canary"), null, "never offers Install over a re-install");
+    assert.match(text(), /Last re-installed into 1\.0\.1156/);
+  });
+
   test("10+11. Install sends one channel, then verifies and refreshes run status", async () => {
     await mount();
     const runBefore = callsOf("runStatus").length;

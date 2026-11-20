@@ -184,14 +184,35 @@ export function useManager(): ManagerState {
   const devModeRef = useRef(devMode);
   devModeRef.current = devMode;
 
-  /** A failed read keeps what is shown; with nothing shown rows read neutral. */
-  const loadRun = useCallback(async (): Promise<void> => {
+  /** Last seen recovery record per channel, to notice background re-installs. */
+  const recoverySeen = useRef<Partial<Record<DiscordChannel, string>>>({});
+
+  /**
+   * A failed read keeps what is shown; with nothing shown rows read neutral.
+   * Returns channels whose recovery record changed since the previous read.
+   */
+  const loadRun = useCallback(async (): Promise<DiscordChannel[]> => {
+    let next: RunStatusMap;
     try {
-      const next = await managerApi().runStatus();
-      if (mounted.current) setRun(next);
+      next = await managerApi().runStatus();
     } catch {
       /* bridge or file trouble: never a reason to claim a state */
+      return [];
     }
+    if (!mounted.current) return [];
+    setRun(next);
+    const changed: DiscordChannel[] = [];
+    for (const [key, status] of Object.entries(next)) {
+      const channel = key as DiscordChannel;
+      const record = status?.recovery;
+      const seen = record
+        ? `${record.phase}|${record.version ?? ""}|${record.at}`
+        : "";
+      const before = recoverySeen.current[channel];
+      if (before !== undefined && before !== seen) changed.push(channel);
+      recoverySeen.current[channel] = seen;
+    }
+    return changed;
   }, []);
 
   const checkOne = useCallback(
@@ -308,6 +329,30 @@ export function useManager(): ManagerState {
     [checkOne, loadRun],
   );
 
+  /**
+   * Background refresh. Recovery can re-install Vestra while the Manager is
+   * open; when a channel's recovery record changes, re-read that row's files
+   * too, since file state outranks start status in the row.
+   */
+  const pollRun = useCallback(async (): Promise<void> => {
+    const changed = await loadRun();
+    for (const channel of changed) {
+      if (busy.current || !mounted.current) return;
+      try {
+        const summary = await managerApi().status({ channels: [channel] });
+        if (!mounted.current) return;
+        const found = summary.statuses.find(
+          (s) => s.installation.channel === channel,
+        );
+        if (found === undefined) continue;
+        setShallow((prev) => ({ ...prev, [channel]: found }));
+        if (found.vestraInstalled) await checkOne(channel);
+      } catch {
+        /* shown again on the next Refresh */
+      }
+    }
+  }, [checkOne, loadRun]);
+
   useEffect(() => {
     const off = (() => {
       try {
@@ -320,8 +365,8 @@ export function useManager(): ManagerState {
       }
     })();
     void load(false);
-    const poll = setInterval(() => void loadRun(), RUN_STATUS_POLL_MS);
-    const onFocus = (): void => void loadRun();
+    const poll = setInterval(() => void pollRun(), RUN_STATUS_POLL_MS);
+    const onFocus = (): void => void pollRun();
     window.addEventListener("focus", onFocus);
     return () => {
       if (typeof off === "function") off();
