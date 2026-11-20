@@ -432,3 +432,19 @@ test("memo snapshots do not deep-copy the embedded image", () => {
     globalThis.structuredClone = original;
   }
 });
+
+test("Liquid Glass 2.3.0 falls back to one fixed blurred layer when the image cannot be used", () => {
+  const glass = THEME_LIBRARY.find((theme) => theme.name === "Vestra Liquid Glass")!;
+  const rules = cssRules(glass.css);
+  const layer = rules.find((rule) => rule.selector.startsWith(':root[data-vestra-glass="layer"] #app-mount::before'));
+  assert.ok(layer, "the theme has a layer-mode rule");
+  for (const part of ["position:fixed", "z-index:-1", "filter:blur(26px) saturate(125%)", "background:var(--vestra-custom-wallpaper,var(--vestra-wallpaper))"])
+    assert.ok(layer.body.includes(part), `layer rule has ${part}`);
+  assert.ok(
+    rules.some((rule) => rule.selector === ':root[data-vestra-glass="layer"] #app-mount' && rule.body.includes("isolation:isolate")),
+    "the layer stays behind the app's content",
+  );
+  // Customized: the generator's own layer rule follows and sets its own blur.
+  const customized = customizedThemeCss({ css: glass.css, customization: { ...DEFAULT_THEME_CUSTOMIZATION, blur: 12, saturation: 80, brightness: 95 } });
+  assert.ok(customized.lastIndexOf("filter:blur(12px) saturate(80%) brightness(95%)") > customized.indexOf("filter:blur(26px) saturate(125%)"));
+});

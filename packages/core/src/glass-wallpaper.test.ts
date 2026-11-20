@@ -31,6 +31,8 @@ interface HarnessOptions {
   blob?: boolean;
   /** No constructable stylesheets: the variable goes on <html>'s inline style. */
   inlineOnly?: boolean;
+  /** Start without the chat pane mounted; a fake MutationObserver is provided. */
+  noPane?: boolean;
 }
 
 /**
@@ -41,8 +43,21 @@ interface HarnessOptions {
 function harness(options: HarnessOptions = {}) {
   const hd = new Window();
   const doc = hd.document as unknown as Document;
-  doc.body.innerHTML =
-    '<div id="app-mount"><div class="layer_x" id="layer"><main class="chat_x" id="chat"></main></div></div>';
+  doc.body.innerHTML = options.noPane
+    ? '<div id="app-mount"><div class="layer_x" id="layer"></div></div>'
+    : '<div id="app-mount"><div class="layer_x" id="layer"><main class="chat_x" id="chat"></main></div></div>';
+  const observers: Array<{ callback: () => void; active: boolean; target: unknown; options: unknown }> = [];
+  class FakeObserver {
+    private entry?: { callback: () => void; active: boolean; target: unknown; options: unknown };
+    constructor(private readonly callback: () => void) {}
+    observe(target: unknown, options: unknown) {
+      this.entry = { callback: this.callback, active: true, target, options };
+      observers.push(this.entry);
+    }
+    disconnect() {
+      if (this.entry) this.entry.active = false;
+    }
+  }
   const listeners = new Set<() => void>();
   let clock = 0;
   const timers = new Map<number, { at: number; run: () => void }>();
@@ -85,6 +100,7 @@ function harness(options: HarnessOptions = {}) {
       return idleCallbacks.length;
     };
   if (options.blob) win.FileReader = FakeReader;
+  win.MutationObserver = FakeObserver;
   const canvases: Array<{ width: number; height: number; context: FakeContext }> = [];
   let encodes = 0;
   const loads: string[] = [];
@@ -177,10 +193,16 @@ function harness(options: HarnessOptions = {}) {
       for (const run of idleCallbacks.splice(0)) run();
       await settle();
     },
-    transform(on: boolean) {
-      const layer = doc.getElementById("layer")!;
-      if (on) transformed.add(layer);
-      else transformed.delete(layer);
+    transform(on: boolean, id = "layer") {
+      const element = doc.getElementById(id)!;
+      if (on) transformed.add(element);
+      else transformed.delete(element);
+    },
+    activeObservers: () => observers.filter((entry) => entry.active),
+    /** Deliver one mutation batch to the active observers. */
+    async mutate() {
+      for (const entry of observers.filter((item) => item.active)) entry.callback();
+      await settle();
     },
     /** The variable wherever it lives (adopted sheet, else inline). */
     variable: () => sheetValue() || root.style.getPropertyValue(VARIABLE),
@@ -316,7 +338,7 @@ test("a zoom or device pixel ratio change re-renders at the new scale", async ()
   assert.deepEqual([latest.width, latest.height], [512, 320]);
 });
 
-test("a tainted canvas falls back to the blurred layer without throwing, and warns once", async () => {
+test("a tainted canvas falls back to the blurred layer without throwing, logged in one line", async () => {
   const h = harness({ taint: true });
   assert.doesNotThrow(() => h.renderer.update(inputs({ image: "https://example.com/wall.png" })));
   await settle();
@@ -325,9 +347,9 @@ test("a tainted canvas falls back to the blurred layer without throwing, and war
   assert.deepEqual(h.lines, ["[Vestra] glass mode: layer (unreadable)"]);
   h.renderer.update(inputs({ image: "https://example.com/other.png" }));
   await settle();
-  assert.equal(h.warnings.length, 1, "the first failure is logged once");
-  assert.ok(!h.warnings[0]!.includes("example.com"), "no URL in the log");
+  assert.deepEqual(h.warnings, [], "the failure is reported by the mode line alone");
   assert.equal(h.lines.length, 1, "no line without a mode change");
+  assert.ok(!h.lines[0]!.includes("example.com"), "no URL in the log");
 });
 
 test("an image that cannot be decoded falls back to the layer and is not retried on resize", async () => {
@@ -484,4 +506,46 @@ test("CSS wallpaper text cannot break out of the SVG markup", async () => {
   const svg = decodeURIComponent(h.loads[0]!.replace(/^data:image\/svg\+xml;charset=utf-8,/, ""));
   assert.ok(!svg.includes("<script"), "markup is escaped");
   assert.ok(svg.includes("&quot;/&gt;&lt;script&gt;"));
+});
+
+test("a transform on the pane itself also uses the layer", async () => {
+  const h = harness();
+  h.transform(true, "chat");
+  h.renderer.update(inputs());
+  await settle();
+  assert.equal(h.mode(), "layer");
+  assert.deepEqual(h.lines, ["[Vestra] glass mode: layer (transformed-ancestor)"]);
+});
+
+test("the guard runs once more when the chat pane mounts after the render", async () => {
+  const h = harness({ noPane: true });
+  h.renderer.update(inputs());
+  await settle();
+  assert.equal(h.mode(), "image", "no pane yet: nothing to check");
+  assert.equal(h.activeObservers().length, 1, "waits for the pane");
+  await h.mutate();
+  await h.advance(200);
+  assert.equal(h.activeObservers().length, 1, "keeps waiting while the pane is missing");
+  const layer = h.doc.getElementById("layer")!;
+  layer.innerHTML = '<main class="chat_x" id="chat"></main>';
+  h.transform(true);
+  await h.mutate();
+  await h.mutate();
+  await h.advance(200);
+  assert.equal(h.mode(), "layer", "the late pane is checked");
+  assert.equal(h.activeObservers().length, 0, "the watcher stops once the pane is found");
+  assert.equal(h.encodes(), 1, "no re-render for the check");
+});
+
+test("the late-pane watcher gives up after a while and stops with the renderer", async () => {
+  const h = harness({ noPane: true });
+  h.renderer.update(inputs());
+  await settle();
+  await h.advance(60_000);
+  assert.equal(h.activeObservers().length, 0, "bounded in time");
+  const again = harness({ noPane: true });
+  again.renderer.update(inputs());
+  await settle();
+  again.renderer.stop();
+  assert.equal(again.activeObservers().length, 0, "stop disconnects it");
 });

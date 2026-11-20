@@ -159,6 +159,8 @@ html,body{background:#262132!important;}
   box-shadow:var(--glass-shadow)!important;
 }
 #app-mount :is([class*="guilds_"],[class*="sidebarList_"],[class*="privateChannels_"],[class*="chat_"],[class*="membersWrap_"],[class*="panels_"],[class*="channelTextArea_"],[class*="container_"]:has(>[class*="tabBody_"]))>*{--vestra-glass-image:none;}
+:root[data-vestra-glass="layer"] #app-mount{isolation:isolate;}
+:root[data-vestra-glass="layer"] #app-mount::before{content:"";position:fixed;inset:-52px;pointer-events:none;z-index:-1;background:var(--vestra-custom-wallpaper,var(--vestra-wallpaper));filter:blur(26px) saturate(125%);}
 #app-mount [class*="channelTextArea_"]:focus-within{border-color:#ffffff65!important;box-shadow:var(--glass-shadow),0 0 0 3px #ddcfff0c!important;}
 #app-mount :is([class*="scrollableContainer_"],[class*="form_"],[class*="themedBackground_"],[class*="typing_"]):not(.custom-user-profile-theme):not(.custom-user-profile-theme *){background:transparent!important;}
 #app-mount :is([class*="form_"],[class*="content_"])::before{display:none!important;}

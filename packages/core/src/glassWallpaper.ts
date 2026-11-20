@@ -43,6 +43,9 @@ const RESIZE_DEBOUNCE_MS = 250;
 /** Blurs at least this strong render at half resolution; the loss is invisible. */
 const HALF_RESOLUTION_BLUR = 8;
 const STARTUP_IDLE_TIMEOUT_MS = 1000;
+/** A pane missing at render time is looked for again, coalesced and for a bounded time. */
+const PANE_WATCH_DELAY_MS = 200;
+const PANE_WATCH_LIMIT_MS = 60_000;
 /** The pane checked for transformed ancestors: chat, else any large pane. */
 const PANE_SELECTORS = [
   '#app-mount [class*="chat_"]',
@@ -193,12 +196,12 @@ export function createGlassRenderer(deps: {
   let rendered: (Size & { url: string }) | undefined;
   /** The current inputs could not be read into a canvas; only new inputs retry. */
   let failed = false;
-  let warned = false;
   let startupPending = true;
   let idle: number | undefined;
   let resizeTimer: number | undefined;
   let listening = false;
   let loggedMode: GlassMode | null = null;
+  let paneWatch: { observer: MutationObserver; check?: number | undefined; limit: number } | undefined;
 
   const setMode = (mode: GlassMode | null, reason = ""): void => {
     if (mode === null) root.removeAttribute(GLASS_MODE_ATTRIBUTE);
@@ -216,12 +219,12 @@ export function createGlassRenderer(deps: {
    * A fixed background behaves like `scroll` under a transformed ancestor, so
    * the blurred copy would no longer line up with the sharp wallpaper.
    */
-  const transformedAncestor = (): boolean => {
-    const pane =
-      PANE_SELECTORS.map((selector) => doc.querySelector(selector)).find(
-        (element) => element,
-      ) ?? null;
-    for (let node = pane?.parentElement; node; node = node.parentElement) {
+  const findPane = (): Element | null =>
+    PANE_SELECTORS.map((selector) => doc.querySelector(selector)).find(
+      (element) => element,
+    ) ?? null;
+  const transformed = (pane: Element): boolean => {
+    for (let node: Element | null = pane; node; node = node.parentElement) {
       const style = computed(node);
       if (
         (style.transform && style.transform !== "none") ||
@@ -231,10 +234,42 @@ export function createGlassRenderer(deps: {
     }
     return false;
   };
-  /** Show the rendered image, unless a transformed ancestor rules it out. */
+  const unwatchPane = (): void => {
+    if (!paneWatch) return;
+    paneWatch.observer.disconnect();
+    if (paneWatch.check !== undefined) win.clearTimeout(paneWatch.check);
+    win.clearTimeout(paneWatch.limit);
+    paneWatch = undefined;
+  };
+  /**
+   * The chat pane may mount after the (idle-deferred) first render. Watch the
+   * app for it once, coalescing mutation batches, and check it when it appears.
+   */
+  const watchPane = (): void => {
+    const Observer = (win as unknown as { MutationObserver?: typeof MutationObserver })
+      .MutationObserver;
+    if (paneWatch || typeof Observer !== "function") return;
+    const target = doc.getElementById("app-mount") ?? doc.body ?? root;
+    const observer = new Observer(() => {
+      if (!paneWatch || paneWatch.check !== undefined) return;
+      paneWatch.check = win.setTimeout(() => {
+        if (!paneWatch) return;
+        paneWatch.check = undefined;
+        if (findPane()) {
+          unwatchPane();
+          present();
+        }
+      }, PANE_WATCH_DELAY_MS);
+    });
+    observer.observe(target, { childList: true, subtree: true });
+    paneWatch = { observer, limit: win.setTimeout(unwatchPane, PANE_WATCH_LIMIT_MS) };
+  };
+  /** Show the rendered image, unless the pane or an ancestor is transformed. */
   const present = (): void => {
     if (!rendered) return;
-    if (transformedAncestor()) {
+    const pane = findPane();
+    if (!pane) watchPane();
+    if (pane && transformed(pane)) {
       variable.clear();
       setMode("layer", "transformed-ancestor");
       return;
@@ -379,10 +414,6 @@ export function createGlassRenderer(deps: {
     if (run !== generation) return;
     if (!url) {
       failed = true;
-      if (!warned) {
-        warned = true;
-        log.warn("[Vestra] glass wallpaper could not be read into a canvas; using the blurred layer instead");
-      }
       clearImage();
       setMode("layer", "unreadable");
       return;
@@ -419,6 +450,7 @@ export function createGlassRenderer(deps: {
       failed = false;
       const run = ++generation;
       cancelIdle();
+      unwatchPane();
       if (!wallpaperSource(inputs, win)) {
         listen(false);
         decoded = undefined;
@@ -433,6 +465,7 @@ export function createGlassRenderer(deps: {
     stop() {
       generation++;
       cancelIdle();
+      unwatchPane();
       current = undefined;
       decoded = undefined;
       failed = false;
