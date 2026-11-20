@@ -12,6 +12,7 @@ import {
   applyInject,
   getRealFs,
   hasInjectionBackup,
+  hasInjectionTraces,
   isInjected,
   listInstalls,
   planInject,
@@ -285,7 +286,7 @@ export async function uninstallAll(
   // Union: registry entries (even if Discord moved) + injected discoveries.
   const paths = new Set<string>([
     ...Object.keys(registry),
-    ...discovered.filter((i) => isInjected(i)).map((i) => i.asarPath),
+    ...discovered.filter((i) => hasInjectionTraces(i)).map((i) => i.asarPath),
   ]);
   const results: PerInstallResult[] = [];
 
@@ -314,7 +315,7 @@ export async function uninstallAll(
       }
       // Protection (1): refuse unsafe test targets before any Discord write.
       guardTarget(install, ctx);
-      if (!isInjected(install)) {
+      if (!hasInjectionTraces(install)) {
         delete registry[asarPath];
         await saveRegistry(registryPath, registry);
         results.push({
@@ -365,7 +366,7 @@ export async function checkHealth(
 ): Promise<HealthReport> {
   const { registryPath, payloadRoot } = layoutHome(ctx.homeDir);
   const base = { asarPath: install.asarPath, channel: install.channel };
-  const injected = isInjected(install);
+  const injected = hasInjectionTraces(install);
   if (!injected) {
     return {
       ...base,

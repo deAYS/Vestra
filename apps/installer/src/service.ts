@@ -1,5 +1,5 @@
 import {
-  isInjected,
+  hasInjectionTraces,
   hasInjectionBackup,
   listInstalls,
   readReceipt,
@@ -151,7 +151,7 @@ export function toErrorCode(detail: string | undefined): InstallerErrorCode {
 export interface InstallStatus {
   installation: DiscordInstallation;
   health: InstallHealth;
-  /** isInjected() signal (cheap for status, deep-confirmed for check). */
+  /** hasInjectionTraces() signal (cheap for status, deep-confirmed for check). */
   vestraInstalled: boolean;
   /** True when an install/repair could change the outcome. */
   repairable: boolean;
@@ -377,7 +377,7 @@ export function createInstallerService(
           index,
           total: discovered.length,
         });
-        const injected = isInjected(install);
+        const injected = hasInjectionTraces(install);
         if (!injected) {
           return {
             installation,
