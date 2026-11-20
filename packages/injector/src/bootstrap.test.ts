@@ -680,7 +680,8 @@ test("started channel is internal, sender-checked and records a successful start
 });
 
 function shellFixture() {
-  const appData = tempAppData();
+  // Resolved, so expectations compare with what realpath hands the shell.
+  const appData = realFs.realpathSync(tempAppData());
   const home = path.join(appData, "Vestra");
   const inside = path.join(home, "plugins", "a.txt");
   realFs.mkdirSync(path.dirname(inside), { recursive: true });
@@ -690,6 +691,9 @@ function shellFixture() {
   realFs.writeFileSync(path.join(outsideDir, "evil.exe"), "x");
   const junction = path.join(home, "link");
   realFs.symlinkSync(outsideDir, junction, "junction");
+  // A link that stays inside the Vestra folder is allowed, resolved.
+  const alias = path.join(home, "alias");
+  realFs.symlinkSync(path.dirname(inside), alias, "junction");
   const fx = mainFixture("C:/Discord/Discord.exe", {
     appData,
     receipt: { channel: "stable" },
@@ -709,7 +713,7 @@ function shellFixture() {
     42,
     "",
   ];
-  return { appData, home, inside, bad, ...fx };
+  return { appData, home, inside, alias, bad, ...fx };
 }
 
 test("shell channels open only existing paths inside the Vestra folder", async () => {
@@ -730,6 +734,22 @@ test("shell channels open only existing paths inside the Vestra folder", async (
       for (const p of bad)
         await assert.rejects(() => handler(sender, [p]), /outside Vestra folders/, String(p));
     assert.deepEqual(shellCalls, []);
+  } finally {
+    realFs.rmSync(appData, { recursive: true, force: true });
+  }
+});
+
+test("shell channels hand the shell the resolved path, not the link", async () => {
+  const { appData, inside, alias, handlers, sender, shellCalls } = shellFixture();
+  try {
+    const showItem = handlers.get("vestra:native:shell:showItemInFolder")!;
+    const open = handlers.get("vestra:native:shell:openPath")!;
+    assert.equal(await showItem(sender, [path.join(alias, "a.txt")]), true);
+    assert.equal(await open(sender, [alias]), true);
+    assert.deepEqual(shellCalls, [
+      ["showItemInFolder", inside],
+      ["openPath", path.dirname(inside)],
+    ]);
   } finally {
     realFs.rmSync(appData, { recursive: true, force: true });
   }

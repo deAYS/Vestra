@@ -198,10 +198,19 @@ export function buildMainHookSource(options: MainHookOptions): string {
   const APP_PATHS = ${JSON.stringify(APP_PATH_ALLOWLIST)};
   ${buildSettingsSource()}
   const insideVestraHome = ${insideVestraHome.toString()};
+  // The resolved path, checked again: the shell never follows a link itself.
   function vestraPath(channel, p) {
     const home = path.join(app.getPath("appData"), "Vestra");
-    if (!insideVestraHome(fs, path, home, p)) throw new TypeError(channel + ": path outside Vestra folders");
-    return p;
+    const denied = channel + ": path outside Vestra folders";
+    if (!insideVestraHome(fs, path, home, p)) throw new TypeError(denied);
+    let real;
+    try {
+      real = fs.realpathSync(p);
+    } catch (_) {
+      throw new TypeError(denied);
+    }
+    if (!insideVestraHome(fs, path, home, real)) throw new TypeError(denied);
+    return real;
   }
 
   // Fast health check: read-mostly, zero filesystem writes, never throws.
@@ -284,7 +293,7 @@ export function buildMainHookSource(options: MainHookOptions): string {
     "shell:openPath": async (p) => {
       const target = vestraPath("shell:openPath", p);
       // Folders only: opening a file could hand it to Windows Script Host.
-      if (!fs.statSync(fs.realpathSync(target)).isDirectory()) throw new TypeError("shell:openPath: not a folder");
+      if (!fs.statSync(target).isDirectory()) throw new TypeError("shell:openPath: not a folder");
       const res = await shell.openPath(target);
       if (res !== "") throw new Error(res);
       return true;
