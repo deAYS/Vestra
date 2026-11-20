@@ -136,3 +136,41 @@ test("a pending file with unreadable content is reported and cleared", async () 
     await fs.rm(home, { recursive: true, force: true });
   }
 });
+
+test("a failing keep-installed step does not fail the update resume", async () => {
+  const home = await fs.mkdtemp(path.join(os.tmpdir(), "vestra-handoff-"));
+  const dir = path.join(home, "updates");
+  await fs.mkdir(dir, { recursive: true });
+  await fs.writeFile(
+    path.join(dir, "pending.json"),
+    JSON.stringify({
+      token: "t",
+      version: "1.0.0",
+      created: Date.now(),
+      channels: ["stable"],
+    }),
+  );
+  try {
+    const updates = new ManagerUpdates(
+      { context: { homeDir: home } } as never,
+      {
+        async track() {
+          throw new Error("registry denied");
+        },
+      } as never,
+      {
+        version: "1.0.0",
+        supported: false,
+        lifecycle: { run: async () => ({ ok: true, results: [] }) },
+      },
+    );
+    await updates.finish(true);
+    const state = updates.snapshot();
+    assert.equal(state.phase, "current");
+    assert.match(state.message ?? "", /registry denied/);
+    assert.match(state.message ?? "", /^Vestra was updated\. .*Keep Vestra/);
+    assert.doesNotMatch(state.message ?? "", /Installed\. Keep/);
+  } finally {
+    await fs.rm(home, { recursive: true, force: true });
+  }
+});

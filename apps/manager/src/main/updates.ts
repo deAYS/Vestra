@@ -19,7 +19,8 @@ import {
 import { launchUpdateHelper } from "./updateHandoff.js";
 import { isManagerSender } from "./sender.js";
 import { DiscordLifecycle } from "./discordLifecycle.js";
-import { MaintenanceController } from "./maintenance.js";
+import { MaintenanceController, trackAfterOperation } from "./maintenance.js";
+import { composeNotice } from "../shared/flows.js";
 
 interface Pending {
   token: string;
@@ -360,6 +361,7 @@ export class ManagerUpdates {
       });
       const lifecycle =
         this.host.lifecycle ?? new DiscordLifecycle(this.service);
+      const warnings: string[] = [];
       await withInstallLock(this.home, async () => {
         for (const channel of [...new Set(pending.channels)]) {
           const result = await lifecycle.run("repair", channel);
@@ -367,7 +369,13 @@ export class ManagerUpdates {
             throw new Error(
               result.results.map((r) => r.detail ?? r.action).join("; "),
             );
-          await this.maintenance.track(channel, true);
+          const tracked = await trackAfterOperation(
+            this.maintenance,
+            "repair",
+            channel,
+            { ok: true } as { ok: boolean; warning?: string },
+          );
+          if (tracked.warning) warnings.push(tracked.warning);
         }
       });
       this.resumePending = false;
@@ -375,8 +383,10 @@ export class ManagerUpdates {
       await this.publish({
         phase: "current",
         checkedAt: Date.now(),
-        message:
+        message: composeNotice(
           "Vestra was updated. Your themes, plugins and preferences were kept.",
+          warnings.join(" ") || undefined,
+        ),
       });
     });
   }

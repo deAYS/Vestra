@@ -13,6 +13,12 @@ export interface ServiceLike {
 
 export type FlowOk = { ok: true; warning?: string };
 
+/** Success notice plus any warning, without repeating "Installed."/"Removed.". */
+export function composeNotice(message: string, warning?: string): string {
+  if (!warning) return message;
+  return `${message} ${warning.replace(/(Installed|Removed)\. (?=Keep Vestra)/, "")}`;
+}
+
 function withWarning(summary: OperationSummary): { warning?: string } {
   return summary.warning ? { warning: summary.warning } : {};
 }

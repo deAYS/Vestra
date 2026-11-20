@@ -153,6 +153,7 @@ export class MaintenanceController {
       return;
     }
     const runtime = await this.stageRuntime();
+    const current = path.basename(path.dirname(runtime));
     await this.run(systemTool("reg"), [
       "add",
       RUN_KEY,
@@ -167,6 +168,7 @@ export class MaintenanceController {
     // Persist only after the registration worked, so a failure keeps the old config.
     config.runtime = runtime;
     await saveConfig(this.home, config);
+    await this.pruneRuntimes(current);
     await this.lifecycleSystemLaunch(runtime);
   }
 
@@ -174,6 +176,21 @@ export class MaintenanceController {
     if (this.deps.launch) return this.deps.launch(runtime, ["--maintain"]);
     const { windowsDiscordSystem } = await import("./discordLifecycle.js");
     await windowsDiscordSystem.launch(runtime, ["--maintain"]);
+  }
+
+  /** Older copies go only once nothing references them any more. */
+  private async pruneRuntimes(keep: string): Promise<void> {
+    const parent = path.join(this.host.localAppData, "Vestra", "maintenance");
+    try {
+      for (const entry of await fs.promises.readdir(parent)) {
+        if (entry === keep) continue;
+        await fs.promises
+          .rm(path.join(parent, entry), { recursive: true, force: true })
+          .catch(() => {});
+      }
+    } catch {
+      /* best effort */
+    }
   }
 
   private async stageRuntime(): Promise<string> {
@@ -221,17 +238,6 @@ export class MaintenanceController {
       }
       await fs.promises.writeFile(marker, "Vestra recovery runtime\n");
     }
-    // Older copies are dead weight; a copy still in use is skipped.
-    try {
-      for (const entry of await fs.promises.readdir(parent)) {
-        if (entry === name) continue;
-        await fs.promises
-          .rm(path.join(parent, entry), { recursive: true, force: true })
-          .catch(() => {});
-      }
-    } catch {
-      /* best effort */
-    }
     return executable;
   }
 }
@@ -251,12 +257,13 @@ export async function trackAfterOperation<
     return result;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
+    const own =
+      kind === "uninstall"
+        ? `Removed. Keep Vestra installed couldn't be updated: ${message}`
+        : `Installed. Keep Vestra installed couldn't be turned on: ${message}`;
     return {
       ...result,
-      warning:
-        kind === "uninstall"
-          ? `Removed. Keep Vestra installed couldn't be updated: ${message}`
-          : `Installed. Keep Vestra installed couldn't be turned on: ${message}`,
+      warning: result.warning ? `${result.warning} ${own}` : own,
     };
   }
 }

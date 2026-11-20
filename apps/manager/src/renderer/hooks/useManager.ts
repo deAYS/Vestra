@@ -1,3 +1,4 @@
+import { composeNotice } from "../../shared/flows.js";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   channelDisplayName,
@@ -75,10 +76,6 @@ function phaseText(event: InstallerProgressEvent): string {
     case "complete":
       return "Done.";
   }
-}
-
-function withWarning(message: string, warning?: string): string {
-  return warning ? `${message} ${warning}` : message;
 }
 
 export function useManager(): ManagerState {
@@ -298,7 +295,7 @@ export function useManager(): ManagerState {
         if (!mounted.current) return;
         await finishMutation(channel);
         if (result.ok) {
-          setNotice(withWarning("Vestra installed successfully.", result.warning));
+          setNotice(composeNotice("Vestra installed successfully.", result.warning));
         } else {
           setError({
             code: result.code,
@@ -331,7 +328,7 @@ export function useManager(): ManagerState {
         if (!mounted.current) return;
         await finishMutation(channel);
         if (result.ok) {
-          setNotice(withWarning("Vestra repaired successfully.", result.warning));
+          setNotice(composeNotice("Vestra repaired successfully.", result.warning));
         } else {
           setError({
             code: result.code,
@@ -374,7 +371,7 @@ export function useManager(): ManagerState {
       if (!mounted.current) return;
       await finishMutation(channel);
       if (result.ok) {
-        setNotice(withWarning("Vestra was removed.", result.warning));
+        setNotice(composeNotice("Vestra was removed.", result.warning));
       } else {
         setError({
           code: result.code,

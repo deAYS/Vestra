@@ -127,6 +127,7 @@ test("foreground and background operations cannot mutate archives concurrently",
   }
 });
 
+import { composeNotice } from "../src/shared/flows.js";
 import { MaintenanceController, trackAfterOperation } from "../src/main/maintenance.js";
 
 test("a failing keep-installed step becomes a warning on a successful operation", async () => {
@@ -215,6 +216,65 @@ onWindows("staging a new runtime removes older copies", async () => {
       await fs.readFile(path.join(f.home, "maintenance.json"), "utf8"),
     );
     assert.deepEqual(saved.channels, ["stable"]);
+  } finally {
+    await fs.rm(f.root, { recursive: true, force: true });
+  }
+});
+
+test("track warnings combine with an existing warning and read naturally in the notice", async () => {
+  const failing = {
+    async track() {
+      throw new Error("denied");
+    },
+  };
+  const result = await trackAfterOperation(failing, "install", "stable", {
+    ok: true,
+    results: [],
+    warning: "Discord didn't reopen. Open it manually.",
+  });
+  assert.equal(
+    result.warning,
+    "Discord didn't reopen. Open it manually. Installed. Keep Vestra installed couldn't be turned on: denied",
+  );
+  assert.equal(
+    composeNotice("Vestra installed successfully.", result.warning),
+    "Vestra installed successfully. Discord didn't reopen. Open it manually. Keep Vestra installed couldn't be turned on: denied",
+  );
+  assert.equal(
+    composeNotice(
+      "Vestra installed successfully.",
+      "Installed. Keep Vestra installed couldn't be turned on: x",
+    ),
+    "Vestra installed successfully. Keep Vestra installed couldn't be turned on: x",
+  );
+  assert.equal(composeNotice("Done."), "Done.");
+});
+
+onWindows("old runtimes survive a failed registration and go after a successful one", async () => {
+  const f = await stagingFixture();
+  try {
+    const parent = path.join(f.localAppData, "Vestra", "maintenance");
+    const old = path.join(parent, "oldhash0000000000");
+    await fs.mkdir(old, { recursive: true });
+    const host = {
+      packaged: true,
+      executable: path.join(f.app, "Vestra.exe"),
+      localAppData: f.localAppData,
+    };
+    const failing = new MaintenanceController(f.service, host, {
+      exec: async () => {
+        throw new Error("reg add failed");
+      },
+      launch: async () => {},
+    });
+    await assert.rejects(() => failing.track("stable", true), /reg add failed/);
+    await fs.access(old);
+    const ok = new MaintenanceController(f.service, host, {
+      exec: async () => ({}),
+      launch: async () => {},
+    });
+    await ok.track("stable", true);
+    await assert.rejects(() => fs.access(old));
   } finally {
     await fs.rm(f.root, { recursive: true, force: true });
   }
