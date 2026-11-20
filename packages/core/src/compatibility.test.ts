@@ -37,6 +37,7 @@ for (const version of ["2.0.0", "2.0.1", "2.1.0", "2.2.0"]) test(`Glass ${versio
   assert.equal(settings.getThemes()[0]?.css, preset.css);
   assert.equal(settings.getThemes()[0]?.enabled, true);
   assert.equal(settings.getThemes()[0]?.customization?.opacity, 42);
+  assert.deepEqual(settings.getThemes()[0]?.customization, customization, "the whole customization survives the upgrade");
   assert.equal(settings.getThemes()[1]?.css, previous + "\nbody{color:red}");
 });
 

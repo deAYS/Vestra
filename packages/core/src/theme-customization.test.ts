@@ -393,3 +393,42 @@ test("pane classes inside popouts and dialogs do not paint the wallpaper image",
       assert.ok(guard.selector.includes(surface), `${surface} resets the image variable`);
   }
 });
+
+test("the Home panel also drops a theme's live blur and keeps nested panes tinted", () => {
+  const glass = THEME_LIBRARY.find((theme) => theme.name === "Vestra Liquid Glass")!;
+  const rules = cssRules(customizedThemeCss({ css: glass.css, customization: DEFAULT_THEME_CUSTOMIZATION }));
+  const home = '[class*="container_"]:has(>[class*="tabBody_"])';
+  assert.ok(
+    rules.some((rule) => rule.selector.includes(home) && rule.body.includes("backdrop-filter:var(--vestra-glass-pane-filter,none)!important")),
+    "the generated pane-filter override covers Home",
+  );
+  assert.ok(
+    rules.some((rule) => rule.selector.includes(home) && rule.selector.endsWith(">*") && rule.body.includes("--vestra-glass-image:none") && !rule.selector.includes("#app-mount :is([role")),
+    "Home children reset the image variable in the generated CSS",
+  );
+});
+
+test("preview frames give theme pane blur rules precedence over their own", () => {
+  const preview = themePreviewDocument(":root{}");
+  assert.ok(preview.includes(":where(#app-mount :is("), "the preview pane rule has zero specificity");
+});
+
+test("memo snapshots do not deep-copy the embedded image", () => {
+  const original = globalThis.structuredClone;
+  let cloned = 0;
+  globalThis.structuredClone = ((value: unknown) => {
+    cloned++;
+    return original(value);
+  }) as typeof structuredClone;
+  try {
+    let runs = 0;
+    const generate = memoizeThemeCss(() => String(++runs));
+    const customization = { ...DEFAULT_THEME_CUSTOMIZATION, backgroundImage: "data:image/png;base64," + "A".repeat(4096) };
+    generate({ css: ":root{}", customization });
+    generate({ css: ":root{}", customization: { ...customization } });
+    assert.equal(runs, 1);
+    assert.equal(cloned, 0, "primitive fields are copied by reference");
+  } finally {
+    globalThis.structuredClone = original;
+  }
+});

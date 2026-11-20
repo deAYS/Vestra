@@ -213,7 +213,8 @@ ${scope}{--vestra-custom-wallpaper:${wallpaper};--glass-home-rgb:${paneRgb};--gl
 #app-mount::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:-1;background:var(--vestra-custom-wallpaper);filter:saturate(${c.saturation}%) brightness(${c.brightness}%);}
 #app-mount :is([class*="app_"],[class*="appMount_"],[class*="bg_"],[class*="layers_"],[class*="layer_"],[class*="base_"],[class*="sidebar_"],[class*="sidebarList_"],[class*="chat_"],[class*="chatContent_"],[class*="content_"],[class*="page_"])${exclude}{background:transparent!important;}
 #app-mount :is([class*="guilds_"],[class*="sidebarList_"],[class*="privateChannels_"],[class*="chat_"],[class*="membersWrap_"],[class*="panels_"],[class*="channelTextArea_"])${exclude}{background:var(--glass-pane),linear-gradient(${pane},${pane}),${GLASS_PANE_IMAGE}!important;backdrop-filter:${GLASS_PANE_FILTER}!important;border:1px solid var(--glass-edge)!important;border-radius:${c.radius}px!important;box-shadow:var(--glass-shadow)!important;}
-#app-mount :is([class*="guilds_"],[class*="sidebarList_"],[class*="privateChannels_"],[class*="chat_"],[class*="membersWrap_"],[class*="panels_"],[class*="channelTextArea_"])${exclude}>*{--vestra-glass-image:none;}
+#app-mount [class*="container_"]:has(>[class*="tabBody_"])${exclude}{backdrop-filter:${GLASS_PANE_FILTER}!important;}
+#app-mount :is([class*="guilds_"],[class*="sidebarList_"],[class*="privateChannels_"],[class*="chat_"],[class*="membersWrap_"],[class*="panels_"],[class*="channelTextArea_"],[class*="container_"]:has(>[class*="tabBody_"]))${exclude}>*{--vestra-glass-image:none;}
 :root[data-vestra-glass="layer"] #app-mount::before{inset:-${Math.ceil(c.blur * 2)}px;filter:blur(${c.blur}px) saturate(${c.saturation}%) brightness(${c.brightness}%);}
 #app-mount [class*="guilds_"]${exclude}{--vestra-rail-inset:max(12px,${c.radius}px);box-sizing:border-box!important;padding-top:var(--vestra-rail-inset)!important;}
 #app-mount [class*="guilds_"]${exclude}:has([class*="scroller_"]){padding-top:0!important;}
@@ -222,6 +223,18 @@ ${scope}{--vestra-custom-wallpaper:${wallpaper};--glass-home-rgb:${paneRgb};--gl
 ${readableSurfaces}
 ${typography}
 `;
+}
+
+/**
+ * A copy of the customization for later comparison. Strings (the embedded
+ * image can be megabytes) are shared, not copied; only nested values are cloned.
+ */
+function snapshot(customization: ThemeCustomization): ThemeCustomization {
+  const copy: Record<string, unknown> = { ...customization };
+  for (const [key, value] of Object.entries(copy))
+    if (typeof value === "object" && value !== null)
+      copy[key] = structuredClone(value);
+  return copy as ThemeCustomization;
 }
 
 /** Field values match; nested values (objects, arrays) compare by content. */
@@ -261,8 +274,7 @@ export function memoizeThemeCss(
       return hit.output;
     const output = generate(theme);
     cache.set(theme.css, {
-      customization:
-        theme.customization && structuredClone(theme.customization),
+      customization: theme.customization && snapshot(theme.customization),
       output,
     });
     return output;

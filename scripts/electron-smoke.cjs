@@ -999,6 +999,13 @@ app
         `the main surface shows the pre-blurred backdrop fixed to the window: ${customizedPane.attachment}`,
       );
       assert.equal(customizedPane.blur, "none", "no live blur on the main surface");
+      assert.deepEqual(
+        await evaluate(
+          "[document.documentElement.style.getPropertyValue('--vestra-glass-image'), getComputedStyle(document.documentElement).getPropertyValue('--vestra-glass-image').trim().startsWith('url(')]",
+        ),
+        ["", true],
+        "the blurred image lives in an adopted stylesheet, not <html>'s inline style",
+      );
       assert.equal(customizedPane.popout, "blur(14px)", "blur still applies to popouts");
       assert.equal(customizedPane.preview, "blur(14px)", "the appearance preview shows the blur");
       const nestedPane = await evaluate(
@@ -1194,9 +1201,9 @@ app
       await evaluate("window.Vestra.Settings.setThemes([])");
       assert.deepEqual(
         await evaluate(
-          "[document.documentElement.dataset.vestraGlass ?? null, document.documentElement.style.getPropertyValue('--vestra-glass-image')]",
+          "[document.documentElement.dataset.vestraGlass ?? null, getComputedStyle(document.documentElement).getPropertyValue('--vestra-glass-image').trim(), document.adoptedStyleSheets.length]",
         ),
-        [null, ""],
+        [null, "", 0],
         "disabling the theme removes the blurred backdrop",
       );
 
