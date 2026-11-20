@@ -18,7 +18,7 @@ import {
   reasonCode,
   repairFailure,
 } from "./recovery/monitor.js";
-import { RecoveryNotices } from "./recovery/notices.js";
+import { RecoveryNotices, installedManagerTarget } from "./recovery/notices.js";
 import { watchRoots } from "./recovery/watch.js";
 import type { DiscordChannel } from "../shared/channels.js";
 
@@ -98,7 +98,11 @@ async function runRecovery(): Promise<void> {
     {
       restart: (channel) => monitor.restartAndRepair(channel),
       // The Manager offers Repair for a failed re-install; never a restart here.
-      openManager: () => windowsDiscordSystem.launch(process.execPath, []),
+      openManager: async () =>
+        windowsDiscordSystem.launch(
+          await installedManagerTarget(home, process.execPath),
+          [],
+        ),
       onError: logRecovery,
     },
   );

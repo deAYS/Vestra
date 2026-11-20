@@ -1,3 +1,5 @@
+import * as fs from "node:fs/promises";
+import * as path from "node:path";
 import type { DiscordChannel } from "../../shared/channels.js";
 import type { RecoveryPhase } from "./state.js";
 
@@ -136,4 +138,43 @@ export class RecoveryNotices {
       }
     }
   }
+}
+
+/** The file system calls the target lookup needs; injectable for tests. */
+export interface TargetFs {
+  readFile(file: string): Promise<string>;
+  isFile(file: string): Promise<boolean>;
+}
+
+const realFs: TargetFs = {
+  readFile: (file) => fs.readFile(file, "utf8"),
+  isFile: async (file) => (await fs.stat(file)).isFile(),
+};
+
+/**
+ * The installed Manager recorded in manager-installation.json, or `fallback`
+ * (this process) when the record is missing, invalid or points nowhere. The
+ * background process runs from a copy, which is not what the user installed.
+ */
+export async function installedManagerTarget(
+  home: string,
+  fallback: string,
+  io: TargetFs = realFs,
+): Promise<string> {
+  try {
+    const saved: unknown = JSON.parse(
+      await io.readFile(path.join(home, "manager-installation.json")),
+    );
+    const target = (saved as { target?: unknown } | null)?.target;
+    if (
+      typeof target === "string" &&
+      path.isAbsolute(target) &&
+      path.extname(target).toLowerCase() === ".exe" &&
+      (await io.isFile(target))
+    )
+      return target;
+  } catch {
+    /* fall through */
+  }
+  return fallback;
 }
