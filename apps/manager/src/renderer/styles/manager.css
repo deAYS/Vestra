@@ -86,60 +86,6 @@ summary:focus-visible {
   align-items: center;
   gap: 14px;
 }
-.vs-window-material {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  color: var(--vs-muted);
-  font-size: 11px;
-  -webkit-app-region: no-drag;
-}
-.vs-window-material select {
-  font:
-    12px "Segoe UI",
-    sans-serif;
-  color: #ddd3ef;
-  border: 1px solid #ffffff18;
-  border-radius: 7px;
-  background: #201b28;
-  padding: 5px 8px;
-  cursor: pointer;
-}
-.vs-window-material select:disabled {
-  opacity: 0.6;
-  cursor: default;
-}
-.vs-window-appearance-error {
-  position: absolute;
-  right: 16px;
-  top: 58px;
-  z-index: 10;
-  max-width: 300px;
-  padding: 10px 13px;
-  border: 1px solid #714351;
-  border-radius: 9px;
-  background: #2b1e29;
-  font-size: 12px;
-  line-height: 1.5;
-  color: #e5b3ba;
-  -webkit-app-region: no-drag;
-}
-:root:is([data-window-material="mica"], [data-window-material="acrylic"]) body {
-  background: transparent;
-}
-:root:is([data-window-material="mica"], [data-window-material="acrylic"])
-  .vs-titlebar {
-  background: #15121970;
-}
-:root:is([data-window-material="mica"], [data-window-material="acrylic"])
-  .vs-manager-body {
-  background:
-    radial-gradient(ellipse at 80% 0, #c5baf80b, transparent 65%), #100e1433;
-}
-:root:is([data-window-material="mica"], [data-window-material="acrylic"])
-  :is(.vs-card, .vs-recovery, .vs-empty, .vs-error) {
-  background: #19161fd9;
-}
 .vs-window-controls {
   display: flex;
   height: 100%;

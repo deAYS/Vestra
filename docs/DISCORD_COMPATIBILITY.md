@@ -37,12 +37,9 @@ navigation, home and profile surfaces while retaining the four original palettes
 Afterglow 1.1 and Glass 2.2 use the same scope boundaries. Exact earlier CSS migrates
 without replacing user-edited copies or removing appearance preferences.
 
-Manager uses frameless, draggable custom chrome. Window actions and material
-changes accept only its bundled main frame. Solid/Mica/Acrylic choices are validated
-and stored atomically in the Manager's own user-data folder. Electron's native
-backdrop API requires Windows 11 22H2 or later; unsupported or failed effects fall
-back to Solid. Integration checks exercise window actions, sender rejection,
-material preferences and notification dismissal without touching real installs.
+Manager uses frameless, draggable custom chrome on a solid background. Window
+actions accept only its bundled main frame. Integration checks exercise window
+actions, sender rejection and notification dismissal without touching real installs.
 
 Archive verification now normalizes portable `/` and Windows `\` entry separators
 before reading ASAR files. A real Node-on-Windows check reproduced failed nested

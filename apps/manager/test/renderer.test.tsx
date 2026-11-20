@@ -87,21 +87,8 @@ class FakeApi {
   windowAction(action: string): void {
     this.calls.push({ method: "windowAction", args: action });
   }
-  setWindowMaterial(): void {}
-  onWindowState(
-    listener: (state: {
-      maximized: boolean;
-      material: "solid";
-      materialsSupported: boolean;
-      appearanceError: string;
-    }) => void,
-  ): () => void {
-    listener({
-      maximized: false,
-      material: "solid",
-      materialsSupported: false,
-      appearanceError: "",
-    });
+  onWindowState(listener: (state: { maximized: boolean }) => void): () => void {
+    listener({ maximized: false });
     return () => undefined;
   }
   installations: DiscordInstallation[] = [
@@ -377,6 +364,19 @@ afterEach(async () => {
 });
 
 describe("manager renderer", () => {
+  test("title bar has window controls and no window material picker", async () => {
+    await mount();
+    assert.equal(container.querySelectorAll("select").length, 0);
+    assert.doesNotMatch(text(), /Window finish|Mica|Acrylic/);
+    assert.ok(container.querySelector('[aria-label="Minimize window"]'));
+    assert.ok(container.querySelector('[aria-label="Maximize window"]'));
+    assert.ok(container.querySelector('[aria-label="Close window"]'));
+    assert.equal(
+      happyWindow.document.documentElement.dataset["windowMaterial"],
+      undefined,
+    );
+  });
+
   test("1+2. boots with mocked service; Stable + Canary cards render", async () => {
     await mount();
     assert.ok(byTestId("install-card-stable"), "stable card renders");

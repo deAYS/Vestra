@@ -2,7 +2,6 @@ import type {
   DiscordChannel,
   ManagerWindowAction,
   ManagerWindowState,
-  ManagerWindowMaterial,
 } from "../shared/channels.js";
 import type {
   CheckSummary,
@@ -22,7 +21,6 @@ export interface VestraManagerApi {
   dismissUpdateError(): Promise<UpdateState>;
   onUpdate(listener:(state:UpdateState)=>void):()=>void;
   windowAction(action: ManagerWindowAction): void;
-  setWindowMaterial(material: ManagerWindowMaterial): void;
   onWindowState(listener: (state: ManagerWindowState) => void): () => void;
   discover(): Promise<DiscordInstallation[]>;
   status(args?: { channels?: DiscordChannel[] }): Promise<StatusSummary>;

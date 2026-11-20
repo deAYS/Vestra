@@ -13,7 +13,6 @@ import type {
   DiscordChannel,
   ManagerWindowAction,
   ManagerWindowState,
-  ManagerWindowMaterial,
 } from "../shared/channels.js";
 
 declare const __VESTRA_MANAGER_DEV__: boolean;
@@ -26,7 +25,6 @@ export interface VestraManagerApi {
   dismissUpdateError(): Promise<UpdateState>;
   onUpdate(listener: (state: UpdateState) => void): () => void;
   windowAction(action: ManagerWindowAction): void;
-  setWindowMaterial(material: ManagerWindowMaterial): void;
   onWindowState(listener: (state: ManagerWindowState) => void): () => void;
   discover(): Promise<DiscordInstallation[]>;
   status(args?: { channels?: DiscordChannel[] }): Promise<StatusSummary>;
@@ -54,8 +52,6 @@ const api: VestraManagerApi = {
     return () => ipcRenderer.removeListener(MANAGER_IPC.updateState, wrapped);
   },
   windowAction: (action) => ipcRenderer.send(MANAGER_IPC.windowAction, action),
-  setWindowMaterial: (material) =>
-    ipcRenderer.send(MANAGER_IPC.windowMaterial, material),
   onWindowState: (listener) => {
     const wrapped = (_event: unknown, state: ManagerWindowState): void =>
       listener(state);

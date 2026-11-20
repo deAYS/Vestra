@@ -1,25 +1,15 @@
 import { useEffect, useState } from "react";
 import { VESTRA_MARK_PATH } from "@vestra/shared";
 import { managerApi } from "../types.js";
-import type {
-  ManagerWindowMaterial,
-  ManagerWindowState,
-} from "../../shared/channels.js";
+import type { ManagerWindowState } from "../../shared/channels.js";
 
 export function WindowChrome(): JSX.Element {
   const [state, setState] = useState<ManagerWindowState>({
     maximized: false,
-    material: "solid",
-    materialsSupported: false,
-    appearanceError: "",
   });
   const { maximized } = state;
   useEffect(
-    () =>
-      managerApi().onWindowState((next) => {
-        setState(next);
-        document.documentElement.dataset.windowMaterial = next.material;
-      }),
+    () => managerApi().onWindowState(setState),
     [],
   );
   return (
@@ -33,36 +23,6 @@ export function WindowChrome(): JSX.Element {
         </span>
       </div>
       <div className="vs-titlebar__actions">
-        <label
-          className="vs-window-material"
-          title={
-            state.appearanceError ||
-            (state.materialsSupported
-              ? "Mica follows your wallpaper. Acrylic blurs behind the window."
-              : "Mica and Acrylic require Windows 11 22H2 or newer.")
-          }
-        >
-          <span>Window finish</span>
-          <select
-            aria-label="Window finish"
-            value={state.material}
-            disabled={!state.materialsSupported}
-            onChange={(event) =>
-              managerApi().setWindowMaterial(
-                event.target.value as ManagerWindowMaterial,
-              )
-            }
-          >
-            <option value="solid">Solid</option>
-            <option value="mica">Mica</option>
-            <option value="acrylic">Acrylic</option>
-          </select>
-        </label>
-        {state.appearanceError && (
-          <span className="vs-window-appearance-error" role="status">
-            {state.appearanceError}
-          </span>
-        )}
         <div className="vs-window-controls" aria-label="Window controls">
           <button
             type="button"

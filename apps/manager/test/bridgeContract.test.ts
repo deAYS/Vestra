@@ -82,6 +82,18 @@ describe("security boundary", () => {
     assert.ok(!preload.includes("invokeAny"), "no arbitrary invoke");
   });
 
+  test("window material picker is gone from preload, channels and window", () => {
+    const preload = codeOnly(read(path.join("preload", "index.ts")));
+    assert.ok(!preload.includes("setWindowMaterial"));
+    const channels = codeOnly(read(path.join("shared", "channels.ts")));
+    assert.ok(!/material/i.test(channels), "channels mention material");
+    assert.match(channels, /interface ManagerWindowState\s*\{\s*maximized: boolean;\s*\}/);
+    const windowSrc = codeOnly(read(path.join("main", "window.ts")));
+    assert.ok(!/material|mica|acrylic/i.test(windowSrc), "window mentions material");
+    const chrome = codeOnly(read(path.join("renderer", "components", "WindowChrome.tsx")));
+    assert.ok(!/material|<select/i.test(chrome), "chrome has a picker");
+  });
+
   test("window enforces contextIsolation + no nodeIntegration", () => {
     const windowSrc = read(path.join("main", "window.ts"));
     assert.match(windowSrc, /contextIsolation:\s*true/);

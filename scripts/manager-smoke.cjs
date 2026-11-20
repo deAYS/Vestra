@@ -297,58 +297,19 @@ app
         "initial window state",
       );
       assert.equal(await evaluate("window.__states[0]"), false);
-      const supportsMaterials = await evaluate(
-        "!document.querySelector('[aria-label=\"Window finish\"]').disabled",
+      assert.equal(
+        await evaluate("typeof window.vestraManager.setWindowMaterial"),
+        "undefined",
+        "the window material picker is gone from the bridge",
       );
-      for (const material of supportsMaterials
-        ? ["mica", "acrylic", "solid"]
-        : ["solid"]) {
-        await evaluate(
-          `window.vestraManager.setWindowMaterial(${JSON.stringify(material)})`,
-        );
-        await wait(
-          () =>
-            evaluate(
-              `document.documentElement.dataset.windowMaterial===${JSON.stringify(material)}`,
-            ),
-          "window finish " + material,
-        );
-        assert.equal(
-          JSON.parse(
-            await fs.readFile(
-              path.join(__dirname, "session/window-appearance.json"),
-              "utf8",
-            ),
-          ).material,
-          material,
-          "window finish is saved outside Discord storage",
-        );
-      }
-      await evaluate(
-        "window.vestraManager.setWindowMaterial('not-a-material')",
+      assert.equal(
+        await evaluate("document.querySelectorAll('select').length"),
+        0,
+        "the title bar renders no material select",
       );
       assert.equal(
         await evaluate("document.documentElement.dataset.windowMaterial"),
-        "solid",
-        "invalid window materials are ignored",
-      );
-      ipcMain.emit(
-        "vestra-manager:window-material",
-        {
-          sender: win.webContents,
-          senderFrame: { url: win.webContents.getURL() },
-        },
-        "acrylic",
-      );
-      assert.equal(
-        JSON.parse(
-          await fs.readFile(
-            path.join(__dirname, "session/window-appearance.json"),
-            "utf8",
-          ),
-        ).material,
-        "solid",
-        "untrusted frames cannot change material preferences",
+        undefined,
       );
       ipcMain.emit(
         channel,
@@ -435,20 +396,9 @@ app
         listeners,
         "closed windows release their action listener",
       );
-      const reopened = createManagerWindow(false);
-      await wait(
-        () =>
-          reopened.webContents
-            .executeJavaScript(
-              "document.documentElement.dataset.windowMaterial==='solid'",
-            )
-            .catch(() => false),
-        "saved material restores in a new window",
-      );
-      reopened.destroy();
       clearTimeout(timer);
       console.log(
-        "PASS Manager custom chrome + trusted IPC + minimize/maximize/restore/close + native materials/persistence + result notification",
+        "PASS Manager custom chrome + trusted IPC + minimize/maximize/restore/close + result notification",
       );
       app.exit(0);
     } catch (error) {
