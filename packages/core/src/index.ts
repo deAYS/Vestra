@@ -62,6 +62,21 @@ let stopPluginShortcuts: (() => void) | undefined;
 let updateTimer: ReturnType<typeof setInterval> | undefined;
 let lastUpdateNotice = "";
 let removeCloseFlush: (() => void) | undefined;
+/** Background plugin boot; stop() waits for it so nothing starts after stop. */
+let pluginBoot: Promise<void> | undefined;
+
+function bootPlugins(): void {
+  pluginBoot = pluginManager.startEnabled().catch((err: unknown) => {
+    Logger.captureError(err, "Vestra.start.Plugins");
+  });
+}
+
+/** Bounded: every plugin start is time-boxed by the plugin manager. */
+async function waitForPluginBoot(): Promise<void> {
+  const boot = pluginBoot;
+  pluginBoot = undefined;
+  await boot;
+}
 
 /** Page close cannot await: write pending settings through the blocking channel. */
 function installCloseFlush(): void {
@@ -213,10 +228,11 @@ async function startRuntime(): Promise<void> {
     } catch (err: unknown) {
       Logger.captureError(err, "Vestra.start.Overlay");
     }
-    // Each plugin start is time-boxed, so this resolves even if one hangs.
-    await pluginManager.startEnabled();
     exposeGlobal(runtime);
     started = true;
+    // start() resolves once the UI is up (the loader then closes the splash);
+    // plugins keep booting in the background.
+    bootPlugins();
     clearInterval(updateTimer);
     updateTimer = setInterval(
       () => void checkUpdateNotice(),
@@ -237,6 +253,7 @@ async function startRuntime(): Promise<void> {
     }
   } catch (err: unknown) {
     Logger.captureError(err, "Vestra.start");
+    await waitForPluginBoot();
     await pluginManager.shutdown();
     stopThemes?.();
     stopOverlay?.();
@@ -265,6 +282,8 @@ async function stopRuntime(): Promise<void> {
     stopPluginShortcuts?.();
     stopPluginShortcuts = undefined;
     Logger.info("Stopping Vestra runtime…");
+    // Let the background boot finish first so no plugin starts after stop.
+    await waitForPluginBoot();
     // Suspend running plugins; enabled flags persist for next start().
     await pluginManager.shutdown();
     // Plugins release their own resources; themes belong to the runtime.

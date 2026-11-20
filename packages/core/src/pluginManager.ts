@@ -6,7 +6,6 @@ import {
 import { Logger, type ScopedLogger } from "./api/logger.js";
 import { patcher as sharedPatcher, type Patcher } from "./api/patcher.js";
 import { Settings, type SettingsStore } from "./api/settings.js";
-import { Toasts } from "./api/toasts.js";
 
 /** A plugin whose start() takes longer than this is skipped for this launch. */
 export const PLUGIN_START_TIMEOUT_MS = 15000;
@@ -20,8 +19,6 @@ export interface PluginManagerTimers {
 export interface PluginManagerOptions {
   /** Injected for deterministic tests; defaults to the global timers. */
   timers?: PluginManagerTimers | undefined;
-  /** Shows a user-facing error; defaults to `Toasts.error`. */
-  notifyError?: ((title: string, message: string) => void) | undefined;
 }
 
 const defaultTimers: PluginManagerTimers = {
@@ -145,7 +142,13 @@ interface MutablePluginState {
   enabled: boolean;
   started: boolean;
   lastError: unknown;
+  /** A start() that outlived its timeout and has not settled yet; never started twice. */
+  pendingStart: Promise<void> | undefined;
+  /** An enable() since the timeout wants that pending start to count when it finishes. */
+  adoptPendingStart: boolean;
 }
+
+type StartOutcome = { ok: true } | { ok: false; error: unknown };
 
 export class PluginManager {
   private readonly plugins = new Map<string, MutablePluginState>();
@@ -155,7 +158,6 @@ export class PluginManager {
   private readonly operations = new Map<string, Promise<unknown>>();
   private readonly listeners = new Set<() => void>();
   private readonly timers: PluginManagerTimers;
-  private readonly notifyError: (title: string, message: string) => void;
   /** Built-in definitions by name; other plugins may not take these names. */
   private readonly reserved = new Map<string, PluginDefinition>();
 
@@ -187,7 +189,6 @@ export class PluginManager {
     // stopped plugin can never leave a modified function behind.
     this.patcher = patcher ?? sharedPatcher;
     this.timers = options?.timers ?? defaultTimers;
-    this.notifyError = options?.notifyError ?? ((title, message) => { Toasts.error(title, message); });
   }
 
   /**
@@ -200,7 +201,8 @@ export class PluginManager {
 
   /**
    * Register a plugin. Throws on invalid definition or duplicate name; a
-   * non-built-in plugin using a reserved built-in name is skipped with a toast.
+   * non-built-in plugin using a reserved built-in name is skipped with a
+   * console warning.
    */
   register(definition: PluginDefinition): void {
     const parsed = PluginDefinitionSchema.safeParse(definition);
@@ -213,11 +215,6 @@ export class PluginManager {
     const builtin = this.reserved.get(def.name);
     if (builtin !== undefined && builtin !== def) {
       this.logger.warn(`Skipped plugin "${def.name}": the name belongs to a built-in plugin.`);
-      try {
-        this.notifyError("Plugin skipped", `${def.name} uses a built-in plugin's name`);
-      } catch (err: unknown) {
-        this.logger.captureError(err, "PluginManager.notify");
-      }
       return;
     }
     if (this.plugins.has(def.name)) {
@@ -226,7 +223,14 @@ export class PluginManager {
     }
     const persisted = this.safeLoadStates();
     const enabled = persisted[def.name] ?? def.enabledByDefault ?? false;
-    this.plugins.set(def.name, { definition: def, enabled, started: false, lastError: undefined });
+    this.plugins.set(def.name, {
+      definition: def,
+      enabled,
+      started: false,
+      lastError: undefined,
+      pendingStart: undefined,
+      adoptPendingStart: false,
+    });
     this.emit();
     this.logger.info(`Registered plugin "${def.name}" (enabled: ${enabled})`);
   }
@@ -249,28 +253,40 @@ export class PluginManager {
       state.started = true;
       return true;
     }
-    try {
-      let pending: Promise<void>;
+    // Never call start() again while an earlier one is still running: wait on it.
+    const reused = state.pendingStart;
+    let pending: Promise<void>;
+    if (reused !== undefined) {
+      pending = reused;
+    } else {
       try {
         pending = Promise.resolve(state.definition.start());
       } catch (err: unknown) {
         pending = Promise.reject(err);
       }
+    }
+    try {
       if (await this.timeBox(pending)) {
         // Keep it enabled so it retries next launch; never block other plugins.
         state.started = false;
         state.lastError = new Error(PLUGIN_START_TIMEOUT_MESSAGE);
+        state.adoptPendingStart = reused !== undefined;
         this.logger.warn(`Plugin "${name}" took longer than ${PLUGIN_START_TIMEOUT_MS} ms to start; skipped for now.`);
-        pending.then(
-          () => this.cleanUpLateStart(name, state, undefined),
-          (err: unknown) => this.cleanUpLateStart(name, state, err),
-        );
+        if (reused === undefined) {
+          state.pendingStart = pending;
+          pending.then(
+            () => this.settleLateStart(name, state, pending, { ok: true }),
+            (error: unknown) => this.settleLateStart(name, state, pending, { ok: false, error }),
+          );
+        }
         return false;
       }
+      if (state.pendingStart === pending) this.clearPendingStart(state);
       state.started = true;
       state.lastError = undefined;
       return true;
     } catch (err: unknown) {
+      if (state.pendingStart === pending) this.clearPendingStart(state);
       state.started = false;
       state.lastError = err;
       // A partially started plugin may already own patches/listeners/styles.
@@ -294,13 +310,31 @@ export class PluginManager {
     });
   }
 
-  /** A start that outlived its timeout finished anyway: undo it unless a newer start succeeded. */
-  private cleanUpLateStart(name: string, state: MutablePluginState, err: unknown): void {
+  private clearPendingStart(state: MutablePluginState): void {
+    state.pendingStart = undefined;
+    state.adoptPendingStart = false;
+  }
+
+  /**
+   * A start that outlived its timeout settled with nobody waiting on it. If the
+   * plugin was enabled again meanwhile it now counts as started; otherwise
+   * (never re-enabled, disabled, or shut down) it is stopped once.
+   */
+  private settleLateStart(name: string, state: MutablePluginState, pending: Promise<void>, outcome: StartOutcome): void {
     void this.enqueue(name, async () => {
-      if (state.started) return;
-      if (err !== undefined) {
-        state.lastError = err;
-        this.logger.captureError(err, `plugin "${name}" late start`);
+      // An enable() that awaited this start already handled the result.
+      if (state.pendingStart !== pending) return;
+      const adopt = state.adoptPendingStart && state.enabled;
+      this.clearPendingStart(state);
+      if (outcome.ok && adopt) {
+        state.started = true;
+        state.lastError = undefined;
+        this.logger.info(`Plugin "${name}" finished starting late.`);
+        return;
+      }
+      if (!outcome.ok) {
+        state.lastError = outcome.error;
+        this.logger.captureError(outcome.error, `plugin "${name}" late start`);
       }
       try {
         await state.definition.stop?.();
@@ -308,6 +342,11 @@ export class PluginManager {
         this.logger.captureError(stopError, `plugin "${name}" late start cleanup`);
       }
       this.unpatchOwner(name);
+      if (!outcome.ok && state.enabled) {
+        // Same as any failed start: do not retry a plugin that throws.
+        state.enabled = false;
+        this.persist();
+      }
     }).catch((cleanupError: unknown) => {
       this.logger.captureError(cleanupError, `plugin "${name}" late start cleanup`);
     });
@@ -334,6 +373,7 @@ export class PluginManager {
     }
     state.started = false;
     state.enabled = false;
+    state.adoptPendingStart = false;
     this.unpatchOwner(name);
     this.persist();
     return true;
@@ -362,6 +402,7 @@ export class PluginManager {
           }
         }
         state.started = false;
+        state.adoptPendingStart = false;
         this.unpatchOwner(name);
       });
     }
