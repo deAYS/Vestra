@@ -1,10 +1,11 @@
 // Installer operation fixes: scoped repair/purge, hooked-record retention,
 // registry hardening. Temp fixtures only — never touches real Discord installs.
-import { describe, test, afterEach } from "node:test";
+import { describe, test, afterEach, mock } from "node:test";
 import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { toErrorCode } from "./service.js";
 import { layoutHome } from "./home.js";
 import { installAll, repairAll, uninstallAll } from "./operations.js";
 import { loadRegistry, loadRegistryWithDiagnostics, saveRegistry } from "./registry.js";
@@ -149,5 +150,62 @@ describe("registry hardening", () => {
     const reg = await loadRegistry(registryPath);
     assert.ok(fx.asarPath.includes("’") && fx.asarPath.includes("Ü"));
     assert.equal(reg[fx.asarPath]?.asarPath, fx.asarPath);
+  });
+});
+
+describe("review round 1", () => {
+  test("a superseded app-* record is forgotten and purge works", async () => {
+    const fx = await createTestDiscordInstall({ channel: "canary", version: "1.0.0" });
+    const next = await createTestDiscordInstall({ channel: "canary", version: "2.0.0" });
+    const { ctx, homeDir, registryPath } = await setup([fx, next]);
+    cleanups.push(next.cleanup);
+    // Only the original root is discovered; the update lands as app-2.0.0.
+    const rootOnly = { ...ctx, discovery: fixtureDiscovery([fx], path.join(homeDir, "..", "empty")) };
+    await installAll(rootOnly);
+    await fs.promises.rename(next.appDir, path.join(fx.root, "app-2.0.0"));
+    const batch = await uninstallAll(rootOnly, { purge: true });
+    assert.ok(batch.results.every((r) => r.ok), JSON.stringify(batch.results));
+    assert.ok(batch.results.some((r) => r.action === "forgotten"));
+    assert.equal(fs.existsSync(homeDir), false);
+    assert.equal(fs.existsSync(registryPath), false);
+  });
+
+  test("corrupt registry emits one console.warn with the basename only", async () => {
+    const tmp = await fs.promises.mkdtemp(path.join(os.tmpdir(), "vestra-reg-"));
+    cleanups.push(() => fs.promises.rm(tmp, { recursive: true, force: true }));
+    const registryPath = path.join(tmp, "installs.json");
+    await fs.promises.writeFile(registryPath, "{ nope", "utf8");
+    const warn = mock.method(console, "warn", () => undefined);
+    try {
+      await loadRegistry(registryPath);
+      assert.equal(warn.mock.callCount(), 1);
+      const msg = String(warn.mock.calls[0]?.arguments[0]);
+      assert.match(msg, /^\[Vestra\] installs\.json was unreadable and was moved to installs\.json\.corrupt-\d+; records were reset\.$/);
+      assert.ok(!msg.includes(tmp));
+    } finally {
+      warn.mock.restore();
+    }
+  });
+
+  test("toErrorCode maps the kept-record detail to discord-not-found", () => {
+    assert.equal(toErrorCode("Not found by discovery; pass --root to uninstall it."), "discord-not-found");
+  });
+
+  test("a record for a custom root does not enable no-filter repair of the default root", async () => {
+    const def = await createTestDiscordInstall({ channel: "stable" });
+    const custom = await createTestDiscordInstall({ channel: "stable" });
+    const { ctx, registryPath } = await setup([def]);
+    cleanups.push(custom.cleanup);
+    await saveRegistry(registryPath, {
+      [custom.asarPath]: {
+        asarPath: custom.asarPath, channel: "stable", installVersion: "1.0.0",
+        payloadVersion: "0", at: "t", rootDir: custom.root,
+      },
+    });
+    assert.deepEqual((await repairAll(ctx)).results, []);
+    await saveRegistry(registryPath, {
+      legacy: { asarPath: "x", channel: "stable", installVersion: "1", payloadVersion: "0", at: "t" },
+    });
+    assert.equal((await repairAll(ctx)).results.length, 1);
   });
 });

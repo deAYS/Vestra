@@ -127,6 +127,7 @@ export function toErrorCode(detail: string | undefined): InstallerErrorCode {
   ) {
     return "safety-refusal";
   }
+  if (/Not found by discovery/.test(detail)) return "discord-not-found";
   if (/EACCES|EPERM|permission denied/i.test(detail))
     return "permission-denied";
   if (/asar unreadable|invalid asar|not a valid asar|bad asar/i.test(detail))

@@ -59,8 +59,12 @@ export async function loadRegistryWithDiagnostics(registryPath: string): Promise
     // Invalid JSON: keep the bytes for recovery and start from an empty registry.
     let warning = "registry-corrupt: installs.json was unreadable and could not be moved aside";
     try {
-      await fs.promises.rename(registryPath, `${registryPath}.corrupt-${Date.now()}`);
+      const movedTo = `${registryPath}.corrupt-${Date.now()}`;
+      await fs.promises.rename(registryPath, movedTo);
       warning = "registry-corrupt: installs.json was unreadable and was moved aside";
+      console.warn(
+        `[Vestra] installs.json was unreadable and was moved to ${path.basename(movedTo)}; records were reset.`,
+      );
     } catch {
       // Leave it in place; the next save replaces it.
     }

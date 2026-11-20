@@ -268,6 +268,10 @@ export async function installAll(
   return { results };
 }
 
+function sameRoot(a: string, b: string): boolean {
+  return path.resolve(a).toLowerCase() === path.resolve(b).toLowerCase();
+}
+
 function purgeSkipped(detail: string): PerInstallResult {
   return { asarPath: "", channel: "all", ok: false, action: "failed", detail };
 }
@@ -320,7 +324,20 @@ export async function uninstallAll(
     try {
       if (install === undefined) {
         const recorded = registry[asarPath] as RegistryEntry;
-        if (fs.existsSync(recorded.asarPath) && hasInjectionTraces(installFromRecord(recorded))) {
+        const recordedInstall = installFromRecord(recorded);
+        // Superseded sibling (Discord updated to a newer app-* dir): the live
+        // install is handled on its own, so the old record is just forgotten.
+        const superseded = discovered.some(
+          (d) =>
+            d.channel === recordedInstall.channel &&
+            sameRoot(d.rootDir, recordedInstall.rootDir) &&
+            !sameRoot(d.appDir, recordedInstall.appDir),
+        );
+        if (
+          !superseded &&
+          fs.existsSync(recorded.asarPath) &&
+          hasInjectionTraces(recordedInstall)
+        ) {
           // The archive is still hooked but discovery cannot see it: keep
           // the record so the user can retry with --root.
           results.push({
@@ -471,10 +488,14 @@ export async function repairTargets(
 ): Promise<DiscordInstall[]> {
   if (channels !== undefined && channels.length > 0) return targetsFor(ctx, channels);
   const { registryPath } = layoutHome(ctx.homeDir);
-  const recorded = new Set(
-    Object.values(await loadRegistry(registryPath)).map((e) => e.channel),
+  const records = Object.values(await loadRegistry(registryPath));
+  return targetsFor(ctx).filter((i) =>
+    records.some(
+      (e) =>
+        e.channel === i.channel &&
+        (e.rootDir === undefined || sameRoot(e.rootDir, i.rootDir)),
+    ),
   );
-  return targetsFor(ctx).filter((i) => recorded.has(i.channel));
 }
 
 /**
