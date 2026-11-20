@@ -7,17 +7,15 @@ import { getRealFs } from "@vestra/injector";
 import {
   layoutHome,
   loadRegistry,
-  withInstallLock,
   type InstallerService,
 } from "@vestra/installer";
-import { DiscordLifecycle } from "./discordLifecycle.js";
 import { systemTool } from "./systemTools.js";
 import { isDiscordChannel, type DiscordChannel } from "../shared/channels.js";
 import type { MaintenanceStatus } from "../shared/types.js";
 
 const execute = promisify(execFile);
 const RUN_KEY = "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run";
-interface MaintenanceConfig {
+export interface MaintenanceConfig {
   enabled: boolean;
   channels: DiscordChannel[];
   runtime?: string;
@@ -265,66 +263,5 @@ export async function trackAfterOperation<
       ...result,
       warning: result.warning ? `${result.warning} ${own}` : own,
     };
-  }
-}
-
-/** Two unchanged observations keep recovery out of Squirrel's write window. */
-export class RecoveryMonitor {
-  private readonly observed = new Map<string, string>();
-  private readonly retryAfter = new Map<string, number>();
-  constructor(
-    private readonly service: InstallerService,
-    private readonly lifecycle: DiscordLifecycle,
-    private readonly signature: (filename: string) => Promise<string> = async (
-      filename,
-    ) => {
-      const stat = await getRealFs().promises.stat(filename);
-      return `${stat.size}:${stat.mtimeMs}`;
-    },
-  ) {}
-
-  async tick(config: MaintenanceConfig, now = Date.now()): Promise<void> {
-    if (!config.enabled || config.channels.length === 0) return;
-    const registry = await loadRegistry(
-      layoutHome(this.service.context.homeDir).registryPath,
-    );
-    for (const target of await this.service.discover({
-      channels: config.channels,
-    })) {
-      // An opt-in channel is still scoped to its recorded installation root.
-      if (
-        !Object.values(registry).some(
-          (record) =>
-            record.channel === target.channel &&
-            record.rootDir?.toLowerCase() === target.rootDir.toLowerCase(),
-        )
-      )
-        continue;
-      if (
-        (this.retryAfter.get(target.channel) ?? 0) > now ||
-        (await this.lifecycle.updaterBusy(target))
-      )
-        continue;
-      const signature = await this.signature(target.asarPath);
-      const previous = this.observed.get(target.channel);
-      this.observed.set(target.channel, target.asarPath + ":" + signature);
-      if (previous !== target.asarPath + ":" + signature) continue;
-      const check = await this.service.check({ channels: [target.channel] });
-      if (check.statuses[0]?.health === "healthy") continue;
-      this.retryAfter.set(target.channel, now + 300000);
-      await withInstallLock(this.service.context.homeDir, async () => {
-        // Config can change while waiting for the updater or an integrity read.
-        const current = await readMaintenance(this.service.context.homeDir);
-        if (!current.enabled || !current.channels.includes(target.channel))
-          return;
-        const result = await this.lifecycle.run("repair", target.channel);
-        if (!result.ok)
-          throw new Error(
-            result.results.find((item) => !item.ok)?.detail ??
-              "Automatic recovery failed.",
-          );
-      });
-      this.observed.delete(target.channel);
-    }
   }
 }

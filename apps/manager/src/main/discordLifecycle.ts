@@ -40,6 +40,21 @@ export function belongsToRoot(executable: string, root: string): boolean {
   );
 }
 
+/** PIDs of the channel's Discord executable running from that version folder. */
+export async function processesUnder(
+  target: DiscordInstallation,
+  system: Pick<DiscordSystem, "processes"> = windowsDiscordSystem,
+): Promise<number[]> {
+  const image = imageNames[target.channel].toLowerCase();
+  return (await system.processes())
+    .filter(
+      (proc) =>
+        belongsToRoot(proc.executable, target.appDir) &&
+        path.win32.basename(proc.executable).toLowerCase() === image,
+    )
+    .map((proc) => proc.pid);
+}
+
 export const windowsDiscordSystem: DiscordSystem = {
   async processes() {
     const script =
