@@ -271,7 +271,14 @@ app
         "error",
         "malformed saved state does not crash Manager or touch Discord",
       );
-      await fs.rm(path.join(updateHome, "updates/pending.json"));
+      assert.equal(
+        await fs.stat(path.join(updateHome, "updates/pending.json")).then(
+          () => true,
+          () => false,
+        ),
+        false,
+        "malformed saved state is cleared",
+      );
       assert.equal(await evaluate("typeof require"), "undefined");
       assert.equal(
         await evaluate(
