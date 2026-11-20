@@ -46,8 +46,9 @@ test("reads each discovered channel's start status against its installed version
     JSON.stringify({ canary: { phase: "waiting-for-exit", version: "1.0.5", at: 5, attempts: 0 } }),
   );
   const result = await readRunStatus(dir, [install("stable", "1.0.9"), install("canary", "1.0.5")]);
-  assert.deepEqual(result.stable, { run: { kind: "active", at: 11 } });
+  assert.deepEqual(result.stable, { version: "1.0.9", run: { kind: "active", at: 11 } });
   assert.deepEqual(result.canary, {
+    version: "1.0.5",
     run: { kind: "awaiting-login" },
     recovery: { phase: "waiting-for-exit", version: "1.0.5", at: 5, attempts: 0 },
   });
@@ -61,9 +62,9 @@ test("missing, corrupt or stale files read as not started and never throw", asyn
   await fs.writeFile(path.join(dir, "recovery-state.json"), "[]");
   const result = await readRunStatus(dir, [install("stable", "1.0.9"), install("canary", "1.0.5")]);
   assert.deepEqual(result, {
-    stable: { run: { kind: "not-started" } },
-    canary: { run: { kind: "not-started" } },
+    stable: { version: "1.0.9", run: { kind: "not-started" } },
+    canary: { version: "1.0.5", run: { kind: "not-started" } },
   });
   const gone = await readRunStatus(path.join(dir, "does-not-exist"), [install("stable", null)]);
-  assert.deepEqual(gone, { stable: { run: { kind: "not-started" } } });
+  assert.deepEqual(gone, { stable: { version: null, run: { kind: "not-started" } } });
 });

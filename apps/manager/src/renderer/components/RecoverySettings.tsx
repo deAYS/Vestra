@@ -3,7 +3,7 @@ import { managerApi } from "../types.js";
 import type { DiscordChannel } from "../../shared/channels.js";
 import type { MaintenanceStatus } from "../../shared/types.js";
 import { lastReinstall, recoverySubline } from "../../shared/statusModel.js";
-import type { ChannelRecovery } from "../../main/recovery/state.js";
+import type { ChannelRecovery } from "../../shared/recovery.js";
 
 const LABEL = "Keep Vestra installed after Discord updates";
 
@@ -52,7 +52,7 @@ export function RecoverySettings({ busy, recovery }: Props): JSX.Element {
           ? recoverySubline(last, new Date())
           : null;
   return (
-    <footer className="vs-recovery" aria-label="Automatic recovery">
+    <section className="vs-recovery" aria-label="Automatic recovery">
       <label className="vs-recovery__label">
         <input
           type="checkbox"
@@ -77,6 +77,6 @@ export function RecoverySettings({ busy, recovery }: Props): JSX.Element {
           {error}
         </p>
       ) : null}
-    </footer>
+    </section>
   );
 }

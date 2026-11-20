@@ -65,6 +65,11 @@ export interface ManagerState {
 /** Start status changes outside the Manager (Discord opens, recovery runs). */
 const RUN_STATUS_POLL_MS = 15000;
 
+function recoveryKey(map: RunStatusMap, channel: DiscordChannel): string {
+  const record = map[channel]?.recovery;
+  return record ? `${record.phase}|${record.version ?? ""}|${record.at}` : "";
+}
+
 function phaseText(event: InstallerProgressEvent): string {
   switch (event.phase) {
     case "discovering":
@@ -184,36 +189,38 @@ export function useManager(): ManagerState {
   const devModeRef = useRef(devMode);
   devModeRef.current = devMode;
 
-  /** Last seen recovery record per channel, to notice background re-installs. */
-  const recoverySeen = useRef<Partial<Record<DiscordChannel, string>>>({});
-
   /**
-   * A failed read keeps what is shown; with nothing shown rows read neutral.
-   * Returns channels whose recovery record changed since the previous read.
+   * Recovery record per channel as of the last time that channel's files were
+   * read (boot/Refresh, after its own operation, or a poll re-read). A change
+   * since then means the row's file state may be stale.
    */
-  const loadRun = useCallback(async (): Promise<DiscordChannel[]> => {
-    let next: RunStatusMap;
+  const recoverySeen = useRef<Partial<Record<DiscordChannel, string>>>({});
+  const shallowRef = useRef(shallow);
+  shallowRef.current = shallow;
+  const installationsRef = useRef(installations);
+  installationsRef.current = installations;
+
+  /** A failed read keeps what is shown; with nothing shown rows read neutral. */
+  const loadRun = useCallback(async (): Promise<RunStatusMap | null> => {
     try {
-      next = await managerApi().runStatus();
+      const next = await managerApi().runStatus();
+      if (mounted.current) setRun(next);
+      return next;
     } catch {
       /* bridge or file trouble: never a reason to claim a state */
-      return [];
+      return null;
     }
-    if (!mounted.current) return [];
-    setRun(next);
-    const changed: DiscordChannel[] = [];
-    for (const [key, status] of Object.entries(next)) {
-      const channel = key as DiscordChannel;
-      const record = status?.recovery;
-      const seen = record
-        ? `${record.phase}|${record.version ?? ""}|${record.at}`
-        : "";
-      const before = recoverySeen.current[channel];
-      if (before !== undefined && before !== seen) changed.push(channel);
-      recoverySeen.current[channel] = seen;
-    }
-    return changed;
   }, []);
+
+  /** Note what recovery said when these channels' files were (re)read. */
+  const noteFilesRead = useCallback(
+    (channels: readonly DiscordChannel[], map: RunStatusMap | null): void => {
+      if (map === null) return;
+      for (const channel of channels)
+        recoverySeen.current[channel] = recoveryKey(map, channel);
+    },
+    [],
+  );
 
   const checkOne = useCallback(
     async (channel: DiscordChannel): Promise<void> => {
@@ -302,14 +309,19 @@ export function useManager(): ManagerState {
         }
         if (!mounted.current) return;
         setInstallations(found);
+        // Start status before files and deep checks, so rows don't flash a
+        // neutral line and the recovery baseline predates the file read.
+        const runMap = await loadRun();
+        if (!mounted.current) return;
         const summary = await managerApi().status();
         if (!mounted.current) return;
         const next: Partial<Record<DiscordChannel, InstallStatus>> = {};
         for (const s of summary.statuses) next[s.installation.channel] = s;
         setShallow(next);
-        // Start status before deep checks, so rows don't flash a neutral line.
-        await loadRun();
-        if (!mounted.current) return;
+        noteFilesRead(
+          summary.statuses.map((s) => s.installation.channel),
+          runMap,
+        );
         // Deep verification runs async per apparently-installed channel.
         const installed = summary.statuses.filter((s) => s.vestraInstalled);
         if (!isRefresh) setBooted(true);
@@ -326,17 +338,29 @@ export function useManager(): ManagerState {
         if (mounted.current && !isRefresh) setBooted(true);
       }
     },
-    [checkOne, loadRun],
+    [checkOne, loadRun, noteFilesRead],
   );
 
   /**
-   * Background refresh. Recovery can re-install Vestra while the Manager is
-   * open; when a channel's recovery record changes, re-read that row's files
-   * too, since file state outranks start status in the row.
+   * Background refresh. Files outrank start status in the row, so a channel's
+   * files are re-read when recovery changed its record since they were last
+   * read (a background re-install), or when Discord moved to another version
+   * (a self-update, e.g. with recovery off). Only re-read channels are noted,
+   * so a change that lands during another channel's operation is not lost.
    */
   const pollRun = useCallback(async (): Promise<void> => {
-    const changed = await loadRun();
-    for (const channel of changed) {
+    const map = await loadRun();
+    if (map === null) return;
+    for (const { channel } of installationsRef.current) {
+      const status = map[channel];
+      if (status === undefined) continue;
+      const shownVersion =
+        shallowRef.current[channel]?.installation.version ??
+        installationsRef.current.find((i) => i.channel === channel)?.version ??
+        null;
+      const moved = status.version !== shownVersion;
+      if (!moved && recoverySeen.current[channel] === recoveryKey(map, channel))
+        continue;
       if (busy.current || !mounted.current) return;
       try {
         const summary = await managerApi().status({ channels: [channel] });
@@ -346,12 +370,16 @@ export function useManager(): ManagerState {
         );
         if (found === undefined) continue;
         setShallow((prev) => ({ ...prev, [channel]: found }));
+        setInstallations((prev) =>
+          prev.map((i) => (i.channel === channel ? found.installation : i)),
+        );
+        noteFilesRead([channel], map);
         if (found.vestraInstalled) await checkOne(channel);
       } catch {
-        /* shown again on the next Refresh */
+        /* shown again on the next poll or Refresh */
       }
     }
-  }, [checkOne, loadRun]);
+  }, [checkOne, loadRun, noteFilesRead]);
 
   useEffect(() => {
     const off = (() => {
@@ -383,6 +411,8 @@ export function useManager(): ManagerState {
 
   const finishMutation = useCallback(
     async (channel: DiscordChannel): Promise<void> => {
+      const runMap = await loadRun();
+      if (!mounted.current) return;
       const summary = await managerApi().status({ channels: [channel] });
       if (!mounted.current) return;
       const found = summary.statuses.find(
@@ -390,11 +420,11 @@ export function useManager(): ManagerState {
       );
       if (found !== undefined) {
         setShallow((prev) => ({ ...prev, [channel]: found }));
+        noteFilesRead([channel], runMap);
       }
-      await loadRun();
       await checkOne(channel);
     },
-    [checkOne, loadRun],
+    [checkOne, loadRun, noteFilesRead],
   );
 
   /** Caller holds `busy`; this always releases it. */

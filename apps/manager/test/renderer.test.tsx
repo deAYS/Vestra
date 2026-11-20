@@ -50,7 +50,7 @@ import type {
 } from "../src/shared/types.js";
 import type { UpdateState } from "../src/shared/updates.js";
 import type { RunState } from "@vestra/shared";
-import type { ChannelRecovery } from "../src/main/recovery/state.js";
+import type { ChannelRecovery } from "../src/shared/recovery.js";
 
 function installEntry(
   channel: DiscordChannel,
@@ -80,7 +80,11 @@ class FakeApi {
   async updateState() {
     return this.update;
   }
+  /** What a manual check finds; defaults to "still current". */
+  checkResult: UpdateState | null = null;
   async checkUpdate() {
+    this.calls.push({ method: "checkUpdate", args: undefined });
+    if (this.checkResult !== null) this.update = this.checkResult;
     return this.update;
   }
   async downloadUpdate() {
@@ -217,9 +221,10 @@ class FakeApi {
     this.calls.push({ method: "runStatus", args: undefined });
     if (this.failRunStatus) throw new Error("run status unavailable");
     const out: RunStatusMap = {};
-    for (const { channel } of this.installations) {
+    for (const { channel, version } of this.installations) {
       const recovery = this.recovery[channel];
       out[channel] = {
+        version,
         run: this.run[channel] ?? { kind: "not-started" },
         ...(recovery ? { recovery } : {}),
       };
@@ -237,8 +242,17 @@ class FakeApi {
   }): Promise<OperationSummary> {
     this.calls.push({ method: "restartDiscord", args });
     const channel = args.channels[0] as DiscordChannel;
+    // Mirrors main: Vestra was not in the files, so the start record is
+    // cleared, and the re-install is recorded as patched for that version.
+    if (!this.installed.has(channel)) delete this.run[channel];
     this.installed.add(channel);
-    delete this.recovery[channel];
+    const version = this.installations.find((i) => i.channel === channel)?.version;
+    this.recovery[channel] = {
+      phase: "patched",
+      ...(version ? { version } : {}),
+      at: Date.now(),
+      attempts: 0,
+    };
     return {
       ok: true,
       results: [
@@ -292,6 +306,7 @@ class FakeApi {
     }
     this.installed.add(channel);
     this.drifted.delete(channel);
+    delete this.run[channel]; // main clears the old start record
     this.emit({ operation: "install", phase: "complete", total: 1 });
     return {
       ok: true,
@@ -329,6 +344,7 @@ class FakeApi {
       };
     }
     for (const channel of args.channels) {
+      if (!this.installed.has(channel)) delete this.run[channel];
       this.installed.add(channel);
       this.drifted.delete(channel);
     }
@@ -350,6 +366,7 @@ class FakeApi {
     for (const channel of args.channels) {
       this.installed.delete(channel);
       this.drifted.delete(channel);
+      delete this.run[channel];
     }
     return {
       ok: true,
@@ -621,13 +638,15 @@ describe("manager renderer", () => {
     assert.equal(byTestId("restart-canary")?.textContent, "Restart Discord");
     assert.equal(byTestId("install-canary"), null);
     assert.equal(callsOf("restartDiscord").length, 0, "never restarts on its own");
-    fake.run.canary = { kind: "active", at: Date.now() };
     await click(byTestId("restart-canary"));
     const restarts = callsOf("restartDiscord");
     assert.equal(restarts.length, 1);
     assert.deepEqual((restarts[0]?.args as { channels: string[] }).channels, ["canary"]);
     assert.equal(callsOf("install").length + callsOf("repair").length, 0);
-    assert.match(statusOf("canary"), /^Vestra active · started /);
+    assert.notEqual(statusOf("canary"), "Waiting for Discord restart");
+    assert.equal(statusOf("canary"), "Installed · will start next time Discord opens");
+    assert.equal(byTestId("restart-canary"), null);
+    assert.match(text(), /Last re-installed into 1\.0\.1156/);
   });
 
   test("a background re-install moves the row on when the window regains focus", async () => {
@@ -654,6 +673,57 @@ describe("manager renderer", () => {
     assert.equal(statusOf("canary"), "Installed · will start next time Discord opens");
     assert.equal(byTestId("install-canary"), null, "never offers Install over a re-install");
     assert.match(text(), /Last re-installed into 1\.0\.1156/);
+  });
+
+  test("an old start record never reads as the new install", async () => {
+    fake.run.canary = { kind: "active", at: Date.now() - 86400000 };
+    await mount();
+    assert.equal(statusOf("canary"), "Not installed");
+    await click(byTestId("install-canary"));
+    assert.equal(statusOf("canary"), "Installed · will start next time Discord opens");
+  });
+
+  test("a recovery change during another channel's operation is not lost", async () => {
+    fake.recovery.canary = {
+      phase: "waiting-for-exit",
+      version: "1.0.1156",
+      at: Date.now() - 1000,
+      attempts: 0,
+    };
+    let release!: () => void;
+    fake.installGate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    await mount();
+    assert.equal(statusOf("canary"), "Waiting for Discord restart");
+    await click(byTestId("install-stable"));
+    // While Stable installs, recovery re-installs Canary in the background.
+    fake.installed.add("canary");
+    fake.recovery.canary = { phase: "patched", version: "1.0.1156", at: Date.now(), attempts: 0 };
+    release();
+    await settle();
+    await act(async () => {
+      happyWindow.dispatchEvent(new happyWindow.Event("focus"));
+    });
+    await settle();
+    assert.equal(statusOf("canary"), "Installed · will start next time Discord opens");
+  });
+
+  test("a Discord self-update is picked up on the next poll", async () => {
+    fake.installed.add("canary");
+    fake.run.canary = { kind: "active", at: Date.now() };
+    await mount();
+    assert.match(statusOf("canary"), /^Vestra active/);
+    // Discord moved to a new version folder without Vestra (recovery off).
+    fake.installations = [fake.installations[0]!, installEntry("canary", "1.0.1200")];
+    fake.installed.delete("canary");
+    await act(async () => {
+      happyWindow.dispatchEvent(new happyWindow.Event("focus"));
+    });
+    await settle();
+    assert.equal(byTestId("version-canary")?.textContent, "1.0.1200");
+    assert.equal(statusOf("canary"), "Not installed");
+    assert.ok(byTestId("install-canary"));
   });
 
   test("10+11. Install sends one channel, then verifies and refreshes run status", async () => {
@@ -862,6 +932,33 @@ describe("manager renderer", () => {
       text(),
       new RegExp(`Last re-installed into 1\\.0\\.1156 · ${formatShortDate(at, new Date())}`),
     );
+  });
+
+  test("Check for updates is offered while the update card is hidden", async () => {
+    fake.checkResult = { ...fake.update, phase: "available", version: "0.1.0-alpha.4" };
+    await mount();
+    assert.equal(container.querySelector(".vs-update-card"), null);
+    const check = byTestId("check-updates");
+    assert.equal(check?.textContent, "Check for updates");
+    await click(check);
+    assert.equal(callsOf("checkUpdate").length, 1);
+    const card = container.querySelector(".vs-update-card");
+    assert.ok(card, "the card appears when a check finds an update");
+    assert.match(card.textContent ?? "", /Download update/);
+    assert.equal(byTestId("check-updates"), null, "one place to act on updates");
+  });
+
+  test("a manual check that finds nothing says so", async () => {
+    await mount();
+    await click(byTestId("check-updates"));
+    assert.equal(container.querySelector(".vs-update-card"), null);
+    assert.match(text(), /Vestra is up to date/);
+  });
+
+  test("no update check is offered where updates are unsupported", async () => {
+    fake.update = { ...fake.update, supported: false };
+    await mount();
+    assert.equal(byTestId("check-updates"), null);
   });
 
   test("footer has no re-install line without a patched record", async () => {

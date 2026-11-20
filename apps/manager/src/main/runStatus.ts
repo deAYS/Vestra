@@ -37,6 +37,7 @@ export async function readRunStatus(
     );
     const record = recovery[channel];
     out[channel] = {
+      version,
       run: deriveRunState(file, version),
       ...(record ? { recovery: record } : {}),
     };

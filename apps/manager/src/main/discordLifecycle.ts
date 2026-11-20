@@ -117,6 +117,11 @@ export const windowsDiscordSystem: DiscordSystem = {
   wait: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
 };
 
+export interface LifecycleHooks {
+  /** Runs after a verified operation and before Discord is reopened. */
+  afterVerify?(): Promise<void>;
+}
+
 export class DiscordLifecycle {
   private busy = false;
   constructor(
@@ -148,6 +153,7 @@ export class DiscordLifecycle {
     kind: "install" | "repair" | "uninstall",
     channel: DiscordChannel,
     onProgress?: (event: InstallerProgressEvent) => void,
+    hooks: LifecycleHooks = {},
   ): Promise<OperationSummary> {
     if (this.busy)
       throw new Error("Another Discord operation is already running.");
@@ -220,6 +226,12 @@ export class DiscordLifecycle {
           : verified.health !== "healthy")
       ) {
         throw new Error("Discord verification failed after " + kind + ".");
+      }
+      // Discord is still closed here: nothing it writes on relaunch is lost.
+      try {
+        await hooks.afterVerify?.();
+      } catch {
+        // Best effort; the verified operation stands.
       }
       onProgress?.({
         operation: kind,

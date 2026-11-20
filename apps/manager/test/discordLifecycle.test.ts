@@ -186,3 +186,33 @@ test("isRunning sees only this channel's Discord and never stops it", async () =
   assert.equal(await h.lifecycle.isRunning("stable"), false);
   assert.deepEqual(h.calls, [], "a query never stops, launches or patches");
 });
+test("afterVerify runs after verification and before Discord reopens", async () => {
+  const h = harness();
+  await h.lifecycle.run("install", "stable", undefined, {
+    afterVerify: async () => {
+      h.calls.push("afterVerify");
+    },
+  });
+  assert.deepEqual(h.calls, ["stop:1", "install:true", "check", "afterVerify", "launch"]);
+});
+test("afterVerify never runs for a failed operation, and its failure is ignored", async () => {
+  const h = harness();
+  h.breakVerification();
+  let ran = false;
+  await assert.rejects(() =>
+    h.lifecycle.run("install", "stable", undefined, {
+      afterVerify: async () => {
+        ran = true;
+      },
+    }),
+  );
+  assert.equal(ran, false);
+  const ok = harness();
+  const result = await ok.lifecycle.run("repair", "stable", undefined, {
+    afterVerify: async () => {
+      throw new Error("fixture cleanup failure");
+    },
+  });
+  assert.equal(result.ok, true);
+  assert.deepEqual(ok.calls, ["stop:1", "repair", "check", "launch"]);
+});

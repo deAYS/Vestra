@@ -47,7 +47,9 @@ for (const [name, result] of Object.entries({
       },
     ],
   },
-  "run-status": { stable: { run: { kind: "active", at: Date.now() } } },
+  "run-status": {
+    stable: { version: "1.0.9264", run: { kind: "active", at: Date.now() } },
+  },
   // A closed fixture Discord: Repair runs without the restart warning.
   "discord-running": false,
 }))

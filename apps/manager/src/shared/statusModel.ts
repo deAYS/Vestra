@@ -1,5 +1,5 @@
 import type { RunState } from "@vestra/shared";
-import type { ChannelRecovery } from "../main/recovery/state.js";
+import type { ChannelRecovery } from "./recovery.js";
 import type { DiscordChannel } from "./channels.js";
 import type { InstallHealth, InstallStatus } from "./types.js";
 

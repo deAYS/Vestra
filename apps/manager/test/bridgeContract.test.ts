@@ -130,7 +130,8 @@ describe("security boundary", () => {
       assert.ok(bridge.includes(channel), `bridge missing ${channel}`);
     }
 
-    assert.match(bridge, /lifecycle.run/);
+    assert.match(bridge, /runManagerOperation\(/);
+    assert.match(read(path.join("main", "operations.ts")), /lifecycle\.run\(/);
     const lifecycle = read(path.join("main", "discordLifecycle.ts"));
     assert.match(lifecycle, /purge:\s*false/);
   });
@@ -144,14 +145,26 @@ describe("security boundary", () => {
     );
     for (const name of ["runStatus", "discordRunning", "restartDiscord"])
       assert.match(bridge, new RegExp(`handle\\(MANAGER_IPC\\.${name},`), name);
-    // Restart Discord is the locked lifecycle repair, never a bare process call.
+    // Restart Discord is the locked lifecycle operation, never a bare process call.
     assert.match(
       bridge,
-      /handle\(MANAGER_IPC\.restartDiscord,[^;]*mutate\("repair"/,
+      /handle\(MANAGER_IPC\.restartDiscord,[^;]*mutate\("restart"/,
     );
+    const operations = codeOnly(read(path.join("main", "operations.ts")));
+    assert.match(operations, /withInstallLock\(home,/);
+    assert.match(operations, /lifecycle\.run\(/);
     const preload = codeOnly(read(path.join("preload", "index.ts")));
     for (const name of ["runStatus", "discordRunning", "restartDiscord"])
       assert.ok(preload.includes(`MANAGER_IPC.${name}`), `preload missing ${name}`);
+  });
+
+  test("shared and renderer code never import from main", () => {
+    for (const dir of ["shared", "renderer"]) {
+      for (const file of listFiles(path.join(SRC, dir)).filter((f) => /\.(ts|tsx)$/.test(f))) {
+        const content = codeOnly(fs.readFileSync(file, "utf8"));
+        assert.ok(!/from "[^"]*\/main\//.test(content), `${path.basename(file)} imports main`);
+      }
+    }
   });
 
   test("manager uses the shared service; process control stays in the main process", () => {

@@ -19,7 +19,7 @@ import {
 } from "../src/shared/statusModel.js";
 import type { InstallStatus } from "../src/shared/types.js";
 import type { RunState } from "@vestra/shared";
-import type { ChannelRecovery } from "../src/main/recovery/state.js";
+import type { ChannelRecovery } from "../src/shared/recovery.js";
 
 function shallow(overrides: Partial<InstallStatus> = {}): InstallStatus {
   return {

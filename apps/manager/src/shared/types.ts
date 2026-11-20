@@ -1,5 +1,5 @@
 import type { RunState } from "@vestra/shared";
-import type { ChannelRecovery } from "../main/recovery/state.js";
+import type { ChannelRecovery } from "./recovery.js";
 import type { DiscordChannel } from "./channels.js";
 
 export interface MaintenanceStatus {
@@ -97,6 +97,8 @@ export interface InstallerProgressEvent {
 
 /** What the last Discord start reported, plus any recovery in progress. */
 export interface ChannelRunStatus {
+  /** The discovered Discord version `run` was derived against. */
+  version: string | null;
   run: RunState;
   recovery?: ChannelRecovery;
 }

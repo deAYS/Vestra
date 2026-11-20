@@ -2,24 +2,13 @@ import { randomBytes } from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { isDiscordChannel, type DiscordChannel } from "../../shared/channels.js";
+import type {
+  ChannelRecovery,
+  RecoveryPhase,
+  RecoveryState,
+} from "../../shared/recovery.js";
 
-export type RecoveryPhase = "idle" | "patched" | "waiting-for-exit" | "failed";
-
-export interface ChannelRecovery {
-  phase: RecoveryPhase;
-  version?: string;
-  at: number;
-  attempts: number;
-  /** Short reason code only; never a message, URL or path. */
-  detail?: string;
-  /**
-   * Archive the attempts belong to: version folder name plus size and mtime.
-   * A new folder or a replaced archive starts a fresh retry budget.
-   */
-  signature?: string;
-}
-
-export type RecoveryState = Partial<Record<DiscordChannel, ChannelRecovery>>;
+export type { ChannelRecovery, RecoveryPhase, RecoveryState };
 
 const PHASES: readonly RecoveryPhase[] = [
   "idle",
@@ -90,4 +79,26 @@ export async function writeRecoveryState(
     await fs.promises.rm(temporary, { force: true }).catch(() => {});
     throw error;
   }
+}
+
+/**
+ * Record that `channel` was re-installed into `version` outside the recovery
+ * process (the Manager's Restart Discord). Same record the notification path
+ * writes, so a waiting-for-exit row clears even when recovery isn't running.
+ * Callers hold the install lock.
+ */
+export async function markRecoveryPatched(
+  home: string,
+  channel: DiscordChannel,
+  version: string | undefined,
+  now: number = Date.now(),
+): Promise<void> {
+  const state = await readRecoveryState(home);
+  state[channel] = {
+    phase: "patched",
+    ...(version === undefined ? {} : { version }),
+    at: now,
+    attempts: 0,
+  };
+  await writeRecoveryState(home, state);
 }

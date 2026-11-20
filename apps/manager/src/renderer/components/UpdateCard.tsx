@@ -1,50 +1,17 @@
-import { useEffect, useState } from "react";
-import type { UpdateState } from "../../shared/updates.js";
+import { useState } from "react";
+import { isCardPhase, type UpdatesState } from "../hooks/useUpdates.js";
 
-/** Phases with something for the user to see or do. Idle/current/checking stay quiet. */
-const VISIBLE: ReadonlyArray<UpdateState["phase"]> = [
-  "available",
-  "downloading",
-  "ready",
-  "installing",
-  "error",
-];
-
-export function UpdateCard({ busy }: { busy: boolean }): JSX.Element | null {
-  const [state, setState] = useState<UpdateState | null>(null);
+export function UpdateCard({
+  busy,
+  updates,
+}: {
+  busy: boolean;
+  updates: UpdatesState;
+}): JSX.Element | null {
   const [confirm, setConfirm] = useState(false);
-  useEffect(() => {
-    let active = true;
-    const api = window.vestraManager;
-    const unsubscribe = api.onUpdate((value) => {
-      if (active) setState(value);
-    });
-    void api
-      .updateState()
-      .then((value) => {
-        if (active) setState(value);
-      })
-      .catch(() => {});
-    return () => {
-      active = false;
-      unsubscribe();
-    };
-  }, []);
-  const run = (action: () => Promise<UpdateState>): void => {
-    void action()
-      .then(setState)
-      .catch((error) =>
-        setState((previous) => ({
-          ...previous!,
-          phase: "error",
-          message: String(error),
-        })),
-      );
-  };
-  if (!state) return null;
-  const phaseShown = VISIBLE.includes(state.phase);
-  // A failed handoff is kept until dismissed, whatever the phase.
-  if (!phaseShown && !state.handoffError) return null;
+  const { state, run } = updates;
+  if (state === null || !updates.cardVisible) return null;
+  const phaseShown = isCardPhase(state.phase);
   const working = state.phase === "downloading" || state.phase === "installing";
   return (
     <section

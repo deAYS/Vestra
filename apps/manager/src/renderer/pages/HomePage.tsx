@@ -6,7 +6,7 @@ import {
   type CardModel,
   type RowModel,
 } from "../../shared/statusModel.js";
-import type { ChannelRecovery } from "../../main/recovery/state.js";
+import type { ChannelRecovery } from "../../shared/recovery.js";
 import type { ManagerState } from "../hooks/useManager.js";
 import { ConfirmDialog } from "../components/ConfirmDialog.js";
 import { DiscordInstallList } from "../components/DiscordInstallList.js";
@@ -14,6 +14,7 @@ import { ErrorPanel } from "../components/ErrorPanel.js";
 import { Header } from "../components/Header.js";
 import { RecoverySettings } from "../components/RecoverySettings.js";
 import { UpdateCard } from "../components/UpdateCard.js";
+import { useUpdates } from "../hooks/useUpdates.js";
 
 function cardFor(manager: ManagerState, channel: DiscordChannel, version: string | null): CardModel {
   const shallow = manager.shallow[channel];
@@ -39,6 +40,8 @@ export function HomePage({ manager }: { manager: ManagerState }): JSX.Element {
   }
 
   const busy = manager.activeOp !== null;
+  const updates = useUpdates();
+  const update = updates.state;
 
   return (
     <div className="vs-home">
@@ -46,7 +49,7 @@ export function HomePage({ manager }: { manager: ManagerState }): JSX.Element {
         refreshing={manager.refreshing}
         onRefresh={() => void manager.refresh()}
       />
-      <UpdateCard busy={busy} />
+      <UpdateCard busy={busy} updates={updates} />
       <section className="vs-installs" aria-label="Discord installations">
         {!manager.booted ? (
           <div className="vs-empty" data-testid="boot-loading">
@@ -121,7 +124,27 @@ export function HomePage({ manager }: { manager: ManagerState }): JSX.Element {
         />
       ) : null}
 
-      <RecoverySettings busy={busy} recovery={recovery} />
+      <footer className="vs-footer">
+        <RecoverySettings busy={busy} recovery={recovery} />
+        {update?.supported && !updates.cardVisible ? (
+          <div className="vs-update-check">
+            {updates.upToDate ? (
+              <span className="vs-update-check__note" role="status">
+                Vestra is up to date
+              </span>
+            ) : null}
+            <button
+              type="button"
+              className="vs-link-btn"
+              data-testid="check-updates"
+              disabled={busy || update.phase === "checking"}
+              onClick={updates.checkNow}
+            >
+              {update.phase === "checking" ? "Checking…" : "Check for updates"}
+            </button>
+          </div>
+        ) : null}
+      </footer>
 
       {manager.confirm !== null ? (
         <ConfirmDialog

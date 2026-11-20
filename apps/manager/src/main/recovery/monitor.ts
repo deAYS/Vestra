@@ -112,7 +112,7 @@ export function repairFailure(summary: OperationSummary): Error {
   });
 }
 
-function versionOf(target: DiscordInstallation): string {
+export function versionOf(target: DiscordInstallation): string {
   return target.version ?? path.basename(target.appDir).replace(/^app-/i, "");
 }
 
