@@ -3,7 +3,8 @@ import assert from "node:assert/strict";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
-import { RecoveryMonitor, withInstallLock } from "../src/main/maintenance.js";
+import { withInstallLock } from "@vestra/installer";
+import { RecoveryMonitor } from "../src/main/maintenance.js";
 import type { InstallerService } from "@vestra/installer";
 import type { DiscordLifecycle } from "../src/main/discordLifecycle.js";
 
@@ -111,12 +112,7 @@ test("background recovery waits for stable files, follows only opted-in roots an
 test("foreground and background operations cannot mutate archives concurrently", async () => {
   const home = await fs.mkdtemp(path.join(os.tmpdir(), "vestra-lock-test-"));
   try {
-    await withInstallLock(home, async () => {
-      await assert.rejects(
-        () => withInstallLock(home, async () => {}),
-        /Another installation operation/,
-      );
-    });
+    await withInstallLock(home, () => withInstallLock(home, async () => {}));
     await withInstallLock(home, async () => {});
     await assert.rejects(
       () =>

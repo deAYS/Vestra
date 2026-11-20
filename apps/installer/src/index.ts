@@ -55,5 +55,6 @@ export type {
   UninstallOptions,
 } from "./service.js";
 
+export { withInstallLock } from "./lock.js";
 export { runCli } from "./cli.js";
 export type { CliIO } from "./cli.js";

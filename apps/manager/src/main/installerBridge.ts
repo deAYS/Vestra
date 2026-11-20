@@ -4,8 +4,8 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { isManagerSender } from "./sender.js";
 import type { DiscordChannel } from "@vestra/injector";
 import { DiscordLifecycle } from "./discordLifecycle.js";
-import { MaintenanceController, withInstallLock } from "./maintenance.js";
-import type { InstallerService } from "@vestra/installer";
+import { MaintenanceController } from "./maintenance.js";
+import { withInstallLock, type InstallerService } from "@vestra/installer";
 import { MANAGER_IPC } from "../shared/channels.js";
 import type { InstallerProgressEvent } from "../shared/types.js";
 

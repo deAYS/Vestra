@@ -1,7 +1,5 @@
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
-import { createServer } from "node:net";
-import * as os from "node:os";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { promisify } from "node:util";
@@ -9,6 +7,7 @@ import { getRealFs } from "@vestra/injector";
 import {
   layoutHome,
   loadRegistry,
+  withInstallLock,
   type InstallerService,
 } from "@vestra/installer";
 import { DiscordLifecycle } from "./discordLifecycle.js";
@@ -59,42 +58,6 @@ async function saveConfig(
     JSON.stringify(config, null, 2),
   );
   await fs.promises.rename(filename + ".tmp", filename);
-}
-
-/** Serialize foreground and background archive transactions across processes. */
-export async function withInstallLock<T>(
-  home: string,
-  operation: () => Promise<T>,
-): Promise<T> {
-  const identity = createHash("sha256")
-    .update(path.resolve(home).toLowerCase())
-    .digest("hex")
-    .slice(0, 24);
-  const address =
-    process.platform === "win32"
-      ? `\\\\.\\pipe\\vestra-install-${identity}`
-      : path.join(os.tmpdir(), `vestra-install-${identity}.sock`);
-  const server = createServer((socket) => socket.destroy());
-  try {
-    await new Promise<void>((resolve, reject) => {
-      server.once("error", reject);
-      server.listen(address, resolve);
-    });
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "EADDRINUSE")
-      throw new Error(
-        "Another installation operation is running. Try again shortly.",
-      );
-    throw error;
-  }
-  // Windows releases the named pipe even after a crash or power loss; no stale PID files.
-  try {
-    return await operation();
-  } finally {
-    await new Promise<void>((resolve, reject) =>
-      server.close((error) => (error ? reject(error) : resolve())),
-    );
-  }
 }
 
 export interface MaintenanceHost {

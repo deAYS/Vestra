@@ -22,6 +22,7 @@ import {
   type PerInstallResult,
   type PruneResult,
 } from "./operations.js";
+import { withInstallLock } from "./lock.js";
 import { loadRegistry } from "./registry.js";
 
 export type { DiscordChannel, DiscoveryOptions };
@@ -67,11 +68,7 @@ function toOperationContext(ctx: InstallerServiceContext): OperationContext {
 // ---------------------------------------------------------------------------
 
 export type InstallHealth =
-  | "healthy"
-  | "not-installed"
-  | "drifted"
-  | "stale"
-  | "error";
+  "healthy" | "not-installed" | "drifted" | "stale" | "error";
 
 /** Public GUI-safe installation metadata (subset of DiscordInstall). */
 export interface DiscordInstallation {
@@ -397,7 +394,10 @@ export function createInstallerService(
             code: "backup-missing" as const,
           };
         }
-        if (registry[install.asarPath] === undefined || readReceipt(install) === undefined) {
+        if (
+          registry[install.asarPath] === undefined ||
+          readReceipt(install) === undefined
+        ) {
           return {
             installation,
             health: "drifted" as const,
@@ -474,119 +474,127 @@ export function createInstallerService(
     },
 
     async install(options?: InstallOptions): Promise<OperationSummary> {
-      const onProgress = options?.onProgress;
-      emit(onProgress, { operation: "install", phase: "discovering" });
-      const c = opCtx();
-      const targets = listInstalls(c.discovery).filter((i) =>
-        channelMatches(options?.channels, i.channel),
-      );
-      const filtered =
-        options?.only === undefined || options.only.length === 0
-          ? targets
-          : targets.filter((t) =>
-              (options.only as string[]).includes(t.asarPath),
-            );
-      emit(onProgress, {
-        operation: "install",
-        phase: "staging",
-        total: filtered.length,
-      });
-      for (let index = 0; index < filtered.length; index++) {
-        const t = filtered[index] as DiscordInstall;
+      return withInstallLock(ctx.homeDir, async () => {
+        const onProgress = options?.onProgress;
+        emit(onProgress, { operation: "install", phase: "discovering" });
+        const c = opCtx();
+        const targets = listInstalls(c.discovery).filter((i) =>
+          channelMatches(options?.channels, i.channel),
+        );
+        const filtered =
+          options?.only === undefined || options.only.length === 0
+            ? targets
+            : targets.filter((t) =>
+                (options.only as string[]).includes(t.asarPath),
+              );
         emit(onProgress, {
           operation: "install",
-          phase: "patching",
-          installation: toDiscordInstallation(t),
-          index,
+          phase: "staging",
           total: filtered.length,
         });
-      }
-      const batch = await installAll(c, {
-        channels: options?.channels,
-        force: options?.force,
-        stage: options?.stage,
-        only: options?.only,
+        for (let index = 0; index < filtered.length; index++) {
+          const t = filtered[index] as DiscordInstall;
+          emit(onProgress, {
+            operation: "install",
+            phase: "patching",
+            installation: toDiscordInstallation(t),
+            index,
+            total: filtered.length,
+          });
+        }
+        const batch = await installAll(c, {
+          channels: options?.channels,
+          force: options?.force,
+          stage: options?.stage,
+          only: options?.only,
+        });
+        emit(onProgress, {
+          operation: "install",
+          phase: "verifying",
+          total: batch.results.length,
+        });
+        const summary = summarize(batch);
+        emit(onProgress, {
+          operation: "install",
+          phase: "complete",
+          total: summary.results.length,
+        });
+        return summary;
       });
-      emit(onProgress, {
-        operation: "install",
-        phase: "verifying",
-        total: batch.results.length,
-      });
-      const summary = summarize(batch);
-      emit(onProgress, {
-        operation: "install",
-        phase: "complete",
-        total: summary.results.length,
-      });
-      return summary;
     },
 
     async repair(options?: RepairOptions): Promise<OperationSummary> {
-      const onProgress = options?.onProgress;
-      emit(onProgress, { operation: "repair", phase: "discovering" });
-      const c = opCtx();
-      const targets = listInstalls(c.discovery).filter((i) =>
-        channelMatches(options?.channels, i.channel),
-      );
-      for (let index = 0; index < targets.length; index++) {
-        const t = targets[index] as DiscordInstall;
+      return withInstallLock(ctx.homeDir, async () => {
+        const onProgress = options?.onProgress;
+        emit(onProgress, { operation: "repair", phase: "discovering" });
+        const c = opCtx();
+        const targets = listInstalls(c.discovery).filter((i) =>
+          channelMatches(options?.channels, i.channel),
+        );
+        for (let index = 0; index < targets.length; index++) {
+          const t = targets[index] as DiscordInstall;
+          emit(onProgress, {
+            operation: "repair",
+            phase: "patching",
+            installation: toDiscordInstallation(t),
+            index,
+            total: targets.length,
+          });
+        }
+        const batch = await repairAll(c, { channels: options?.channels });
         emit(onProgress, {
           operation: "repair",
-          phase: "patching",
-          installation: toDiscordInstallation(t),
-          index,
-          total: targets.length,
+          phase: "verifying",
+          total: batch.results.length,
         });
-      }
-      const batch = await repairAll(c, { channels: options?.channels });
-      emit(onProgress, {
-        operation: "repair",
-        phase: "verifying",
-        total: batch.results.length,
+        const summary = summarize(batch);
+        emit(onProgress, {
+          operation: "repair",
+          phase: "complete",
+          total: summary.results.length,
+        });
+        return summary;
       });
-      const summary = summarize(batch);
-      emit(onProgress, {
-        operation: "repair",
-        phase: "complete",
-        total: summary.results.length,
-      });
-      return summary;
     },
 
     async uninstall(options?: UninstallOptions): Promise<OperationSummary> {
-      const onProgress = options?.onProgress;
-      emit(onProgress, { operation: "uninstall", phase: "discovering" });
-      const batch = await uninstallAll(opCtx(), {
-        channels: options?.channels,
-        purge: options?.purge,
+      return withInstallLock(ctx.homeDir, async () => {
+        const onProgress = options?.onProgress;
+        emit(onProgress, { operation: "uninstall", phase: "discovering" });
+        const batch = await uninstallAll(opCtx(), {
+          channels: options?.channels,
+          purge: options?.purge,
+        });
+        emit(onProgress, {
+          operation: "uninstall",
+          phase: "verifying",
+          total: batch.results.length,
+        });
+        const summary = summarize(batch);
+        emit(onProgress, {
+          operation: "uninstall",
+          phase: "complete",
+          total: summary.results.length,
+        });
+        return summary;
       });
-      emit(onProgress, {
-        operation: "uninstall",
-        phase: "verifying",
-        total: batch.results.length,
-      });
-      const summary = summarize(batch);
-      emit(onProgress, {
-        operation: "uninstall",
-        phase: "complete",
-        total: summary.results.length,
-      });
-      return summary;
     },
 
     async pruneRegistry(options?: PruneOptions): Promise<PruneSummary> {
-      const onProgress = options?.onProgress;
-      emit(onProgress, { operation: "prune", phase: "discovering" });
-      const result = await pruneStaleRecords(opCtx(), {
-        channels: options?.channels,
-        dryRun: options?.dryRun,
+      return withInstallLock(ctx.homeDir, async () => {
+        const onProgress = options?.onProgress;
+        emit(onProgress, { operation: "prune", phase: "discovering" });
+        const result = await pruneStaleRecords(opCtx(), {
+          channels: options?.channels,
+          dryRun: options?.dryRun,
+        });
+        emit(onProgress, {
+          operation: "prune",
+          phase: "complete",
+          total: result.removed.length,
+        });
+        return result;
       });
-      emit(onProgress, {
-        operation: "prune",
-        phase: "complete",
-        total: result.removed.length,
-      });
-      return result;
     },
   };
 }

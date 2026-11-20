@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { pathToFileURL, fileURLToPath } from "node:url";
-import type { InstallerService } from "@vestra/installer";
+import { withInstallLock, type InstallerService } from "@vestra/installer";
 import {
   MANAGER_IPC,
   isDiscordChannel,
@@ -19,7 +19,7 @@ import {
 import { launchUpdateHelper } from "./updateHandoff.js";
 import { isManagerSender } from "./sender.js";
 import { DiscordLifecycle } from "./discordLifecycle.js";
-import { MaintenanceController, withInstallLock } from "./maintenance.js";
+import { MaintenanceController } from "./maintenance.js";
 
 interface Pending {
   token: string;
