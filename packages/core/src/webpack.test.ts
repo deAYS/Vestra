@@ -1,7 +1,7 @@
-import { test } from "node:test";
+import { afterEach, test } from "node:test";
 import assert from "node:assert/strict";
 import { createWebpackFinder } from "./webpack/finder.js";
-import { getWebpackRequire, onModulesRegistered } from "./webpack/raw.js";
+import { getWebpackRequire, onModulesRegistered, resetModuleRegistration } from "./webpack/raw.js";
 import { waitForModule } from "./webpack/waitFor.js";
 import { defineWrapper } from "./discord/wrappers.js";
 
@@ -70,6 +70,31 @@ function removeChunkArray(): void {
 }
 
 const delay = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+
+// Registration state is module-wide: never let one test's hooks or timers leak.
+afterEach(() => {
+  resetModuleRegistration();
+});
+
+/** A logger that counts captured errors. */
+function countingLogger(): { logger: ScopedLoggerLike; errors: () => number } {
+  let errors = 0;
+  const noop = (): void => {};
+  const logger: ScopedLoggerLike = {
+    scope: "Test",
+    debug: noop,
+    log: noop,
+    info: noop,
+    warn: noop,
+    error: noop,
+    captureError: () => {
+      errors += 1;
+    },
+  };
+  return { logger, errors: () => errors };
+}
+
+type ScopedLoggerLike = NonNullable<Parameters<typeof createWebpackFinder>[0]>["logger"] & object;
 
 test("findByProps / findByDisplayName / findStore scan the module cache once per key", () => {
   const { req, c, scans } = fakeRequire();
@@ -176,50 +201,50 @@ test("the chunk push hook calls through, keeps return values, and uninstalls cle
   const original = array.push;
   try {
     await withStash(req, async () => {
-    let events = 0;
-    const off = onModulesRegistered(() => {
-      events += 1;
-    });
-    assert.notEqual(array.push, original, "push is wrapped while a listener exists");
-    const result = array.push([["a"], {}], [["b"], {}]);
-    assert.equal(result, 2, "the original push's return value is kept");
-    assert.equal(pushes(), 1);
-    assert.equal(array.length, 2);
-    array.push([["c"], {}]);
-    await delay(10);
-    assert.equal(events, 1, "pushes in one task coalesce into one event");
+      let events = 0;
+      const off = onModulesRegistered(() => {
+        events += 1;
+      });
+      assert.notEqual(array.push, original, "push is wrapped while a listener exists");
+      const result = array.push([["a"], {}], [["b"], {}]);
+      assert.equal(result, 2, "the original push's return value is kept");
+      assert.equal(pushes(), 1);
+      assert.equal(array.length, 2);
+      array.push([["c"], {}]);
+      await delay(10);
+      assert.equal(events, 1, "pushes in one task coalesce into one event");
 
-    const off2 = onModulesRegistered(() => {});
-    off();
-    assert.notEqual(array.push, original, "still wrapped while another listener exists");
-    off2();
-    assert.equal(array.push, original, "the last listener restores the original push");
+      const off2 = onModulesRegistered(() => {});
+      off();
+      assert.notEqual(array.push, original, "still wrapped while another listener exists");
+      off2();
+      assert.equal(array.push, original, "the last listener restores the original push");
 
-    // Someone wraps on top of us: our wrapper stays as an inert pass-through.
-    const off3 = onModulesRegistered(() => {
-      events += 1;
-    });
-    const ours = array.push;
-    const foreign = function (this: unknown[], ...items: unknown[]): number {
-      return (ours as (...args: unknown[]) => number).apply(this, items);
-    };
-    array.push = foreign;
-    off3();
-    assert.equal(array.push, foreign, "a foreign wrapper on top is never removed");
-    const before = events;
-    array.push([["d"], {}]);
-    await delay(10);
-    assert.equal(events, before, "no listeners, no events");
-    assert.equal(pushes(), 3, "calls still reach the original push");
+      // Someone wraps on top of us: our wrapper stays as an inert pass-through.
+      const off3 = onModulesRegistered(() => {
+        events += 1;
+      });
+      const ours = array.push;
+      const foreign = function (this: unknown[], ...items: unknown[]): number {
+        return (ours as (...args: unknown[]) => number).apply(this, items);
+      };
+      array.push = foreign;
+      off3();
+      assert.equal(array.push, foreign, "a foreign wrapper on top is never removed");
+      const before = events;
+      array.push([["d"], {}]);
+      await delay(10);
+      assert.equal(events, before, "no listeners, no events");
+      assert.equal(pushes(), 3, "calls still reach the original push");
 
-    const off4 = onModulesRegistered(() => {
-      events += 1;
-    });
-    array.push([["e"], {}]);
-    await delay(10);
-    assert.equal(events, before + 1, "the retained wrapper is reused, not stacked");
-    assert.equal(pushes(), 4, "one call per push, never doubled");
-    off4();
+      const off4 = onModulesRegistered(() => {
+        events += 1;
+      });
+      array.push([["e"], {}]);
+      await delay(10);
+      assert.equal(events, before + 1, "the retained wrapper is reused, not stacked");
+      assert.equal(pushes(), 4, "one call per push, never doubled");
+      off4();
     });
   } finally {
     removeChunkArray();
@@ -242,8 +267,13 @@ test("Vestra's own require-capture push does not wake waiters", async () => {
   try {
     getWebpackRequire();
     getWebpackRequire();
+    // Another Vestra instance (its own module state) capturing through our wrapper.
+    array.push([["vestra-123-other"], {}, () => {}]);
     await delay(10);
     assert.equal(events, 0);
+    array.push([["real-chunk"], {}]);
+    await delay(10);
+    assert.equal(events, 1, "real chunks still wake listeners");
   } finally {
     off();
     removeChunkArray();
@@ -314,11 +344,16 @@ test("waitForModule keeps its timeout, abort and validation semantics", async ()
   forever.abort();
   assert.equal(await endless, undefined);
 
+  let subscribed = 0;
   let unsubscribed = 0;
-  await waitForModule(() => ({ now: true }), () => true, undefined, undefined, () => () => {
-    unsubscribed += 1;
+  await waitForModule(() => ({ now: true }), () => true, undefined, undefined, () => {
+    subscribed += 1;
+    return () => {
+      unsubscribed += 1;
+    };
   });
-  assert.equal(unsubscribed, 0, "an immediate hit never subscribes");
+  assert.equal(subscribed, 0, "an immediate hit never subscribes");
+  assert.equal(unsubscribed, 0);
 
   let listener: (() => void) | undefined;
   let found: Record<string, unknown> | undefined;
@@ -358,4 +393,72 @@ test("a wrapper miss is not cached: the next access resolves the registered modu
   wrapper.reset();
   wrapper.get();
   assert.equal(resolves, count + 1);
+});
+
+test("a permanent wrapper miss costs at most one scan until modules change or a second passes", () => {
+  const { req, c, scans } = fakeRequire();
+  const finder = createWebpackFinder({ source: () => req });
+  let resolves = 0;
+  const wrapper = defineWrapper("Missing", {
+    finder,
+    resolve: (f) => {
+      resolves += 1;
+      return f.findByProps("neverThere");
+    },
+  });
+  for (let i = 0; i < 100; i++) assert.equal(wrapper.get(), undefined);
+  for (let i = 0; i < 100; i++) assert.equal(wrapper.isAvailable(), false);
+  assert.ok(scans() <= 1, `100 misses cost ${scans()} scans`);
+  assert.equal(resolves, 1);
+
+  c["9"] = { exports: { unrelated: true } };
+  wrapper.get();
+  assert.equal(resolves, 2, "a module count change re-resolves");
+  wrapper.get();
+  assert.equal(resolves, 2);
+
+  const realNow = Date.now;
+  const base = realNow();
+  Date.now = () => base + 1_000;
+  try {
+    wrapper.get();
+    assert.equal(resolves, 3, "a miss older than 1 s re-resolves");
+  } finally {
+    Date.now = realNow;
+  }
+
+  wrapper.reset();
+  wrapper.get();
+  assert.equal(resolves, 4, "reset clears the miss memo");
+});
+
+test("a cached hit is not lost to a throwing default getter", () => {
+  const { req, c, scans } = fakeRequire();
+  const { logger, errors } = countingLogger();
+  const exports = {
+    marker: 1,
+    get default(): unknown {
+      throw new Error("blocked default");
+    },
+  };
+  c["5"] = { exports };
+  const finder = createWebpackFinder({ source: () => req, logger });
+  const filter = (e: Record<string, unknown>): boolean => e["marker"] === 1;
+  for (let i = 0; i < 100; i++) assert.equal(finder.find(filter), exports);
+  assert.equal(scans(), 1, "hits re-validate the top-level exports without a rescan");
+  assert.equal(errors(), 0, "no error logged per hit");
+});
+
+test("prop names containing commas never share a key with separate names", () => {
+  const { req, c, scans } = fakeRequire();
+  const joined = { "a,b": 1 };
+  const separate = { a: 1, b: 2 };
+  c["5"] = { exports: joined };
+  c["6"] = { exports: separate };
+  const finder = createWebpackFinder({ source: () => req });
+  for (let i = 0; i < 50; i++) {
+    assert.equal(finder.findByProps("a,b"), joined);
+    assert.equal(finder.findByProps("a", "b"), separate);
+  }
+  assert.equal(scans(), 2, "one scan per distinct key");
 });

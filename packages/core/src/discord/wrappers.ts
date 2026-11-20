@@ -67,10 +67,14 @@ function toGuild(value: unknown): DiscordGuild | undefined {
   return guild;
 }
 
+/** A remembered miss is retried after this long even if no module arrived. */
+const MISS_RETRY_MS = 1_000;
+
 /**
  * Generic lazy wrapper. A successful `resolve` is kept until `reset()`; a miss
- * (undefined or a throw) is not, so the next access resolves again (cheap for
- * hits: the finder's keyed cache makes repeat lookups id reads). Never throws.
+ * (undefined or a throw) is not settled: it is retried once the finder's
+ * module count changes or after 1 s, so a permanent miss does not cost a full
+ * module scan on every access. Never throws.
  */
 export function defineWrapper<T>(name: string, options: DefineWrapperOptions<T>): DiscordWrapper<T> {
   if (name === "") throw new Error("defineWrapper() requires a non-empty name.");
@@ -81,10 +85,23 @@ export function defineWrapper<T>(name: string, options: DefineWrapperOptions<T>)
   const finder = options.finder ?? Webpack;
   let cached: T | undefined;
   let settled = false;
+  /** Module count and time of the last miss (undefined: no miss remembered). */
+  let missCount: number | undefined;
+  let missAt = 0;
+  const moduleCount = (): number => {
+    try {
+      return typeof finder.getModuleCacheSize === "function" ? finder.getModuleCacheSize() : -1;
+    } catch {
+      return -1;
+    }
+  };
   return {
     name,
     get(): T | undefined {
       if (settled) return cached;
+      if (missCount !== undefined && Date.now() - missAt < MISS_RETRY_MS && moduleCount() === missCount) {
+        return undefined;
+      }
       try {
         cached = options.resolve(finder) ?? undefined;
       } catch (err: unknown) {
@@ -92,6 +109,12 @@ export function defineWrapper<T>(name: string, options: DefineWrapperOptions<T>)
         cached = undefined;
       }
       settled = cached !== undefined;
+      if (settled) {
+        missCount = undefined;
+      } else {
+        missCount = moduleCount();
+        missAt = Date.now();
+      }
       return cached;
     },
     isAvailable(): boolean {
@@ -100,6 +123,7 @@ export function defineWrapper<T>(name: string, options: DefineWrapperOptions<T>)
     reset(): void {
       cached = undefined;
       settled = false;
+      missCount = undefined;
     },
   };
 }

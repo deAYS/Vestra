@@ -60,13 +60,11 @@ function locateRequire(logger: ScopedLogger | undefined, quiet: boolean): unknow
         if (Array.isArray(value) && Object.hasOwn(value, "push")) {
           const length = value.length;
           let captured: unknown;
-          // This synthetic chunk registers nothing: keep it from waking waiters
-          // (a waiter's check calls back in here, which would loop forever).
-          registration.suppressed += 1;
+          // The `vestra-` chunk id marks it as a capture chunk: the push hook
+          // never treats it as a registration (see isCaptureChunk).
           try {
-            value.push([[`vestra-${Date.now()}-${Math.random().toString(36).slice(2)}`], {}, (req: unknown) => { captured = req; }]);
+            value.push([[`${CAPTURE_CHUNK_PREFIX}${Date.now()}-${Math.random().toString(36).slice(2)}`], {}, (req: unknown) => { captured = req; }]);
           } finally {
-            registration.suppressed -= 1;
             if (value.length > length) value.splice(length, 1);
           }
           if (looksLikeRequire(captured)) {
@@ -89,6 +87,9 @@ function locateRequire(logger: ScopedLogger | undefined, quiet: boolean): unknow
   if (!quiet) log.debug("Webpack: no require found (not running inside Discord?).");
   return undefined;
 }
+
+/** Chunk id prefix of the empty chunk any Vestra instance pushes to capture require. */
+const CAPTURE_CHUNK_PREFIX = "vestra-";
 
 /** Default source used by the shared finder. Re-resolved on every call. */
 export const defaultRequireSource: RequireSource = () => getWebpackRequire();
@@ -156,9 +157,24 @@ const registration = {
   poll: undefined as ReturnType<typeof setInterval> | undefined,
   pending: undefined as ReturnType<typeof setTimeout> | undefined,
   lastCount: -1,
-  /** > 0 while Vestra itself pushes a synthetic chunk. */
-  suppressed: 0,
 };
+
+/**
+ * True for the empty require-capture chunk (`[["vestra-…"], {}, cb]`) pushed by
+ * this or any other Vestra instance. It registers nothing, and treating it as
+ * a registration would loop: a waiter's check can push it again.
+ */
+function isCaptureChunk(items: readonly unknown[]): boolean {
+  if (items.length !== 1) return false;
+  try {
+    const chunk = items[0];
+    if (!Array.isArray(chunk)) return false;
+    const ids: unknown = chunk[0];
+    return Array.isArray(ids) && ids.length === 1 && typeof ids[0] === "string" && ids[0].startsWith(CAPTURE_CHUNK_PREFIX);
+  } catch {
+    return false;
+  }
+}
 
 /** Number of modules in the default require's cache (-1 when unavailable). */
 function currentModuleCount(): number {
@@ -191,7 +207,7 @@ function emitRegistration(): void {
  * the next macrotask, coalesced across pushes in the same task.
  */
 function scheduleRegistration(): void {
-  if (registration.suppressed > 0 || registration.listeners.size === 0) return;
+  if (registration.listeners.size === 0) return;
   if (registration.pending !== undefined) return;
   registration.pending = setTimeout(() => {
     registration.pending = undefined;
@@ -220,10 +236,11 @@ function installChunkHooks(): void {
       if (own === undefined || !("value" in own) || typeof own.value !== "function" || own.writable !== true) continue;
       const original = own.value as PushFunction;
       const wrapper: PushFunction = function (this: unknown, ...items: unknown[]): unknown {
+        const capture = isCaptureChunk(items);
         try {
           return Reflect.apply(original, this, items);
         } finally {
-          scheduleRegistration();
+          if (!capture) scheduleRegistration();
         }
       };
       array.push = wrapper as typeof array.push;
@@ -288,4 +305,19 @@ export function onModulesRegistered(listener: RegistrationListener): () => void 
     registration.pending = undefined;
     uninstallChunkHooks();
   };
+}
+
+/**
+ * Drop every listener, stop the shared check and restore the pushes we can
+ * (tests, or a full bundle reload). Unsubscribes handed out earlier stay safe.
+ */
+export function resetModuleRegistration(): void {
+  registration.listeners.clear();
+  if (registration.poll !== undefined) clearInterval(registration.poll);
+  registration.poll = undefined;
+  if (registration.pending !== undefined) clearTimeout(registration.pending);
+  registration.pending = undefined;
+  uninstallChunkHooks();
+  registration.hooked.clear();
+  registration.lastCount = -1;
 }

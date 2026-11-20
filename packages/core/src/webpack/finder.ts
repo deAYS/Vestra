@@ -43,7 +43,7 @@ export class WebpackFinder {
    * stale and nothing keeps old exports alive.
    */
   private filterCache = new WeakMap<ModuleFilter, ModuleId>();
-  /** `props:<sorted,names>`, `displayName:<name>`, `store:<name>` -> module id. */
+  /** `props:<JSON of sorted names>`, `displayName:<name>`, `store:<name>` -> module id. */
   private readonly keyCache = new Map<string, ModuleId>();
 
   constructor(options?: WebpackFinderOptions) {
@@ -76,6 +76,23 @@ export class WebpackFinder {
     return count;
   }
 
+  /**
+   * Number of entries in the module cache, counted by key without reading any
+   * exports (0 when unavailable). Cheap change detection for callers.
+   */
+  getModuleCacheSize(): number {
+    try {
+      const cache = getModuleCache(this.source());
+      if (cache === undefined) return 0;
+      let count = 0;
+      for (const _key in cache) count += 1;
+      return count;
+    } catch (err: unknown) {
+      this.logger.captureError(err, "Webpack.getModuleCacheSize");
+      return 0;
+    }
+  }
+
   /** First module matching `filter`, or undefined. Cached on success. */
   find(filter: ModuleFilter, options?: FindOptions): WebpackExports | undefined {
     if (typeof filter !== "function") throw new Error("Webpack.find() requires a filter function.");
@@ -104,7 +121,8 @@ export class WebpackFinder {
   /** First module exposing all `props`. */
   findByProps(...props: string[]): WebpackExports | undefined {
     const filter = filters.byProps(...props);
-    return this.findKeyed(`props:${[...props].sort().join(",")}`, filter);
+    // JSON keeps ("a,b") and ("a", "b") apart; any string is a valid prop name.
+    return this.findKeyed(`props:${JSON.stringify([...props].sort())}`, filter);
   }
 
   /**
@@ -143,25 +161,37 @@ export class WebpackFinder {
    * (exports first, then `.default`). Undefined when gone or no longer matching.
    */
   private revalidate(id: ModuleId, filter: ModuleFilter): WebpackExports | undefined {
+    let exports: unknown;
     try {
       const cache = getModuleCache(this.source());
       if (cache === undefined) return undefined;
       const mod = cache[id];
-      const exports = isRecord(mod) ? mod["exports"] : undefined;
-      if (!isRecord(exports)) return undefined;
-      const def = exports["default"];
-      const candidates = isRecord(def) && def !== exports ? [exports, def] : [exports];
-      for (const candidate of candidates) {
-        try {
-          if (filter(candidate as WebpackExports) === true) return candidate as WebpackExports;
-        } catch (err: unknown) {
-          this.logger.captureError(err, "Webpack.filter");
-        }
-      }
+      exports = isRecord(mod) ? mod["exports"] : undefined;
     } catch (err: unknown) {
       this.logger.captureError(err, "Webpack.revalidate");
+      return undefined;
     }
+    if (!isRecord(exports)) return undefined;
+    if (this.test(filter, exports as WebpackExports)) return exports as WebpackExports;
+    // Like enumerateModules: a throwing `default` getter is skipped, not an error.
+    let def: unknown;
+    try {
+      def = exports["default"];
+    } catch {
+      return undefined;
+    }
+    if (isRecord(def) && def !== exports && this.test(filter, def as WebpackExports)) return def as WebpackExports;
     return undefined;
+  }
+
+  /** Run a filter like `scan` does: a throw is logged and counts as a miss. */
+  private test(filter: ModuleFilter, candidate: WebpackExports): boolean {
+    try {
+      return filter(candidate) === true;
+    } catch (err: unknown) {
+      this.logger.captureError(err, "Webpack.filter");
+      return false;
+    }
   }
 
   /** Full module-cache scan in cache order; filter errors are skipped. */
