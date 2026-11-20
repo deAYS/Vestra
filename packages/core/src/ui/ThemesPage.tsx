@@ -15,7 +15,7 @@ import { Icon } from "./Brand.js";
 import type { PageProps } from "./types.js";
 import { ThemePeek } from "./ThemePeek.js";
 import { ThemeCustomizer } from "./ThemeCustomizer.js";
-import { customizedThemeCss } from "../themeCustomization.js";
+import { themePreviewCss } from "../themeCustomization.js";
 import {
   importThemePackage,
   downloadThemePackage,
@@ -324,7 +324,7 @@ export function ThemesPage({ settings }: PageProps): JSX.Element {
                 : "Ready to apply"}
             </p>
           </div>
-          <ThemePeek name={theme.name} css={customizedThemeCss(theme)} />
+          <ThemePeek name={theme.name} css={themePreviewCss(theme)} />
           <button
             type="button"
             disabled={pending}

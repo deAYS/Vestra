@@ -12,7 +12,9 @@ import {
   customizedThemeCss,
   DEFAULT_THEME_CUSTOMIZATION,
   memoizeThemeCss,
+  themeCssCounters,
   themeCustomizationCss,
+  themePreviewCss,
 } from "./themeCustomization.js";
 
 test("appearance, embedded backgrounds and exclusive selection survive a fresh desktop store", async () => {
@@ -170,6 +172,37 @@ test("customized CSS is generated once per distinct theme input", () => {
     assert.equal(customizedThemeCss(input), input.css + themeCustomizationCss(input));
     assert.equal(customizedThemeCss({ ...input }), input.css + themeCustomizationCss(input));
   }
+});
+
+test("list previews of a large library never evict the active theme's cached CSS", () => {
+  const active = {
+    css: "/** @name Active */\n:root{--background-primary:#203040}",
+    customization: { ...DEFAULT_THEME_CUSTOMIZATION, blur: 9 },
+  };
+  const library = Array.from({ length: 32 }, (_, index) => ({
+    css: `/** @name Library ${index} */\n:root{--background-primary:#${String(index).padStart(6, "0")}}`,
+    customization: { ...DEFAULT_THEME_CUSTOMIZATION, opacity: index },
+  }));
+  customizedThemeCss(active);
+  for (const theme of library) themePreviewCss(theme);
+  const before = themeCssCounters.generated;
+  customizedThemeCss({ ...active, customization: { ...active.customization } });
+  assert.equal(themeCssCounters.generated, before, "the runtime entry survives the previews");
+  const scans = themeCssCounters.authoredScans;
+  for (const theme of library) themePreviewCss({ ...theme, customization: { ...theme.customization } });
+  assert.equal(themeCssCounters.authoredScans, scans, "every library theme stays cached for its preview");
+});
+
+test("customization comparison treats nested values by content", () => {
+  let runs = 0;
+  const generate = memoizeThemeCss(() => String(++runs));
+  const css = ":root{}";
+  const nested = { ...DEFAULT_THEME_CUSTOMIZATION, extra: { stops: [1, 2] } } as never;
+  generate({ css, customization: nested });
+  generate({ css, customization: { ...DEFAULT_THEME_CUSTOMIZATION, extra: { stops: [1, 2] } } as never });
+  assert.equal(runs, 1, "equal nested values reuse the result");
+  generate({ css, customization: { ...DEFAULT_THEME_CUSTOMIZATION, extra: { stops: [1, 3] } } as never });
+  assert.equal(runs, 2, "changed nested values regenerate");
 });
 
 test("a full library still refreshes its existing files and only refuses new ones", async () => {

@@ -46,12 +46,19 @@ interface AuthoredFacts {
   wallpaper: string | undefined;
 }
 
-/** The regex pass over the theme's own CSS depends on the CSS alone. */
-const authoredFactsCache = boundedCache<AuthoredFacts>(8);
+/** Generator work counters; tests use them to observe cache hits. */
+export const themeCssCounters = { generated: 0, authoredScans: 0 };
+
+/**
+ * The regex pass over the theme's own CSS depends on the CSS alone. The
+ * facts are small, so the whole library (32 themes) plus a draft fits.
+ */
+const authoredFactsCache = boundedCache<AuthoredFacts>(33);
 
 function authoredFacts(css: string): AuthoredFacts {
   const cached = authoredFactsCache.get(css);
   if (cached) return cached;
+  themeCssCounters.authoredScans++;
   const authoredColor = (token: string): string | undefined =>
     css.match(
       new RegExp(`--${token}:\\s*(#[\\da-f]{6})(?:[\\da-f]{2})?\\b`, "i"),
@@ -125,6 +132,13 @@ ${typography}
 `;
 }
 
+/** Field values match; nested values (objects, arrays) compare by content. */
+function sameValue(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  if (typeof a !== "object" || typeof b !== "object" || !a || !b) return false;
+  return JSON.stringify(a) === JSON.stringify(b);
+}
+
 /** Same customization values; snapshots are copies, so compare fields, not identity. */
 function sameCustomization(
   a: ThemeCustomization | undefined,
@@ -134,7 +148,7 @@ function sameCustomization(
   if (!a || !b) return false;
   const keys = Object.keys(a) as (keyof ThemeCustomization)[];
   if (keys.length !== Object.keys(b).length) return false;
-  return keys.every((key) => a[key] === b[key]);
+  return keys.every((key) => sameValue(a[key], b[key]));
 }
 
 /**
@@ -155,12 +169,28 @@ export function memoizeThemeCss(
       return hit.output;
     const output = generate(theme);
     cache.set(theme.css, {
-      customization: theme.customization && { ...theme.customization },
+      customization:
+        theme.customization && structuredClone(theme.customization),
       output,
     });
     return output;
   };
 }
 
+function generateThemeCss(theme: ThemeInput): string {
+  themeCssCounters.generated++;
+  return theme.css + themeCustomizationCss(theme);
+}
+
+/** Runtime and customizer: the active theme and the draft being edited. */
 export const customizedThemeCss: (theme: ThemeInput) => string =
-  memoizeThemeCss((theme) => theme.css + themeCustomizationCss(theme));
+  memoizeThemeCss(generateThemeCss);
+
+/**
+ * Library previews render every installed theme; they get their own cache,
+ * sized for the whole library, so they never evict the runtime's entries.
+ */
+export const themePreviewCss: (theme: ThemeInput) => string = memoizeThemeCss(
+  generateThemeCss,
+  32,
+);

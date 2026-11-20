@@ -4,7 +4,7 @@ import { Window } from "happy-dom";
 import { SettingsStore } from "./api/settings.js";
 import { StylesManager } from "./api/styles.js";
 import { startQuickCss } from "./quickCss.js";
-import { importTheme, startThemes, themeSyncKey } from "./themes.js";
+import { createThemeSyncKey, importTheme, startThemes } from "./themes.js";
 import { DEFAULT_THEME_CUSTOMIZATION } from "./themeCustomization.js";
 
 const THEME_CSS = "/** @name Fixture */\n:root{--text-link:#abcdef}";
@@ -262,6 +262,7 @@ test("a style node Discord removes is restored and same-length CSS edits still a
 test("the theme sync key follows theme inputs and ignores unrelated settings", () => {
   const settings = new SettingsStore();
   const theme = importTheme(settings, THEME_CSS, "fixture.css");
+  const themeSyncKey = createThemeSyncKey();
   const key = () =>
     themeSyncKey({
       themes: settings.getThemes(),
@@ -285,4 +286,18 @@ test("the theme sync key follows theme inputs and ignores unrelated settings", (
   const blurred = key();
   settings.setCustomCss({ enabled: true, css: "a{}" });
   assert.notEqual(key(), blurred, "QuickCSS state is part of the key");
+});
+
+test("each theme sync key keeps its own content tokens", () => {
+  const settings = new SettingsStore();
+  const theme = importTheme(settings, THEME_CSS, "fixture.css");
+  settings.activateTheme(theme.id);
+  const state = () => ({ themes: settings.getThemes(), customCss: settings.getCustomCss() });
+  const first = createThemeSyncKey();
+  const second = createThemeSyncKey();
+  const firstKey = first(state());
+  assert.equal(second(state()), firstKey, "fresh instances agree on the same inputs");
+  // Another instance seeing other CSS must not disturb this one's tokens.
+  second({ ...state(), themes: state().themes.map((entry) => ({ ...entry, css: entry.css + "/* other */" })) });
+  assert.equal(first(state()), firstKey, "unchanged inputs keep the same key");
 });

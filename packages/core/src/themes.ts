@@ -460,45 +460,47 @@ export async function removeTheme(
 }
 
 /**
- * Content tokens for large strings: equal text gets the same token, changed
- * text a new one. Only strings seen by the previous key stay referenced, and
- * an unchanged string is the same object, so lookups stay cheap.
+ * Build a theme sync key function. Everything the theme styles are built
+ * from goes into the key: enabled theme ids, their CSS and customization
+ * values, and the QuickCSS state the theme nodes are ordered against. Equal
+ * keys mean equal inputs; unrelated settings never change it.
+ *
+ * Large strings become content tokens: equal text gets the same token, changed
+ * text a new one. Token state belongs to one key function (one `startThemes`
+ * instance); only strings seen by its previous key stay referenced, and an
+ * unchanged string is the same object, so lookups stay cheap.
  */
-let keyTokens = new Map<string, number>();
-let nextKeyToken = 0;
-
-/**
- * Everything the theme styles are built from: enabled theme ids, their CSS and
- * customization values, and the QuickCSS state the theme nodes are ordered
- * against. Equal keys mean equal inputs; unrelated settings never change it.
- */
-export function themeSyncKey(
+export function createThemeSyncKey(): (
   state: Pick<VestraSettings, "themes" | "customCss">,
-): string {
-  const seen = new Map<string, number>();
-  const token = (text: string): string => {
-    let value = seen.get(text) ?? keyTokens.get(text);
-    if (value === undefined) value = ++nextKeyToken;
-    seen.set(text, value);
-    return `${text.length}#${value}`;
+) => string {
+  let keyTokens = new Map<string, number>();
+  let nextKeyToken = 0;
+  return (state) => {
+    const seen = new Map<string, number>();
+    const token = (text: string): string => {
+      let value = seen.get(text) ?? keyTokens.get(text);
+      if (value === undefined) value = ++nextKeyToken;
+      seen.set(text, value);
+      return `${text.length}#${value}`;
+    };
+    const key = JSON.stringify({
+      themes: state.themes
+        .filter((theme) => theme.enabled)
+        .map((theme) => [
+          theme.id,
+          token(theme.css),
+          theme.customization
+            ? {
+                ...theme.customization,
+                backgroundImage: token(theme.customization.backgroundImage),
+              }
+            : null,
+        ]),
+      quickCss: [state.customCss.enabled, state.customCss.css.length],
+    });
+    keyTokens = seen;
+    return key;
   };
-  const key = JSON.stringify({
-    themes: state.themes
-      .filter((theme) => theme.enabled)
-      .map((theme) => [
-        theme.id,
-        token(theme.css),
-        theme.customization
-          ? {
-              ...theme.customization,
-              backgroundImage: token(theme.customization.backgroundImage),
-            }
-          : null,
-      ]),
-    quickCss: [state.customCss.enabled, state.customCss.css.length],
-  });
-  keyTokens = seen;
-  return key;
 }
 
 function isStylesheet(node: Element): boolean {
@@ -520,6 +522,7 @@ export function startThemes(
   const owned = new Set<string>();
   let activeIds: string[] = [];
   let lastKey: string | undefined;
+  const themeSyncKey = createThemeSyncKey();
   const styleNode = (id: string): Element | null =>
     doc?.querySelector(`style[data-vestra-style="${id}"]`) ?? null;
   /**
