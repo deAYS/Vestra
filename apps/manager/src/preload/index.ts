@@ -23,6 +23,7 @@ export interface VestraManagerApi {
   checkUpdate(): Promise<UpdateState>;
   downloadUpdate(): Promise<UpdateState>;
   installUpdate(): Promise<UpdateState>;
+  dismissUpdateError(): Promise<UpdateState>;
   onUpdate(listener: (state: UpdateState) => void): () => void;
   windowAction(action: ManagerWindowAction): void;
   setWindowMaterial(material: ManagerWindowMaterial): void;
@@ -44,6 +45,8 @@ const api: VestraManagerApi = {
   checkUpdate: () => ipcRenderer.invoke(MANAGER_IPC.updateCheck),
   downloadUpdate: () => ipcRenderer.invoke(MANAGER_IPC.updateDownload),
   installUpdate: () => ipcRenderer.invoke(MANAGER_IPC.updateInstall),
+  dismissUpdateError: () =>
+    ipcRenderer.invoke(MANAGER_IPC.updateDismissError),
   onUpdate: (listener) => {
     const wrapped = (_event: unknown, state: UpdateState): void =>
       listener(state);

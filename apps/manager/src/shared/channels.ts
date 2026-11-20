@@ -17,6 +17,7 @@ export const MANAGER_IPC = {
   updateCheck: "vestra-manager:update-check",
   updateDownload: "vestra-manager:update-download",
   updateInstall: "vestra-manager:update-install",
+  updateDismissError: "vestra-manager:update-dismiss-error",
   updateState: "vestra-manager:update-state",
 } as const;
 

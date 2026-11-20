@@ -52,7 +52,7 @@ test("a handoff error is shown once and gone on the next boot", async () => {
     {
       token: "t",
       version: "0.0.1",
-      created: Date.now(),
+      created: Date.now() - 11 * 60 * 1000,
       channels: [],
     },
     "Update checksum changed. Update cancelled.",
@@ -70,6 +70,68 @@ test("a handoff error is shown once and gone on the next boot", async () => {
     );
     await next.finish();
     assert.notEqual(next.snapshot().phase, "error");
+  } finally {
+    await fs.rm(home, { recursive: true, force: true });
+  }
+});
+
+test("the handoff error survives the boot check until dismissed", async () => {
+  const { home, updates } = await setup(
+    {
+      token: "t",
+      version: "0.0.1",
+      created: Date.now() - 11 * 60 * 1000,
+      channels: [],
+    },
+    "Update checksum changed. Update cancelled.",
+  );
+  try {
+    await updates.finish();
+    await updates.check();
+    assert.match(updates.snapshot().handoffError ?? "", /checksum changed/);
+    const after = await updates.dismissError();
+    assert.equal(after.handoffError, undefined);
+    assert.equal(updates.snapshot().handoffError, undefined);
+  } finally {
+    await fs.rm(home, { recursive: true, force: true });
+  }
+});
+
+test("a fresh interrupted handoff keeps its files", async () => {
+  const { home, dir, updates } = await setup(
+    { token: "t", version: "0.0.1", created: Date.now() - 60 * 1000, channels: [] },
+    "boom",
+  );
+  try {
+    await updates.finish();
+    assert.equal(updates.snapshot().phase, "error");
+    assert.equal(await exists(path.join(dir, "pending.json")), true);
+    assert.equal(await exists(path.join(dir, "handoff-error.txt")), true);
+  } finally {
+    await fs.rm(home, { recursive: true, force: true });
+  }
+});
+
+test("a pending file that cannot be read is reported and kept", async () => {
+  const { home, dir, updates } = await setup();
+  // A directory in place of the file yields EISDIR, a non-ENOENT read error.
+  await fs.mkdir(path.join(dir, "pending.json"));
+  try {
+    await updates.finish();
+    assert.equal(updates.snapshot().phase, "error");
+    assert.equal(await exists(path.join(dir, "pending.json")), true);
+  } finally {
+    await fs.rm(home, { recursive: true, force: true });
+  }
+});
+
+test("a pending file with unreadable content is reported and cleared", async () => {
+  const { home, dir, updates } = await setup();
+  await fs.writeFile(path.join(dir, "pending.json"), "{not json");
+  try {
+    await updates.finish();
+    assert.equal(updates.snapshot().phase, "error");
+    assert.equal(await exists(path.join(dir, "pending.json")), false);
   } finally {
     await fs.rm(home, { recursive: true, force: true });
   }

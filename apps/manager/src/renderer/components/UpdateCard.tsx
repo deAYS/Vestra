@@ -61,6 +61,17 @@ export function UpdateCard({ busy }: { busy: boolean }): JSX.Element {
         </span>
       </div>
       <p role="status">{state.message ?? "Check for a new release."}</p>
+      {state.handoffError ? (
+        <p role="alert" className="vs-update-error">
+          {state.handoffError}{" "}
+          <button
+            className="vs-btn vs-btn--secondary"
+            onClick={() => run(() => window.vestraManager.dismissUpdateError())}
+          >
+            Dismiss
+          </button>
+        </p>
+      ) : null}
       {state.phase === "downloading" ? (
         <progress
           max={100}

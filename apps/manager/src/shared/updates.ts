@@ -14,4 +14,6 @@ export interface UpdateState {
   message?: string;
   checkedAt?: number;
   supported: boolean;
+  /** A failed update handoff, kept until the user dismisses it. */
+  handoffError?: string;
 }

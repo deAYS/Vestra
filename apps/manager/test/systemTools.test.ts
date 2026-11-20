@@ -19,3 +19,14 @@ test("system tools resolve to absolute System32 paths", () => {
     else process.env["SystemRoot"] = saved;
   }
 });
+
+test("an empty SystemRoot still yields an absolute path", () => {
+  const saved = process.env["SystemRoot"];
+  process.env["SystemRoot"] = "";
+  try {
+    assert.ok(systemTool("reg").startsWith("C:"));
+  } finally {
+    if (saved === undefined) delete process.env["SystemRoot"];
+    else process.env["SystemRoot"] = saved;
+  }
+});

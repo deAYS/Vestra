@@ -19,6 +19,7 @@ export interface VestraManagerApi {
   checkUpdate(): Promise<UpdateState>;
   downloadUpdate(): Promise<UpdateState>;
   installUpdate(): Promise<UpdateState>;
+  dismissUpdateError(): Promise<UpdateState>;
   onUpdate(listener:(state:UpdateState)=>void):()=>void;
   windowAction(action: ManagerWindowAction): void;
   setWindowMaterial(material: ManagerWindowMaterial): void;

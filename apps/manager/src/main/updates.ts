@@ -136,6 +136,10 @@ export class ManagerUpdates {
       path.join(this.home, "update-status.json"),
     );
   }
+  /** Surfaces a handoff failure; handoffError survives later phase changes until dismissed. */
+  private async fail(message: string): Promise<void> {
+    await this.publish({ phase: "error", message, handoffError: message });
+  }
   private async exclusive(
     operation: () => Promise<void>,
   ): Promise<UpdateState> {
@@ -259,19 +263,32 @@ export class ManagerUpdates {
       }),
     );
   }
+  async dismissError(): Promise<UpdateState> {
+    const { handoffError: _dismissed, ...rest } = this.state;
+    this.state = rest;
+    await this.publish({});
+    return this.snapshot();
+  }
   async finish(approved = false): Promise<void> {
     let pending: Pending;
+    let raw: string;
     try {
-      pending = JSON.parse(await fs.readFile(this.pendingFile, "utf8"));
+      raw = await fs.readFile(this.pendingFile, "utf8");
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
-        await this.publish({
-          phase: "error",
-          message:
-            "Update handoff could not be read. Use Repair to finish updating Discord.",
-        });
-        await this.clearHandoff();
-      }
+      // A locked or unreadable file may still be needed; report it and keep it.
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT")
+        await this.fail(
+          "Update handoff could not be read. Use Repair to finish updating Discord.",
+        );
+      return;
+    }
+    try {
+      pending = JSON.parse(raw);
+    } catch {
+      await this.fail(
+        "Update handoff could not be read. Use Repair to finish updating Discord.",
+      );
+      await this.clearHandoff();
       return;
     }
     if (
@@ -280,11 +297,9 @@ export class ManagerUpdates {
       typeof pending.token !== "string" ||
       !pending.token
     ) {
-      await this.publish({
-        phase: "error",
-        message:
-          "The update handoff is invalid. Use Repair to finish updating Discord.",
-      });
+      await this.fail(
+        "The update handoff is invalid. Use Repair to finish updating Discord.",
+      );
       await this.clearHandoff();
       return;
     }
@@ -313,13 +328,16 @@ export class ManagerUpdates {
       try {
         failure = await fs.readFile(this.errorFile, "utf8");
       } catch {}
-      await this.publish({
-        phase: "error",
-        message:
-          failure ||
+      await this.fail(
+        failure ||
           "An update was interrupted. Check for updates to retry, or use Repair to finish updating Discord.",
-      });
-      await this.clearHandoff();
+      );
+      // The Setup helper may still be running for a fresh handoff; keep its files.
+      if (
+        Number.isFinite(pending.created) &&
+        Date.now() - pending.created >= 10 * 60 * 1000
+      )
+        await this.clearHandoff();
       return;
     }
     if (
@@ -327,11 +345,9 @@ export class ManagerUpdates {
       (!approved &&
         pending.token !== argument?.slice("--finish-update=".length))
     ) {
-      await this.publish({
-        phase: "error",
-        message:
-          "The update handoff is expired or does not match this Manager. No Discord files were changed.",
-      });
+      await this.fail(
+        "The update handoff is expired or does not match this Manager. No Discord files were changed.",
+      );
       if (!valid) await this.clearHandoff();
       return;
     }
@@ -378,6 +394,7 @@ export class ManagerUpdates {
       [MANAGER_IPC.updateCheck, () => this.check()],
       [MANAGER_IPC.updateDownload, () => this.download()],
       [MANAGER_IPC.updateInstall, () => this.install()],
+      [MANAGER_IPC.updateDismissError, () => this.dismissError()],
     ] as const)
       ipcMain.handle(channel, (event) => {
         if (!isManagerSender(event, url))

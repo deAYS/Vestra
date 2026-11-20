@@ -78,6 +78,9 @@ class FakeApi {
   async installUpdate() {
     return this.updateState();
   }
+  async dismissUpdateError() {
+    return this.updateState();
+  }
   onUpdate() {
     return () => {};
   }
