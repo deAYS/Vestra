@@ -2,6 +2,9 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import * as vm from "node:vm";
 import * as path from "node:path";
+import * as os from "node:os";
+import * as realFs from "node:fs";
+import { parseStartStatus, type StartStatusFile } from "@vestra/shared";
 import { Window } from "happy-dom";
 import { isDiscordRendererUrl } from "@vestra/shared";
 import { buildMainHookSource } from "./mainHook.js";
@@ -205,7 +208,17 @@ test("login is quiet; logout stops runtime and relogin starts it without duplica
   }
 });
 
-function mainFixture(execPath = "C:/Discord/DiscordCanary.exe") {
+interface FixtureOptions {
+  /** Directory returned for app.getPath("appData"); status writes only happen when set. */
+  appData?: string;
+  receipt?: unknown;
+  discordVersion?: string;
+}
+
+function mainFixture(
+  execPath = "C:/Discord/DiscordCanary.exe",
+  opts: FixtureOptions = {},
+) {
   const handlers = new Map<
     string,
     (event: unknown, args: unknown) => Promise<unknown>
@@ -225,7 +238,16 @@ function mainFixture(execPath = "C:/Discord/DiscordCanary.exe") {
     },
   };
   const electron = {
-    app: { getPath: () => "/fake", on() {}, isReady: () => true },
+    app: {
+      getPath: (name: string) =>
+        name === "appData" && opts.appData !== undefined
+          ? opts.appData
+          : "/fake",
+      getAppPath: () => "/res/app.asar",
+      getVersion: () => opts.discordVersion ?? "1.0.9999",
+      on() {},
+      isReady: () => true,
+    },
     ipcMain: {
       handle(
         name: string,
@@ -247,7 +269,29 @@ function mainFixture(execPath = "C:/Discord/DiscordCanary.exe") {
       fromPartition: () => legacySession,
     },
   };
+  const guardedRead = (file: string): string => {
+    if (opts.appData === undefined || !file.startsWith(opts.appData))
+      throw new Error("ENOENT");
+    return file;
+  };
+  const guarded =
+    <A extends unknown[], R>(fn: (...a: A) => R) =>
+    (...a: A): R => {
+      if (opts.appData === undefined) throw new Error("no appData in fixture");
+      return fn(...a);
+    };
   const fs = {
+    readFileSync(file: string, enc: string) {
+      if (file.endsWith("vestra-receipt.json") && opts.receipt !== undefined)
+        return JSON.stringify(opts.receipt);
+      return realFs.readFileSync(guardedRead(file), enc as "utf8");
+    },
+    statSync() {
+      throw new Error("ENOENT");
+    },
+    mkdirSync: guarded(realFs.mkdirSync),
+    writeFileSync: guarded(realFs.writeFileSync),
+    renameSync: guarded(realFs.renameSync),
     promises: {
       async mkdir() {},
       async lstat() {
@@ -271,8 +315,10 @@ function mainFixture(execPath = "C:/Discord/DiscordCanary.exe") {
     {
       URL,
       console,
-      process: { execPath, env: {} },
-      setImmediate() {},
+      process: { execPath, env: {}, pid: 4242 },
+      setImmediate(fn: () => void) {
+        fn();
+      },
       require(name: string) {
         if (name === "path") return path;
         if (name === "fs") return fs;
@@ -430,4 +476,271 @@ test("bootstrap accepts a main frame whose object identity differs and rejects s
       ),
     /untrusted IPC sender: subframe/,
   );
+});
+
+function tempAppData(): string {
+  return realFs.mkdtempSync(path.join(os.tmpdir(), "vestra-status-"));
+}
+
+function readStatus(appData: string, channel: string): StartStatusFile {
+  return parseStartStatus(
+    realFs.readFileSync(
+      path.join(appData, "Vestra", "status", `${channel}.json`),
+      "utf8",
+    ),
+  );
+}
+
+test("hook writes a launch record on load, keyed by the receipt channel", () => {
+  const appData = tempAppData();
+  try {
+    mainFixture("C:/Discord/Discord.exe", {
+      appData,
+      receipt: { channel: "canary" },
+      discordVersion: "1.2.3",
+    });
+    const status = readStatus(appData, "canary");
+    assert.equal(status.launch?.discordVersion, "1.2.3");
+    assert.equal(typeof status.launch?.vestraVersion, "string");
+    assert.ok(status.launch!.at > 0);
+    assert.equal(status.start, undefined);
+    assert.deepEqual(
+      realFs.readdirSync(path.join(appData, "Vestra", "status")),
+      ["canary.json"],
+      "no temp file left behind",
+    );
+  } finally {
+    realFs.rmSync(appData, { recursive: true, force: true });
+  }
+});
+
+test("status channel falls back to the executable name without a receipt", () => {
+  for (const [exe, channel] of [
+    ["C:/Discord/DiscordCanary.exe", "canary"],
+    ["C:/Discord/DiscordPTB.exe", "ptb"],
+    ["C:/Discord/Discord.exe", "stable"],
+  ] as const) {
+    const appData = tempAppData();
+    try {
+      mainFixture(exe, { appData });
+      assert.ok(readStatus(appData, channel).launch, exe);
+    } finally {
+      realFs.rmSync(appData, { recursive: true, force: true });
+    }
+  }
+});
+
+test("successful bootstrap records ok and keeps the launch record", async () => {
+  const appData = tempAppData();
+  try {
+    const { handlers, sender } = mainFixture("C:/Discord/Discord.exe", {
+      appData,
+      receipt: { channel: "stable" },
+      discordVersion: "9.9.9",
+    });
+    await handlers.get("vestra:native:bootstrap")!(sender, {});
+    const status = readStatus(appData, "stable");
+    assert.equal(status.start?.ok, true);
+    assert.equal(status.start?.reason, undefined);
+    assert.equal(status.start?.discordVersion, "9.9.9");
+    assert.ok(status.launch);
+  } finally {
+    realFs.rmSync(appData, { recursive: true, force: true });
+  }
+});
+
+test("rejected bootstrap records the rejection reason and still throws", async () => {
+  const appData = tempAppData();
+  try {
+    const { handlers, sender } = mainFixture("C:/Discord/Discord.exe", {
+      appData,
+      receipt: { channel: "stable" },
+    });
+    await assert.rejects(
+      () =>
+        handlers.get("vestra:native:bootstrap")!(
+          { senderFrame: { url: goodUrl, parent: {} }, sender: sender.sender },
+          {},
+        ),
+      /untrusted IPC sender: subframe/,
+    );
+    const status = readStatus(appData, "stable");
+    assert.equal(status.start?.ok, false);
+    assert.equal(status.start?.reason, "subframe");
+  } finally {
+    realFs.rmSync(appData, { recursive: true, force: true });
+  }
+});
+
+test("report channel is internal, sender-checked, capped and records a failed start", async () => {
+  const appData = tempAppData();
+  try {
+    const { handlers, sender } = mainFixture("C:/Discord/Discord.exe", {
+      appData,
+      receipt: { channel: "ptb" },
+    });
+    const report = handlers.get("vestra:native:report")!;
+    await assert.rejects(
+      () =>
+        report(
+          {
+            senderFrame: { url: "https://evil.test/app" },
+            sender: sender.sender,
+          },
+          ["x"],
+        ),
+      /untrusted/,
+    );
+    assert.equal(readStatus(appData, "ptb").start, undefined);
+    await report(sender, ["untrusted-url"]);
+    assert.equal(readStatus(appData, "ptb").start?.reason, "untrusted-url");
+    await report(sender, ["a".repeat(500)]);
+    assert.equal(readStatus(appData, "ptb").start?.reason?.length, 200);
+    await report(sender, [42]);
+    assert.equal(readStatus(appData, "ptb").start?.reason, "bootstrap-error");
+    assert.equal(readStatus(appData, "ptb").start?.ok, false);
+  } finally {
+    realFs.rmSync(appData, { recursive: true, force: true });
+  }
+});
+
+test("an unwritable status directory never breaks bootstrap", async () => {
+  const dir = tempAppData();
+  const blocker = path.join(dir, "blocker");
+  realFs.writeFileSync(blocker, "not a directory");
+  try {
+    const { handlers, sender } = mainFixture("C:/Discord/Discord.exe", {
+      appData: blocker,
+      receipt: { channel: "stable" },
+    });
+    assert.ok(await handlers.get("vestra:native:bootstrap")!(sender, {}));
+    assert.equal(realFs.readFileSync(blocker, "utf8"), "not a directory");
+  } finally {
+    realFs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+async function runPreloadWith(
+  invoke: (channel: string, args: unknown) => Promise<unknown>,
+  retryDelaysMs: number[] = [0, 0, 0],
+) {
+  const order: string[] = [];
+  const world: Record<string, unknown> = {};
+  const page = vm.createContext({ window: world, order, console });
+  const native = {
+    contextBridge: {
+      exposeInMainWorld(name: string, value: unknown) {
+        world[name] = value;
+      },
+    },
+    ipcRenderer: { invoke },
+    webFrame: {
+      executeJavaScript(source: string) {
+        return Promise.resolve(vm.runInContext(source, page));
+      },
+    },
+  };
+  const host = new Window({ url: goodUrl });
+  host.document.body.innerHTML =
+    '<main id="app-mount"><div class="sidebarList_fixture"></div></main>';
+  const context = vm.createContext({
+    URL,
+    console: { ...console, error() {} },
+    location: { href: goodUrl },
+    process: { isMainFrame: true },
+    window: { addEventListener() {} },
+    document: host.document,
+    MutationObserver: host.MutationObserver,
+    setTimeout,
+    clearTimeout,
+    require: () => native,
+  });
+  vm.runInContext(
+    buildPreloadSource({ splash: false, retryDelaysMs }),
+    context,
+  );
+  await new Promise((resolve) => setTimeout(resolve, 60));
+  await host.happyDOM.close();
+  return order;
+}
+
+const goodPayload = {
+  bundle: `window.Vestra = { Vestra: { Settings: { async connectStorage() {}, load() {} }, Native: { connect() {} }, async start() { order.push('start'); } } };`,
+  plugins: [],
+  loader: buildLoaderSource(),
+};
+
+test("preload retries a failing bootstrap and never reports when a retry succeeds", async () => {
+  const calls: string[] = [];
+  let failures = 2;
+  const order = await runPreloadWith(async (channel) => {
+    calls.push(channel);
+    if (channel.endsWith("report")) return undefined;
+    if (failures-- > 0) throw new Error("transient");
+    return goodPayload;
+  });
+  assert.deepEqual(order, ["start"]);
+  assert.equal(calls.filter((c) => c.endsWith("bootstrap")).length, 3);
+  assert.equal(
+    calls.some((c) => c.endsWith("report")),
+    false,
+  );
+});
+
+test("preload reports the short reason once after four failed bootstraps", async () => {
+  const calls: Array<[string, unknown]> = [];
+  const order = await runPreloadWith(async (channel, args) => {
+    calls.push([channel, JSON.parse(JSON.stringify(args))]);
+    if (channel.endsWith("report"))
+      throw new Error("report failures are ignored");
+    throw new Error(
+      "Error invoking remote method 'vestra:native:bootstrap': Error: [Vestra] untrusted IPC sender: untrusted-url",
+    );
+  });
+  assert.deepEqual(order, []);
+  assert.equal(calls.filter(([c]) => c.endsWith("bootstrap")).length, 4);
+  assert.deepEqual(
+    calls.filter(([c]) => c.endsWith("report")),
+    [["vestra:native:report", ["untrusted-url"]]],
+  );
+});
+
+test("preload reports bootstrap-error for failures without a sender reason", async () => {
+  const reports: unknown[] = [];
+  await runPreloadWith(async (channel, args) => {
+    if (channel.endsWith("report")) {
+      reports.push(JSON.parse(JSON.stringify(args)));
+      return undefined;
+    }
+    throw new Error("ENOENT: some private location");
+  });
+  assert.deepEqual(reports, [["bootstrap-error"]]);
+});
+
+test("preload rejects invalid retry delays", () => {
+  assert.throws(() => buildPreloadSource({ retryDelaysMs: [-1] }), TypeError);
+});
+
+test("splash fail shows the label for four seconds, then closes", () => {
+  const window = new Window();
+  const timers: Array<{ fn: () => void; ms: number }> = [];
+  const api = vm.runInNewContext(buildSplashSource(), {
+    window,
+    document: window.document,
+    setTimeout(fn: () => void, ms: number) {
+      timers.push({ fn, ms });
+      return timers.length;
+    },
+    clearTimeout() {},
+  });
+  api.fail("Vestra could not start");
+  assert.equal(
+    window.document.querySelector(".vs-boot-status span")?.textContent,
+    "Vestra could not start",
+  );
+  const last = timers[timers.length - 1]!;
+  assert.equal(last.ms, 4000);
+  last.fn();
+  timers[timers.length - 1]!.fn();
+  assert.equal(window.document.getElementById("vestra-splash"), null);
 });

@@ -4,11 +4,12 @@ import { VESTRA_MARK_PATH } from "@vestra/shared";
 export function installSplash(markPath: string): {
   set(pct: number, label: string): void;
   done(): void;
+  fail(label: string): void;
   cancel(): void;
 } {
   const host = document.documentElement;
   const existing = document.getElementById("vestra-splash");
-  if (!host || existing) return { set() {}, done() {}, cancel() {} };
+  if (!host || existing) return { set() {}, done() {}, fail() {}, cancel() {} };
   const style = document.createElement("style");
   style.id = "vestra-splash-style";
   style.textContent = `
@@ -91,6 +92,13 @@ export function installSplash(markPath: string): {
       if (current === 100) done();
     },
     done,
+    fail(label) {
+      if (completed) return;
+      if (finishTimer !== undefined) clearTimeout(finishTimer);
+      labels[0]!.textContent = label;
+      labels[1]!.textContent = "";
+      finishTimer = setTimeout(dismiss, 4000);
+    },
     cancel() {
       completed = true;
       clearTimeout(timeout);
