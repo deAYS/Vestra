@@ -67,7 +67,11 @@ function toGuild(value: unknown): DiscordGuild | undefined {
   return guild;
 }
 
-/** Generic lazy wrapper. `resolve` runs once until `reset()`. Never throws. */
+/**
+ * Generic lazy wrapper. A successful `resolve` is kept until `reset()`; a miss
+ * (undefined or a throw) is not, so the next access resolves again (cheap for
+ * hits: the finder's keyed cache makes repeat lookups id reads). Never throws.
+ */
 export function defineWrapper<T>(name: string, options: DefineWrapperOptions<T>): DiscordWrapper<T> {
   if (name === "") throw new Error("defineWrapper() requires a non-empty name.");
   if (options === undefined || typeof options.resolve !== "function") {
@@ -87,7 +91,7 @@ export function defineWrapper<T>(name: string, options: DefineWrapperOptions<T>)
         log.captureError(err, `Discord.${name}.resolve`);
         cached = undefined;
       }
-      settled = true;
+      settled = cached !== undefined;
       return cached;
     },
     isAvailable(): boolean {

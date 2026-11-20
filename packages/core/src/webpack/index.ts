@@ -3,10 +3,15 @@ export type { FindOptions, WebpackFinderOptions } from "./finder.js";
 
 export { filters } from "./filters.js";
 
-export { getWebpackRequire, defaultRequireSource, enumerateModules } from "./raw.js";
+export {
+  getWebpackRequire,
+  defaultRequireSource,
+  enumerateModules,
+  onModulesRegistered,
+} from "./raw.js";
 
 export { waitForModule } from "./waitFor.js";
-export type { ModuleSearch } from "./waitFor.js";
+export type { ModuleSearch, RegistrationSubscribe } from "./waitFor.js";
 
 export type {
   FluxStoreLike,

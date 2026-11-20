@@ -1,6 +1,6 @@
 import { Logger, type ScopedLogger } from "../api/logger.js";
 import { filters } from "./filters.js";
-import { defaultRequireSource, enumerateModules } from "./raw.js";
+import { defaultRequireSource, enumerateModules, getModuleCache } from "./raw.js";
 import { waitForModule } from "./waitFor.js";
 import type {
   FluxStoreLike,
@@ -21,11 +21,30 @@ export interface FindOptions {
   cache?: boolean;
 }
 
+type ModuleId = string | number;
+
+interface ModuleMatch {
+  id: string;
+  exports: WebpackExports;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return (
+    (typeof value === "object" || typeof value === "function") && value !== null
+  );
+}
+
 export class WebpackFinder {
   private readonly logger: ScopedLogger;
   private readonly source: RequireSource;
-  private readonly cache = new WeakMap<ModuleFilter, WebpackExports>();
-  private readonly cachedFilters = new Set<ModuleFilter>();
+  /**
+   * Caches hold module ids, never exports: a hit re-reads the module cache
+   * and re-validates with the filter, so replaced modules are never served
+   * stale and nothing keeps old exports alive.
+   */
+  private filterCache = new WeakMap<ModuleFilter, ModuleId>();
+  /** `props:<sorted,names>`, `displayName:<name>`, `store:<name>` -> module id. */
+  private readonly keyCache = new Map<string, ModuleId>();
 
   constructor(options?: WebpackFinderOptions) {
     this.logger = options?.logger ?? Logger.extend("Webpack");
@@ -62,15 +81,16 @@ export class WebpackFinder {
     if (typeof filter !== "function") throw new Error("Webpack.find() requires a filter function.");
     const useCache = options?.cache ?? true;
     if (useCache) {
-      const hit = this.cache.get(filter);
-      if (hit !== undefined) return hit;
+      const id = this.filterCache.get(filter);
+      if (id !== undefined) {
+        const hit = this.revalidate(id, filter);
+        if (hit !== undefined) return hit;
+        this.filterCache.delete(filter);
+      }
     }
-    const found = this.findAll(filter, { limit: 1 })[0];
-    if (found !== undefined && useCache) {
-      this.cache.set(filter, found);
-      this.cachedFilters.add(filter);
-    }
-    return found;
+    const found = this.scan(filter, 1)[0];
+    if (found !== undefined && useCache) this.filterCache.set(filter, found.id);
+    return found?.exports;
   }
 
   /** Every module matching `filter` (fresh scan, never cached). */
@@ -78,7 +98,71 @@ export class WebpackFinder {
     if (typeof filter !== "function") throw new Error("Webpack.findAll() requires a filter function.");
     const limit = options?.limit;
     if (limit !== undefined && !(limit > 0)) throw new Error("Webpack.findAll() requires limit > 0.");
-    const out: WebpackExports[] = [];
+    return this.scan(filter, limit).map((match) => match.exports);
+  }
+
+  /** First module exposing all `props`. */
+  findByProps(...props: string[]): WebpackExports | undefined {
+    const filter = filters.byProps(...props);
+    return this.findKeyed(`props:${[...props].sort().join(",")}`, filter);
+  }
+
+  /**
+   * First component/module with `displayName`. Returns the module exports;
+   * the component itself may live on `.default` (use `result.default ?? result`).
+   */
+  findByDisplayName(name: string): WebpackExports | undefined {
+    const filter = filters.byDisplayName(name);
+    return this.findKeyed(`displayName:${name}`, filter);
+  }
+
+  /**
+   * First Flux store named `name` (best-effort: `getName()`, `displayName`).
+   * Returns the raw exports; narrow with `asFluxStore` for typed access.
+   */
+  findStore(name: string): WebpackExports | undefined {
+    const filter = filters.byStoreName(name);
+    return this.findKeyed(`store:${name}`, filter);
+  }
+
+  /** Keyed lookup: a remembered id is re-validated; a miss or stale id scans. */
+  private findKeyed(key: string, filter: ModuleFilter): WebpackExports | undefined {
+    const id = this.keyCache.get(key);
+    if (id !== undefined) {
+      const hit = this.revalidate(id, filter);
+      if (hit !== undefined) return hit;
+      this.keyCache.delete(key);
+    }
+    const found = this.scan(filter, 1)[0];
+    if (found !== undefined) this.keyCache.set(key, found.id);
+    return found?.exports;
+  }
+
+  /**
+   * Re-read module `id` from the cache and re-test it the way a scan would
+   * (exports first, then `.default`). Undefined when gone or no longer matching.
+   */
+  private revalidate(id: ModuleId, filter: ModuleFilter): WebpackExports | undefined {
+    try {
+      const cache = getModuleCache(this.source());
+      if (cache === undefined) return undefined;
+      const mod = cache[id];
+      const exports = isRecord(mod) ? mod["exports"] : undefined;
+      if (!isRecord(exports)) return undefined;
+      const def = exports["default"];
+      const candidates = isRecord(def) && def !== exports ? [exports, def] : [exports];
+      for (const candidate of candidates) {
+        if (filter(candidate as WebpackExports) === true) return candidate as WebpackExports;
+      }
+    } catch (err: unknown) {
+      this.logger.captureError(err, "Webpack.revalidate");
+    }
+    return undefined;
+  }
+
+  /** Full module-cache scan in cache order; filter errors are skipped. */
+  private scan(filter: ModuleFilter, limit?: number): ModuleMatch[] {
+    const out: ModuleMatch[] = [];
     let requireFn: unknown;
     try {
       requireFn = this.source();
@@ -88,7 +172,7 @@ export class WebpackFinder {
     }
     if (requireFn === undefined || requireFn === null) return out;
     try {
-      for (const { exports } of enumerateModules(requireFn)) {
+      for (const { id, exports } of enumerateModules(requireFn)) {
         let match = false;
         try {
           match = filter(exports) === true;
@@ -97,7 +181,7 @@ export class WebpackFinder {
           continue;
         }
         if (match) {
-          out.push(exports);
+          out.push({ id, exports });
           if (limit !== undefined && out.length >= limit) break;
         }
       }
@@ -107,27 +191,6 @@ export class WebpackFinder {
     return out;
   }
 
-  /** First module exposing all `props`. */
-  findByProps(...props: string[]): WebpackExports | undefined {
-    return this.find(filters.byProps(...props));
-  }
-
-  /**
-   * First component/module with `displayName`. Returns the module exports;
-   * the component itself may live on `.default` (use `result.default ?? result`).
-   */
-  findByDisplayName(name: string): WebpackExports | undefined {
-    return this.find(filters.byDisplayName(name));
-  }
-
-  /**
-   * First Flux store named `name` (best-effort: `getName()`, `displayName`).
-   * Returns the raw exports; narrow with `asFluxStore` for typed access.
-   */
-  findStore(name: string): WebpackExports | undefined {
-    return this.find(filters.byStoreName(name));
-  }
-
   /** Narrow raw exports to a Flux-store surface, or undefined. */
   asFluxStore(exports: unknown): (FluxStoreLike & WebpackExports) | undefined {
     if (!filters.isFluxStoreLike(exports)) return undefined;
@@ -135,28 +198,32 @@ export class WebpackFinder {
   }
 
   /**
-   * Poll until `filter` matches (lazy modules), then resolve it. Resolves
-   * undefined on timeout/abort. Found results are cached like `find`.
+   * Wait until `filter` matches (lazy modules), re-checking whenever webpack
+   * registers modules. Resolves undefined on timeout/abort. Found results are
+   * cached like `find`.
    */
   async waitFor(filter: ModuleFilter, options?: WaitForOptions): Promise<WebpackExports | undefined> {
     if (typeof filter !== "function") throw new Error("Webpack.waitFor() requires a filter function.");
-    const found = await waitForModule(() => this.find(filter, { cache: false }), filter, options, this.logger);
-    if (found !== undefined) {
-      this.cache.set(filter, found);
-      this.cachedFilters.add(filter);
-    }
+    let foundId: ModuleId | undefined;
+    const search = (): WebpackExports | undefined => {
+      const match = this.scan(filter, 1)[0];
+      if (match === undefined) return undefined;
+      foundId = match.id;
+      return match.exports;
+    };
+    const found = await waitForModule(search, filter, options, this.logger);
+    if (found !== undefined && foundId !== undefined) this.filterCache.set(filter, foundId);
     return found;
   }
 
-  /** Drop cached finds (all, or one filter) — e.g. after a bundle reload. */
+  /** Drop cached finds (all, or one filter) -- e.g. after a bundle reload. */
   clearCache(filter?: ModuleFilter): void {
     if (filter !== undefined) {
-      this.cache.delete(filter);
-      this.cachedFilters.delete(filter);
+      this.filterCache.delete(filter);
       return;
     }
-    for (const f of this.cachedFilters) this.cache.delete(f);
-    this.cachedFilters.clear();
+    this.filterCache = new WeakMap();
+    this.keyCache.clear();
   }
 }
 
