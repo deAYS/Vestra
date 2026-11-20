@@ -14,6 +14,7 @@ import {
   installAll,
   pruneStaleRecords,
   repairAll,
+  repairTargets,
   statusAll,
   uninstallAll,
   type BatchResult,
@@ -528,9 +529,7 @@ export function createInstallerService(
         const onProgress = options?.onProgress;
         emit(onProgress, { operation: "repair", phase: "discovering" });
         const c = opCtx();
-        const targets = listInstalls(c.discovery).filter((i) =>
-          channelMatches(options?.channels, i.channel),
-        );
+        const targets = await repairTargets(c, options?.channels);
         for (let index = 0; index < targets.length; index++) {
           const t = targets[index] as DiscordInstall;
           emit(onProgress, {

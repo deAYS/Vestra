@@ -87,7 +87,7 @@ for (const operation of ["install", "repair"] as const) {
       assert.equal((await service.install()).ok, false);
       assert.deepEqual(await fs.readFile(fixture.asarPath), native);
       await fs.rmdir(receipt);
-      assert.equal((await service[operation]()).ok, true);
+      assert.equal((await (operation === "repair" ? service.repair({ channels: [fixture.channel] }) : service.install())).ok, true);
       assert.equal((await service.check()).statuses[0]?.health, "healthy");
       assert.deepEqual(await fs.readFile(fixture.asarPath + BACKUP_SUFFIX), native);
       assert.equal((await service.uninstall()).ok, true);

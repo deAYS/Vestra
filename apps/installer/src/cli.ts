@@ -1,5 +1,6 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { fileURLToPath } from "node:url";
 import type { DiscordChannel } from "@vestra/injector";
 import { resolveHome } from "./home.js";
 import { createInstallerService, type InstallerServiceContext } from "./service.js";
@@ -48,7 +49,9 @@ function parseRoots(values: string[]): Array<{ channel: DiscordChannel; rootDir:
 }
 
 function defaultBundlePath(): string {
-  const guess = path.join(process.cwd(), "packages", "core", "dist", "vestra.js");
+  // Resolve from this module (apps/installer/{src,dist}), not the caller's cwd.
+  const here = path.dirname(fileURLToPath(import.meta.url));
+  const guess = path.resolve(here, "..", "..", "..", "packages", "core", "dist", "vestra.js");
   try {
     if (fs.statSync(guess).isFile()) return guess;
   } catch {
