@@ -238,7 +238,8 @@ export class Patcher {
     try {
       if (assignable) {
         record[key] = wrapper;
-        entry.restore = descriptor === undefined
+        // An inherited setter may have taken the value; only a new own property is deleted.
+        entry.restore = descriptor === undefined && Object.prototype.hasOwnProperty.call(target, key)
           ? () => { delete record[key]; }
           : () => { record[key] = original; };
       } else {

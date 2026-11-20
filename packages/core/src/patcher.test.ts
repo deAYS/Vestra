@@ -124,3 +124,19 @@ test("unpatch restores the original class and inherited methods", () => {
   assert.equal(Object.prototype.hasOwnProperty.call(instance, "greet"), false);
   assert.equal(instance.greet(), "hi");
 });
+
+test("a method stored behind an inherited setter is restored through that setter", () => {
+  const patcher = new Patcher();
+  const original = (): string => "hi";
+  let stored: unknown = original;
+  const proto = {
+    get greet(): unknown { return stored; },
+    set greet(value: unknown) { stored = value; },
+  };
+  const instance = Object.create(proto) as { greet: () => string };
+  const unpatch = patcher.after("Test", instance, "greet", () => "patched");
+  assert.equal(instance.greet(), "patched");
+  unpatch();
+  assert.equal(stored, original);
+  assert.equal(instance.greet(), "hi");
+});
