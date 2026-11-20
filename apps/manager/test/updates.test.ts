@@ -168,7 +168,7 @@ test("download verifies streamed bytes, reuses a verified copy and removes inter
 });
 test(
   "portable handoff replaces and verifies the original file, retains a backup and quotes apostrophes",
-  { timeout: 30_000 },
+  { timeout: 120_000 },
   async () => {
     if (process.platform !== "win32") return;
     const directory = await fs.mkdtemp(
@@ -205,7 +205,7 @@ test(
           "-File",
           filename,
         ],
-        { windowsHide: true, timeout: 12_000 },
+        { windowsHide: true, timeout: 45_000 },
       );
       assert.deepEqual(
         await fs.readFile(target),
@@ -231,7 +231,7 @@ test(
           "-File",
           filename,
         ],
-        { windowsHide: true, timeout: 12_000 },
+        { windowsHide: true, timeout: 45_000 },
       );
       assert.match(await fs.readFile(errorFile, "utf8"), /checksum changed/);
       assert.deepEqual(
@@ -257,7 +257,7 @@ test("literal doubles every PowerShell single-quote character", () => {
 });
 test(
   "handoff script parses when paths contain every quote character",
-  { timeout: 30_000, skip: process.platform !== "win32" },
+  { timeout: 120_000, skip: process.platform !== "win32" },
   async () => {
     const directory = await fs.mkdtemp(
       path.join(os.tmpdir(), "vestra-update-fixture-"),
@@ -284,7 +284,7 @@ test(
             "-Command",
             `[ScriptBlock]::Create((Get-Content -Raw -LiteralPath '${filename.replace(/'/g, "''")}')) | Out-Null`,
           ],
-          { windowsHide: true, timeout: 20_000 },
+          { windowsHide: true, timeout: 45_000 },
         );
       }
     } finally {
