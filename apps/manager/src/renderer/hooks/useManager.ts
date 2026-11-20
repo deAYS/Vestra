@@ -77,6 +77,10 @@ function phaseText(event: InstallerProgressEvent): string {
   }
 }
 
+function withWarning(message: string, warning?: string): string {
+  return warning ? `${message} ${warning}` : message;
+}
+
 export function useManager(): ManagerState {
   const [booted, setBooted] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -294,7 +298,7 @@ export function useManager(): ManagerState {
         if (!mounted.current) return;
         await finishMutation(channel);
         if (result.ok) {
-          setNotice("Vestra installed successfully.");
+          setNotice(withWarning("Vestra installed successfully.", result.warning));
         } else {
           setError({
             code: result.code,
@@ -327,7 +331,7 @@ export function useManager(): ManagerState {
         if (!mounted.current) return;
         await finishMutation(channel);
         if (result.ok) {
-          setNotice("Vestra repaired successfully.");
+          setNotice(withWarning("Vestra repaired successfully.", result.warning));
         } else {
           setError({
             code: result.code,
@@ -370,7 +374,7 @@ export function useManager(): ManagerState {
       if (!mounted.current) return;
       await finishMutation(channel);
       if (result.ok) {
-        setNotice("Vestra was removed.");
+        setNotice(withWarning("Vestra was removed.", result.warning));
       } else {
         setError({
           code: result.code,

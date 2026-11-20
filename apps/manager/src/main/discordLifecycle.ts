@@ -199,13 +199,22 @@ export class DiscordLifecycle {
         phase: "restarting",
         installation: target,
       });
-      await this.restart(channel, target);
+      // Only reopen Discord when it was open before the operation.
+      const wasRunning = stopped;
       stopped = false;
-      return result;
+      if (!wasRunning) return result;
+      try {
+        await this.restart(channel, target);
+        return result;
+      } catch {
+        return { ...result, warning: "Discord didn't reopen. Open it manually." };
+      }
     } finally {
       // A failed install still leaves the user with their original Discord.
       try {
         if (stopped && target) await this.restart(channel, target);
+      } catch {
+        // The operation's own error is the one worth surfacing.
       } finally {
         this.busy = false;
       }

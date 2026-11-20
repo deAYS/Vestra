@@ -126,3 +126,96 @@ test("foreground and background operations cannot mutate archives concurrently",
     await fs.rm(home, { recursive: true, force: true });
   }
 });
+
+import { MaintenanceController, trackAfterOperation } from "../src/main/maintenance.js";
+
+test("a failing keep-installed step becomes a warning on a successful operation", async () => {
+  const failing = {
+    async track() {
+      throw new Error("registry denied");
+    },
+  };
+  const result = await trackAfterOperation(failing, "install", "stable", {
+    ok: true,
+    results: [],
+  });
+  assert.equal(result.ok, true);
+  assert.equal(
+    result.warning,
+    "Installed. Keep Vestra installed couldn't be turned on: registry denied",
+  );
+});
+
+async function stagingFixture() {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "vestra-stage-test-"));
+  const home = path.join(root, "home");
+  const localAppData = path.join(root, "local");
+  const app = path.join(root, "app");
+  await fs.mkdir(path.join(app, "resources"), { recursive: true });
+  await fs.mkdir(home, { recursive: true });
+  await fs.writeFile(path.join(app, "resources", "app.asar"), "asar-1");
+  await fs.writeFile(path.join(app, "Vestra.exe"), "exe");
+  await fs.writeFile(path.join(root, "bundle.js"), "bundle");
+  const service = {
+    context: { homeDir: home, bundlePath: path.join(root, "bundle.js") },
+  } as unknown as InstallerService;
+  return { root, home, localAppData, app, service };
+}
+const onWindows = process.platform === "win32" ? test : test.skip;
+
+onWindows("a failed registration keeps the previous maintenance config", async () => {
+  const f = await stagingFixture();
+  try {
+    const before = JSON.stringify({ enabled: true, channels: ["ptb"] });
+    await fs.writeFile(path.join(f.home, "maintenance.json"), before);
+    const controller = new MaintenanceController(
+      f.service,
+      {
+        packaged: true,
+        executable: path.join(f.app, "Vestra.exe"),
+        localAppData: f.localAppData,
+      },
+      {
+        exec: async () => {
+          throw new Error("reg add failed");
+        },
+        launch: async () => {},
+      },
+    );
+    await assert.rejects(() => controller.track("stable", true), /reg add failed/);
+    assert.equal(
+      await fs.readFile(path.join(f.home, "maintenance.json"), "utf8"),
+      before,
+    );
+  } finally {
+    await fs.rm(f.root, { recursive: true, force: true });
+  }
+});
+
+onWindows("staging a new runtime removes older copies", async () => {
+  const f = await stagingFixture();
+  try {
+    const parent = path.join(f.localAppData, "Vestra", "maintenance");
+    await fs.mkdir(path.join(parent, "oldhash0000000000"), { recursive: true });
+    await fs.writeFile(path.join(parent, "oldhash0000000000", "x"), "x");
+    const controller = new MaintenanceController(
+      f.service,
+      {
+        packaged: true,
+        executable: path.join(f.app, "Vestra.exe"),
+        localAppData: f.localAppData,
+      },
+      { exec: async () => ({}), launch: async () => {} },
+    );
+    await controller.track("stable", true);
+    const left = await fs.readdir(parent);
+    assert.equal(left.length, 1);
+    assert.notEqual(left[0], "oldhash0000000000");
+    const saved = JSON.parse(
+      await fs.readFile(path.join(f.home, "maintenance.json"), "utf8"),
+    );
+    assert.deepEqual(saved.channels, ["stable"]);
+  } finally {
+    await fs.rm(f.root, { recursive: true, force: true });
+  }
+});

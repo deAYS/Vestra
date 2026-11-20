@@ -292,3 +292,28 @@ test(
     }
   },
 );
+
+test("downloading a package prunes stale packages but keeps unrelated files", async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "vestra-prune-test-"));
+  try {
+    for (const name of [
+      "Vestra-0.0.1-x64-Portable.exe",
+      "Vestra-0.0.1-x64-Portable.exe.part",
+      "pending.json",
+    ])
+      await fs.writeFile(path.join(dir, name), "x");
+    const release: ReleasePackage = {
+      name: "Vestra-9.9.9-x64-Portable.exe",
+      url: "https://example.invalid/pkg",
+      size: bytes.length,
+      sha256: digest,
+    } as ReleasePackage;
+    await downloadPackage(dir, release, () => {}, async () => new Response(bytes));
+    assert.deepEqual((await fs.readdir(dir)).sort(), [
+      "Vestra-9.9.9-x64-Portable.exe",
+      "pending.json",
+    ]);
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});

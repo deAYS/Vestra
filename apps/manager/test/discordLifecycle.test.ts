@@ -155,3 +155,25 @@ test("Uninstall preserves settings, verifies removal and reopens native Discord"
   await h.lifecycle.run("uninstall", "stable");
   assert.deepEqual(h.calls, ["stop:1", "uninstall:false", "check", "launch"]);
 });
+test("Discord that was not running is never launched", async () => {
+  const h = harness();
+  await h.system.stop({ pid: 1, executable: target.appDir + "\Discord.exe" });
+  h.calls.length = 0;
+  const result = await h.lifecycle.run("uninstall", "stable");
+  assert.deepEqual(h.calls, ["uninstall:false", "check"]);
+  assert.equal(result.ok, true);
+  assert.equal(result.warning, undefined);
+});
+test("a relaunch failure keeps the operation successful with a warning", async () => {
+  const h = harness();
+  const system: DiscordSystem = {
+    ...h.system,
+    async launch() {
+      throw new Error("spawn failed");
+    },
+  };
+  const lifecycle = new DiscordLifecycle(h.service, system);
+  const result = await lifecycle.run("install", "stable");
+  assert.equal(result.ok, true);
+  assert.equal(result.warning, "Discord didn't reopen. Open it manually.");
+});

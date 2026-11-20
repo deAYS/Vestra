@@ -64,6 +64,7 @@ export interface PerInstallResult {
 export interface OperationSummary {
   ok: boolean;
   results: PerInstallResult[];
+  warning?: string;
 }
 
 export type InstallerOperation =

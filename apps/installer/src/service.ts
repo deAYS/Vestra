@@ -183,6 +183,7 @@ export type ServicePerInstallResult = PerInstallResult & {
 export interface OperationSummary {
   ok: boolean;
   results: ServicePerInstallResult[];
+  warning?: string;
 }
 
 export type PruneSummary = PruneResult;

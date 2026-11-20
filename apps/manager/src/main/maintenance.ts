@@ -67,11 +67,22 @@ export interface MaintenanceHost {
   localAppData: string;
 }
 
+export interface MaintenanceDeps {
+  exec?: (file: string, args: string[]) => Promise<unknown>;
+  launch?: (executable: string, args: string[]) => Promise<void>;
+}
+
 export class MaintenanceController {
+  private readonly run: (file: string, args: string[]) => Promise<unknown>;
   constructor(
     private readonly service: InstallerService,
     private readonly host: MaintenanceHost,
-  ) {}
+    private readonly deps: MaintenanceDeps = {},
+  ) {
+    this.run =
+      deps.exec ??
+      ((file, args) => execute(file, args, { windowsHide: true }));
+  }
   private get home(): string {
     return this.service.context.homeDir;
   }
@@ -118,48 +129,49 @@ export class MaintenanceController {
     }
     if (!config.enabled || config.channels.length === 0) {
       // Deleting an absent named value is harmless; registry access failures are not.
-      const query = await execute(
-        systemTool("reg"),
-        ["query", RUN_KEY, "/v", "VestraMaintenance"],
-        { windowsHide: true },
-      ).then(
+      const query = await this.run(systemTool("reg"), [
+        "query",
+        RUN_KEY,
+        "/v",
+        "VestraMaintenance",
+      ]).then(
         () => true,
         (error) => {
-          if (error.code === 1) return false;
+          if ((error as { code?: unknown }).code === 1) return false;
           throw error;
         },
       );
       if (query)
-        await execute(
-          systemTool("reg"),
-          ["delete", RUN_KEY, "/v", "VestraMaintenance", "/f"],
-          { windowsHide: true },
-        );
+        await this.run(systemTool("reg"), [
+          "delete",
+          RUN_KEY,
+          "/v",
+          "VestraMaintenance",
+          "/f",
+        ]);
       await saveConfig(this.home, config);
       return;
     }
     const runtime = await this.stageRuntime();
+    await this.run(systemTool("reg"), [
+      "add",
+      RUN_KEY,
+      "/v",
+      "VestraMaintenance",
+      "/t",
+      "REG_SZ",
+      "/d",
+      `"${runtime}" --maintain`,
+      "/f",
+    ]);
+    // Persist only after the registration worked, so a failure keeps the old config.
     config.runtime = runtime;
     await saveConfig(this.home, config);
-    await execute(
-      systemTool("reg"),
-      [
-        "add",
-        RUN_KEY,
-        "/v",
-        "VestraMaintenance",
-        "/t",
-        "REG_SZ",
-        "/d",
-        `"${runtime}" --maintain`,
-        "/f",
-      ],
-      { windowsHide: true },
-    );
     await this.lifecycleSystemLaunch(runtime);
   }
 
   private async lifecycleSystemLaunch(runtime: string): Promise<void> {
+    if (this.deps.launch) return this.deps.launch(runtime, ["--maintain"]);
     const { windowsDiscordSystem } = await import("./discordLifecycle.js");
     await windowsDiscordSystem.launch(runtime, ["--maintain"]);
   }
@@ -176,12 +188,9 @@ export class MaintenanceController {
       ),
     );
     hash.update(await fs.promises.readFile(this.service.context.bundlePath!));
-    const destination = path.join(
-      this.host.localAppData,
-      "Vestra",
-      "maintenance",
-      hash.digest("hex").slice(0, 16),
-    );
+    const parent = path.join(this.host.localAppData, "Vestra", "maintenance");
+    const name = hash.digest("hex").slice(0, 16);
+    const destination = path.join(parent, name);
     const executable = path.join(
       destination,
       path.basename(this.host.executable),
@@ -212,7 +221,43 @@ export class MaintenanceController {
       }
       await fs.promises.writeFile(marker, "Vestra recovery runtime\n");
     }
+    // Older copies are dead weight; a copy still in use is skipped.
+    try {
+      for (const entry of await fs.promises.readdir(parent)) {
+        if (entry === name) continue;
+        await fs.promises
+          .rm(path.join(parent, entry), { recursive: true, force: true })
+          .catch(() => {});
+      }
+    } catch {
+      /* best effort */
+    }
     return executable;
+  }
+}
+
+/** A failed "keep installed" step never turns a finished operation into an error. */
+export async function trackAfterOperation<
+  T extends { ok: boolean; warning?: string },
+>(
+  maintenance: Pick<MaintenanceController, "track">,
+  kind: "install" | "repair" | "uninstall",
+  channel: DiscordChannel,
+  result: T,
+): Promise<T> {
+  if (!result.ok) return result;
+  try {
+    await maintenance.track(channel, kind !== "uninstall");
+    return result;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return {
+      ...result,
+      warning:
+        kind === "uninstall"
+          ? `Removed. Keep Vestra installed couldn't be updated: ${message}`
+          : `Installed. Keep Vestra installed couldn't be turned on: ${message}`,
+    };
   }
 }
 

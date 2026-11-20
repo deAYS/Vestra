@@ -4,7 +4,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { isManagerSender } from "./sender.js";
 import type { DiscordChannel } from "@vestra/injector";
 import { DiscordLifecycle } from "./discordLifecycle.js";
-import { MaintenanceController } from "./maintenance.js";
+import { MaintenanceController, trackAfterOperation } from "./maintenance.js";
 import { withInstallLock, type InstallerService } from "@vestra/installer";
 import { MANAGER_IPC } from "../shared/channels.js";
 import type { InstallerProgressEvent } from "../shared/types.js";
@@ -97,8 +97,7 @@ export function registerManagerIpc(
         channel,
         forwardProgress(event.sender),
       );
-      if (result.ok) await maintenance.track(channel, kind !== "uninstall");
-      return result;
+      return trackAfterOperation(maintenance, kind, channel, result);
     });
   };
   handle(MANAGER_IPC.install, (event, raw) => mutate("install", event, raw));
