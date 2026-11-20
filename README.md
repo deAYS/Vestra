@@ -48,15 +48,37 @@ are ignored. An offline or rate-limited check reports an error and can be retrie
 Automatic updating starts with a Manager that includes this feature; earlier
 releases need that first upgrade from the Downloads page.
 
+The Manager shows one row per Discord installation with its status: **Vestra
+active · started …**, **Installed, but didn't start — …** (with a short reason),
+**Installed · starts after you log in to Discord**, **Installed · will start next
+time Discord opens**, **Waiting for Discord restart**, **Needs repair** or **Not
+installed**. Each launch records whether Vestra started, and start-up retries
+if Discord's window is not ready yet. The **⋯** menu offers **Repair** and
+**Uninstall**, and **Check for updates** appears when no update card is shown.
+If the Manager detects that Discord replaced its app archive, the row shows
+**Needs repair**.
+
 **Keep Vestra installed** is enabled after installation in Windows builds. A local
-recovery process starts at Windows sign-in, waits for Discord updates to finish,
-then restores Vestra into the current version and restarts that Discord channel.
-Turn this off in the Manager to remove its Windows startup entry. Recovery only
-tracks channels and installation roots where you installed Vestra. It keeps an
-independent runtime under `%LocalAppData%\Vestra\maintenance`, so Portable recovery
-does not depend on a temporary extraction directory. Diagnostic failures are saved
-in `%AppData%\Vestra\recovery.log`. Manual **Repair** remains available. Stable, PTB
+recovery process starts at Windows sign-in and patches a new Discord version as
+soon as Discord's updater finishes staging it, while the old version keeps running,
+so Vestra is already there when Discord restarts. It watches the update folders
+and also sweeps every ten minutes as a safety net. It never closes Discord by
+itself: if Discord already runs the new unpatched version, recovery waits until
+Discord closes and then patches it, and you can use the **Restart Discord**
+notification or Manager button when you are ready. Failed attempts retry up to
+three times with a growing delay, then show the failure in the Manager and in a
+notification. Turn this off in the Manager to remove its Windows startup entry.
+Recovery only tracks channels and installation roots where you installed Vestra.
+It keeps an independent runtime under `%LocalAppData%\Vestra\maintenance`, so Portable
+recovery does not depend on a temporary extraction directory. Its state is kept in
+`%AppData%\Vestra\recovery-state.json` and diagnostic failures in
+`%AppData%\Vestra\recovery.log`. Manual **Repair** remains available; without a
+chosen channel it only touches channels Vestra was installed on. Stable, PTB
 and Canary can be discovered; GUI operations target the installation you select.
+
+Discord's quick (delta) host update checks `app.asar`, which Vestra changes, so
+that check can fail and Discord then falls back to a full download about an hour
+later. Vestra patches the new version once that download is staged.
 
 ## Make it yours
 
