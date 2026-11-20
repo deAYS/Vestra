@@ -1,5 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { runInNewContext } from "node:vm";
 import { SettingsStore } from "./api/settings.js";
 import { applyThemePreset, THEME_LIBRARY, refreshLocalThemes } from "./themes.js";
 
@@ -266,6 +267,29 @@ test("plugin settings reject values that are not JSON data and stay clean", asyn
     settings.setPluginSetting("Fixture", "good", good);
   await settings.flush();
   assert.equal(backend.writes.length, 1);
+});
+
+test("plugin settings accept plain objects, arrays and dates from another realm", async () => {
+  const clock = fakeTimers();
+  const backend = countingBackend();
+  const settings = new SettingsStore(undefined, { timers: clock.timers });
+  await settings.connectStorage(backend.storage);
+  const foreign = runInNewContext("({ a: 1, list: [1, { b: 2 }], when: new Date(0), bare: Object.assign(Object.create(null), { c: 3 }) })") as Record<string, unknown>;
+  assert.notEqual(Object.getPrototypeOf(foreign), Object.prototype, "the object really comes from another realm");
+  assert.ok(!(foreign["when"] instanceof Date), "so does the date");
+  settings.setPluginSetting("Fixture", "foreign", foreign);
+  settings.setPluginSettings("Other", foreign);
+  assert.deepEqual(JSON.parse(JSON.stringify(settings.getPluginSetting("Fixture", "foreign"))), {
+    a: 1,
+    list: [1, { b: 2 }],
+    when: "1970-01-01T00:00:00.000Z",
+    bare: { c: 3 },
+  });
+  for (const source of ["new Map()", "(class Point { x = 1 }, new (class Point { x = 1 })())", "({ fn() {} })", "({ big: 1n })", "Object.create({ constructor: Object, x: 1 })"])
+    assert.throws(() => settings.setPluginSetting("Fixture", "bad", runInNewContext(source)), TypeError, source);
+  class Object2 {}
+  Object.defineProperty(Object2, "name", { value: "Object" });
+  assert.throws(() => settings.setPluginSetting("Fixture", "bad", new Object2()), TypeError, "a class named Object is still a class instance");
 });
 
 test("debounced write and serialization failures set the banner state and notify listeners", async () => {

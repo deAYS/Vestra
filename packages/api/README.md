@@ -74,7 +74,11 @@ export default definePlugin({
 
 Settings changes do not restart a plugin. Read them when handling an action or
 subscribe in `start()` and unsubscribe in `stop()`. Plugin settings must be
-JSON data (strings, numbers, booleans, null, arrays and plain objects). The host
+JSON data (strings, numbers, booleans, null, arrays and plain objects).
+`Settings.setPluginSetting` and `Settings.setPluginSettings` throw a `TypeError`
+for anything else: functions, symbols, BigInt, `NaN`/`Infinity`, cyclic
+references and class instances (including `Map` and `Set`). A `Date` is accepted
+and stored as its ISO string. The host
 saves settings shortly after changes stop, so do not write them in a tight loop.
 Validate values before use;
 preferences can also be edited outside the panel. Keybind fields store a combo

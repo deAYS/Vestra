@@ -125,7 +125,37 @@ const defaultTimers: SettingsTimers = {
 
 const NOT_JSON = "Setting values must be JSON data";
 
-/** Plugin values are stored as JSON; reject anything that would not round-trip. */
+/** A Date from any realm (the internal slot check, not `instanceof`). */
+function isDate(object: object): boolean {
+  if (object instanceof Date) return true;
+  try {
+    Date.prototype.getTime.call(object);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The prototype of a plain object: null, `Object.prototype`, or another
+ * realm's `Object.prototype` (an iframe or `vm` context), recognised as a
+ * root prototype whose own `constructor` is a function named `Object`.
+ */
+function isPlainPrototype(proto: unknown): boolean {
+  if (proto === null || proto === Object.prototype) return true;
+  if (typeof proto !== "object" || Object.getPrototypeOf(proto) !== null)
+    return false;
+  const constructor: unknown = Object.getOwnPropertyDescriptor(
+    proto,
+    "constructor",
+  )?.value;
+  return typeof constructor === "function" && constructor.name === "Object";
+}
+
+/**
+ * Plugin values are stored as JSON; reject anything that would not round-trip.
+ * Plain objects, arrays and dates from other realms are accepted too.
+ */
 function assertJsonData(value: unknown, ancestors: object[]): void {
   if (value === null || value === undefined) return;
   switch (typeof value) {
@@ -141,14 +171,11 @@ function assertJsonData(value: unknown, ancestors: object[]): void {
       throw new TypeError(NOT_JSON);
   }
   const object = value as object;
-  if (object instanceof Date) return;
+  if (isDate(object)) return;
   if (ancestors.includes(object)) throw new TypeError(NOT_JSON);
   const isArray = Array.isArray(object);
-  if (!isArray) {
-    const proto: unknown = Object.getPrototypeOf(object);
-    if (proto !== Object.prototype && proto !== null)
-      throw new TypeError(NOT_JSON);
-  }
+  if (!isArray && !isPlainPrototype(Object.getPrototypeOf(object)))
+    throw new TypeError(NOT_JSON);
   ancestors.push(object);
   for (const item of isArray
     ? (object as unknown[])
@@ -420,7 +447,10 @@ export class SettingsStore {
    * write (`writeSeq`), so a late result never overrides a newer one.
    *
    * Retry policy: a failed write leaves the store dirty and is retried on
-   * the next change, `flush()` or page close. There is no background retry.
+   * the next change or `flush()`. There is no background retry. On page
+   * close the first listener sends a blocking flush of the current state;
+   * when that fails, the second close listener (`pagehide` after
+   * `beforeunload`) skips the same revision rather than blocking again.
    */
   private revision = 0;
   private confirmedRevision = 0;
