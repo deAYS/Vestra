@@ -50,6 +50,9 @@ export interface VestraRuntime {
   readonly Toasts: ToastManager;
 }
 
+// Store/local plugins load before start(); keep built-in names theirs.
+pluginManager.reserveNames(BUILTIN_PLUGINS);
+
 let started = false;
 let exposedGlobal = false;
 let stopThemes: (() => void) | undefined;
@@ -193,9 +196,9 @@ async function startRuntime(): Promise<void> {
       }
     }
     stopThemes = startThemes();
-    await pluginManager.startEnabled();
-    // Overlay host (toasts + keybind settings panel). Mounts into its own
-    // root div; safe no-ops without a DOM.
+    // Overlay host (toasts, launcher, settings panel) mounts before plugins
+    // start so a slow plugin never delays the UI. Own root div; safe no-op
+    // without a DOM.
     try {
       stopOverlay?.();
       stopShortcuts?.();
@@ -210,6 +213,8 @@ async function startRuntime(): Promise<void> {
     } catch (err: unknown) {
       Logger.captureError(err, "Vestra.start.Overlay");
     }
+    // Each plugin start is time-boxed, so this resolves even if one hangs.
+    await pluginManager.startEnabled();
     exposeGlobal(runtime);
     started = true;
     clearInterval(updateTimer);

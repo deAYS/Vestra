@@ -37,6 +37,42 @@ interface HookRecord {
 interface PatchedEntry {
   original: (...args: unknown[]) => unknown;
   hooks: HookRecord[];
+  /** Put the target property back exactly as it was before wrapping. */
+  restore: () => void;
+}
+
+/** Keys the wrapper sets explicitly instead of copying (or must never copy). */
+const SKIPPED_STATIC_KEYS = new Set<string | symbol>(["length", "name", "prototype", "arguments", "caller"]);
+
+/**
+ * Make `wrapper` look like `original`: same name/length/prototype, the same
+ * static properties (displayName, defaultProps, ...), the same static
+ * inheritance and the original's source from toString().
+ */
+function mirrorFunction(wrapper: Function, original: Function): void {
+  for (const key of ["name", "length"] as const) {
+    const descriptor = Object.getOwnPropertyDescriptor(original, key);
+    if (descriptor === undefined) continue;
+    try { Object.defineProperty(wrapper, key, descriptor); } catch { /* keep the wrapper's own */ }
+  }
+  if (Object.prototype.hasOwnProperty.call(original, "prototype")) {
+    try {
+      (wrapper as { prototype: unknown }).prototype = (original as { prototype: unknown }).prototype;
+    } catch { /* keep the wrapper's own */ }
+  }
+  try { Object.setPrototypeOf(wrapper, Object.getPrototypeOf(original)); } catch { /* keep Function.prototype */ }
+  for (const key of Reflect.ownKeys(original)) {
+    if (SKIPPED_STATIC_KEYS.has(key)) continue;
+    const descriptor = Object.getOwnPropertyDescriptor(original, key);
+    if (descriptor === undefined) continue;
+    try { Object.defineProperty(wrapper, key, descriptor); } catch { /* skip uncopyable statics */ }
+  }
+  if (!Object.prototype.hasOwnProperty.call(original, "toString")) {
+    const source = (): string => Function.prototype.toString.call(original);
+    try {
+      Object.defineProperty(wrapper, "toString", { value: source, writable: true, configurable: true, enumerable: false });
+    } catch { /* keep the wrapper's own */ }
+  }
 }
 
 function isObject(value: unknown): value is Record<string | symbol, unknown> {
@@ -183,25 +219,46 @@ export class Patcher {
     key: string | symbol,
     original: (...args: unknown[]) => unknown,
   ): PatchedEntry {
+    const existing = this.targets.get(target)?.get(key);
+    if (existing !== undefined) return existing;
+
+    const descriptor = Object.getOwnPropertyDescriptor(target, key);
+    const assignable = descriptor === undefined || ("value" in descriptor && descriptor.writable === true);
+    if (!assignable && descriptor?.configurable !== true) {
+      throw new Error(`Cannot patch ${String(key)}: export is read-only`);
+    }
+
+    const self = this;
+    const entry: PatchedEntry = { original, hooks: [], restore: () => {} };
+    function wrapper(this: unknown, ...args: unknown[]): unknown {
+      return self.invoke(entry, key, this, args, new.target as Function | undefined);
+    }
+    mirrorFunction(wrapper, original);
+    const record = target as Record<string | symbol, unknown>;
+    try {
+      if (assignable) {
+        record[key] = wrapper;
+        entry.restore = descriptor === undefined
+          ? () => { delete record[key]; }
+          : () => { record[key] = original; };
+      } else {
+        Object.defineProperty(target, key, {
+          value: wrapper,
+          writable: true,
+          configurable: true,
+          enumerable: descriptor?.enumerable ?? true,
+        });
+        entry.restore = () => { Object.defineProperty(target, key, descriptor as PropertyDescriptor); };
+      }
+    } catch (err: unknown) {
+      this.logger.captureError(err, `Patcher.wrap "${String(key)}"`);
+      throw new Error(`Patcher cannot wrap "${String(key)}" (target may be frozen).`);
+    }
     let byKey = this.targets.get(target);
     if (byKey === undefined) {
       byKey = new Map();
       this.targets.set(target, byKey);
       this.knownTargets.add(target);
-    }
-    const existing = byKey.get(key);
-    if (existing !== undefined) return existing;
-
-    const self = this;
-    const entry: PatchedEntry = { original, hooks: [] };
-    function wrapper(this: unknown, ...args: unknown[]): unknown {
-      return self.invoke(entry, key, this, args);
-    }
-    try {
-      (target as Record<string | symbol, unknown>)[key] = wrapper;
-    } catch (err: unknown) {
-      this.logger.captureError(err, `Patcher.wrap "${String(key)}"`);
-      throw new Error(`Patcher cannot wrap "${String(key)}" (target may be frozen).`);
     }
     byKey.set(key, entry);
     return entry;
@@ -214,7 +271,7 @@ export class Patcher {
     if (entry.hooks.length > 0) return;
     // Last hook out: restore the original byte-for-byte.
     try {
-      (target as Record<string | symbol, unknown>)[key] = entry.original;
+      entry.restore();
     } catch (err: unknown) {
       this.logger.captureError(err, `Patcher.restore "${String(key)}"`);
       return;
@@ -242,6 +299,7 @@ export class Patcher {
     key: string | symbol,
     thisArg: unknown,
     args: unknown[],
+    newTarget?: Function,
   ): unknown {
     const label = String(key);
     const snapshot = [...entry.hooks];
@@ -257,7 +315,7 @@ export class Patcher {
     const insteads = snapshot.filter((r) => r.kind === "instead");
     let result: unknown;
     try {
-      result = this.runInsteadChain(entry, insteads, 0, args, thisArg, label);
+      result = this.runInsteadChain(entry, insteads, 0, args, thisArg, label, newTarget);
     } catch (err: unknown) {
       // The original itself threw: afters still observe? No — propagate after
       // logging so behavior matches an unpatched throw.
@@ -284,9 +342,12 @@ export class Patcher {
     args: unknown[],
     thisArg: unknown,
     label: string,
+    newTarget?: Function,
   ): unknown {
     const record = insteads[index];
     if (record === undefined) {
+      // `new Wrapped()` must construct the original (class components need it).
+      if (newTarget !== undefined) return Reflect.construct(entry.original, args, newTarget);
       return entry.original.apply(thisArg, args);
     }
     let calledNext = false;
@@ -297,7 +358,7 @@ export class Patcher {
       calledNext = true;
       const effective = nextArgs.length === 0 ? args : nextArgs;
       try {
-        nextResult = this.runInsteadChain(entry, insteads, index + 1, effective, thisArg, label);
+        nextResult = this.runInsteadChain(entry, insteads, index + 1, effective, thisArg, label, newTarget);
         return nextResult;
       } catch (err) { nextFailed = true; nextError = err; throw err; }
     };

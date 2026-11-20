@@ -6,6 +6,28 @@ import {
 import { Logger, type ScopedLogger } from "./api/logger.js";
 import { patcher as sharedPatcher, type Patcher } from "./api/patcher.js";
 import { Settings, type SettingsStore } from "./api/settings.js";
+import { Toasts } from "./api/toasts.js";
+
+/** A plugin whose start() takes longer than this is skipped for this launch. */
+export const PLUGIN_START_TIMEOUT_MS = 15000;
+export const PLUGIN_START_TIMEOUT_MESSAGE = "Plugin took too long to start";
+
+export interface PluginManagerTimers {
+  setTimeout(fn: () => void, ms: number): unknown;
+  clearTimeout(id: unknown): void;
+}
+
+export interface PluginManagerOptions {
+  /** Injected for deterministic tests; defaults to the global timers. */
+  timers?: PluginManagerTimers | undefined;
+  /** Shows a user-facing error; defaults to `Toasts.error`. */
+  notifyError?: ((title: string, message: string) => void) | undefined;
+}
+
+const defaultTimers: PluginManagerTimers = {
+  setTimeout: (fn, ms) => setTimeout(fn, ms),
+  clearTimeout: (id) => { clearTimeout(id as ReturnType<typeof setTimeout>); },
+};
 
 export interface EnabledStateStorage {
   loadEnabledStates(): Record<string, boolean>;
@@ -132,6 +154,10 @@ export class PluginManager {
   private readonly patcher: Patcher;
   private readonly operations = new Map<string, Promise<unknown>>();
   private readonly listeners = new Set<() => void>();
+  private readonly timers: PluginManagerTimers;
+  private readonly notifyError: (title: string, message: string) => void;
+  /** Built-in definitions by name; other plugins may not take these names. */
+  private readonly reserved = new Map<string, PluginDefinition>();
 
   subscribe(listener: () => void): () => void {
     this.listeners.add(listener);
@@ -154,15 +180,28 @@ export class PluginManager {
     return next;
   }
 
-  constructor(storage?: EnabledStateStorage, logger?: ScopedLogger, patcher?: Patcher) {
+  constructor(storage?: EnabledStateStorage, logger?: ScopedLogger, patcher?: Patcher, options?: PluginManagerOptions) {
     this.storage = storage ?? createDefaultEnabledStateStorage();
     this.logger = logger ?? Logger.extend("PluginManager");
     // Disabling a plugin removes its owned patches, so a
     // stopped plugin can never leave a modified function behind.
     this.patcher = patcher ?? sharedPatcher;
+    this.timers = options?.timers ?? defaultTimers;
+    this.notifyError = options?.notifyError ?? ((title, message) => { Toasts.error(title, message); });
   }
 
-  /** Register a plugin. Throws on invalid definition or duplicate name. */
+  /**
+   * Reserve the names of built-in plugins. Store/local plugins load before the
+   * runtime registers built-ins, so a same-named one would otherwise take over.
+   */
+  reserveNames(definitions: Iterable<PluginDefinition>): void {
+    for (const definition of definitions) this.reserved.set(definition.name, definition);
+  }
+
+  /**
+   * Register a plugin. Throws on invalid definition or duplicate name; a
+   * non-built-in plugin using a reserved built-in name is skipped with a toast.
+   */
   register(definition: PluginDefinition): void {
     const parsed = PluginDefinitionSchema.safeParse(definition);
     if (!parsed.success) {
@@ -171,6 +210,16 @@ export class PluginManager {
     }
     // Validate without stripping plugin-specific fields or method `this` state.
     const def = definition;
+    const builtin = this.reserved.get(def.name);
+    if (builtin !== undefined && builtin !== def) {
+      this.logger.warn(`Skipped plugin "${def.name}": the name belongs to a built-in plugin.`);
+      try {
+        this.notifyError("Plugin skipped", `${def.name} uses a built-in plugin's name`);
+      } catch (err: unknown) {
+        this.logger.captureError(err, "PluginManager.notify");
+      }
+      return;
+    }
     if (this.plugins.has(def.name)) {
       this.logger.error(`Duplicate plugin name rejected: "${def.name}"`);
       throw new Error(`Duplicate plugin name: "${def.name}"`);
@@ -201,7 +250,23 @@ export class PluginManager {
       return true;
     }
     try {
-      await state.definition.start();
+      let pending: Promise<void>;
+      try {
+        pending = Promise.resolve(state.definition.start());
+      } catch (err: unknown) {
+        pending = Promise.reject(err);
+      }
+      if (await this.timeBox(pending)) {
+        // Keep it enabled so it retries next launch; never block other plugins.
+        state.started = false;
+        state.lastError = new Error(PLUGIN_START_TIMEOUT_MESSAGE);
+        this.logger.warn(`Plugin "${name}" took longer than ${PLUGIN_START_TIMEOUT_MS} ms to start; skipped for now.`);
+        pending.then(
+          () => this.cleanUpLateStart(name, state, undefined),
+          (err: unknown) => this.cleanUpLateStart(name, state, err),
+        );
+        return false;
+      }
       state.started = true;
       state.lastError = undefined;
       return true;
@@ -216,6 +281,36 @@ export class PluginManager {
       this.logger.captureError(err, `plugin "${name}" start`);
       return false;
     }
+  }
+
+  /** Resolves true when `pending` is still unsettled after the start timeout. */
+  private timeBox(pending: Promise<void>): Promise<boolean> {
+    return new Promise<boolean>((resolve, reject) => {
+      const timer = this.timers.setTimeout(() => resolve(true), PLUGIN_START_TIMEOUT_MS);
+      pending.then(
+        () => { this.timers.clearTimeout(timer); resolve(false); },
+        (err: unknown) => { this.timers.clearTimeout(timer); reject(err); },
+      );
+    });
+  }
+
+  /** A start that outlived its timeout finished anyway: undo it unless a newer start succeeded. */
+  private cleanUpLateStart(name: string, state: MutablePluginState, err: unknown): void {
+    void this.enqueue(name, async () => {
+      if (state.started) return;
+      if (err !== undefined) {
+        state.lastError = err;
+        this.logger.captureError(err, `plugin "${name}" late start`);
+      }
+      try {
+        await state.definition.stop?.();
+      } catch (stopError: unknown) {
+        this.logger.captureError(stopError, `plugin "${name}" late start cleanup`);
+      }
+      this.unpatchOwner(name);
+    }).catch((cleanupError: unknown) => {
+      this.logger.captureError(cleanupError, `plugin "${name}" late start cleanup`);
+    });
   }
 
   /** Stop + disable a plugin. Stop errors are captured; state always cleans up. */
