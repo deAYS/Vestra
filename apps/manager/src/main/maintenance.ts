@@ -7,6 +7,7 @@ import { getRealFs } from "@vestra/injector";
 import {
   layoutHome,
   loadRegistry,
+  withInstallLock,
   type InstallerService,
 } from "@vestra/installer";
 import { systemTool } from "./systemTools.js";
@@ -44,6 +45,17 @@ export async function readMaintenance(
       return { enabled: true, channels: [] };
     throw error;
   }
+}
+
+function isActive(config: MaintenanceConfig): boolean {
+  return config.enabled && config.channels.length > 0;
+}
+
+/** The runtime folder name (content hash) a config points at, if any. */
+function runtimeFolder(config: MaintenanceConfig): string | undefined {
+  return config.runtime === undefined
+    ? undefined
+    : path.basename(path.dirname(config.runtime)).toLowerCase();
 }
 
 async function saveConfig(
@@ -120,6 +132,27 @@ export class MaintenanceController {
     await this.configure(config);
   }
 
+  /**
+   * After a Manager update, recovery is still registered on the previous
+   * build's runtime. Stages and registers this build's runtime when the
+   * configured one differs; the running recovery process hands over to it on
+   * its next trigger. Resolves false when nothing needed to change.
+   */
+  async refreshRuntime(): Promise<boolean> {
+    if (!this.host.packaged || process.platform !== "win32") return false;
+    const config = await readMaintenance(this.home);
+    if (!isActive(config)) return false;
+    const name = await this.runtimeName();
+    if (runtimeFolder(config) === name) return false;
+    return withInstallLock(this.home, async () => {
+      // Another operation may have registered a runtime meanwhile.
+      const current = await readMaintenance(this.home);
+      if (!isActive(current) || runtimeFolder(current) === name) return false;
+      await this.configure(current);
+      return true;
+    });
+  }
+
   private async configure(config: MaintenanceConfig): Promise<void> {
     if (!this.host.packaged || process.platform !== "win32") {
       await saveConfig(this.home, config);
@@ -150,6 +183,8 @@ export class MaintenanceController {
       await saveConfig(this.home, config);
       return;
     }
+    // The runtime recovery may still be running from, before it is replaced.
+    const running = runtimeFolder(config);
     const runtime = await this.stageRuntime();
     const current = path.basename(path.dirname(runtime));
     await this.run(systemTool("reg"), [
@@ -166,7 +201,7 @@ export class MaintenanceController {
     // Persist only after the registration worked, so a failure keeps the old config.
     config.runtime = runtime;
     await saveConfig(this.home, config);
-    await this.pruneRuntimes(current);
+    await this.pruneRuntimes([current, ...(running === undefined ? [] : [running])]);
     await this.lifecycleSystemLaunch(runtime);
   }
 
@@ -176,14 +211,24 @@ export class MaintenanceController {
     await windowsDiscordSystem.launch(runtime, ["--maintain"]);
   }
 
-  /** Older copies go only once nothing references them any more. */
-  private async pruneRuntimes(keep: string): Promise<void> {
-    const parent = path.join(this.host.localAppData, "Vestra", "maintenance");
+  private get runtimeParent(): string {
+    return path.join(this.host.localAppData, "Vestra", "maintenance");
+  }
+
+  /**
+   * Removes runtime copies from older builds, except `keep`: the new runtime
+   * and the one configured until now, which a recovery process may still be
+   * running from. That process hands over to the new runtime on its next
+   * trigger, and its copy goes on a later configure. Any other copy that is
+   * still in use may be only partially removed, since Windows keeps open files.
+   */
+  private async pruneRuntimes(keep: string[]): Promise<void> {
+    const kept = new Set(keep.map((name) => name.toLowerCase()));
     try {
-      for (const entry of await fs.promises.readdir(parent)) {
-        if (entry === keep) continue;
+      for (const entry of await fs.promises.readdir(this.runtimeParent)) {
+        if (kept.has(entry.toLowerCase())) continue;
         await fs.promises
-          .rm(path.join(parent, entry), { recursive: true, force: true })
+          .rm(path.join(this.runtimeParent, entry), { recursive: true, force: true })
           .catch(() => {});
       }
     } catch {
@@ -191,21 +236,25 @@ export class MaintenanceController {
     }
   }
 
+  /** The runtime folder name: a hash of this build's app and Vestra payload. */
+  private async runtimeName(): Promise<string> {
+    const source = path.dirname(this.host.executable);
+    const hash = createHash("sha256");
+    hash.update(
+      await getRealFs().promises.readFile(
+        path.join(source, "resources", "app.asar"),
+      ),
+    );
+    hash.update(await fs.promises.readFile(this.service.context.bundlePath!));
+    return hash.digest("hex").slice(0, 16);
+  }
+
   private async stageRuntime(): Promise<string> {
     // Portable apps execute from a temporary extraction directory. Keep an
     // independent runtime so recovery also works after that directory disappears.
     const source = path.dirname(this.host.executable);
     const physicalFs = getRealFs();
-    const hash = createHash("sha256");
-    hash.update(
-      await physicalFs.promises.readFile(
-        path.join(source, "resources", "app.asar"),
-      ),
-    );
-    hash.update(await fs.promises.readFile(this.service.context.bundlePath!));
-    const parent = path.join(this.host.localAppData, "Vestra", "maintenance");
-    const name = hash.digest("hex").slice(0, 16);
-    const destination = path.join(parent, name);
+    const destination = path.join(this.runtimeParent, await this.runtimeName());
     const executable = path.join(
       destination,
       path.basename(this.host.executable),

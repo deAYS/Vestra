@@ -179,6 +179,9 @@ async function boot(): Promise<void> {
     return;
   }
   createManagerWindow();
+  // After a Manager update, move recovery onto this build's runtime. Best
+  // effort and never awaited: the window does not wait for it.
+  void maintenance.refreshRuntime().catch(logRecovery);
   await updates.finish();
   void updates.check();
   const updateTimer = setInterval(

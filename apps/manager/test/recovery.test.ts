@@ -318,7 +318,7 @@ test("an in-use failure with no Discord running is blocked and capped", async ()
 test("a failing process check is recorded as a capped failed attempt", async () => {
   const { h, monitor, cleanup } = await harness();
   try {
-    h.processesError = () => new Error("CIM query failed for C:\Fixture");
+    h.processesError = () => new Error("CIM query failed for C:\\Fixture");
     await monitor.evaluate(enabled, "staged");
     let state = await readRecoveryState(h.home);
     assert.equal(state.stable?.phase, "idle");
