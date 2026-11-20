@@ -4,6 +4,7 @@ import {
   VESTRA_NATIVE_CHANNELS,
 } from "@vestra/shared";
 import { buildAddonsSource } from "./addonsSource.js";
+import { senderRejection } from "./senderCheck.js";
 import { buildSettingsSource } from "./settingsSource.js";
 import { buildUpdatesSource } from "./updatesSource.js";
 
@@ -99,11 +100,10 @@ export function buildMainHookSource(options: MainHookOptions): string {
   const hookSentinel = Symbol.for("vestra.mainHook");
   if (globalThis[hookSentinel]) return;
   const trustedUrl = ${isDiscordRendererUrl.toString()};
+  const senderRejection = ${senderRejection.toString()};
   function assertSender(event) {
-    const frame = event && event.senderFrame;
-    if (!frame || !event.sender || frame !== event.sender.mainFrame || !trustedUrl(frame.url)) {
-      throw new Error("[Vestra] untrusted IPC sender");
-    }
+    const reason = senderRejection(event, trustedUrl);
+    if (reason !== null) throw new Error("[Vestra] untrusted IPC sender: " + reason);
   }
 
   const PREFIX = ${JSON.stringify(prefix)};

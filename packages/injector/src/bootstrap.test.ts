@@ -312,7 +312,10 @@ test("every native IPC handler rejects external pages and subframes", async () =
     );
     await assert.rejects(
       () =>
-        handler({ senderFrame: { url: goodUrl }, sender: sender.sender }, []),
+        handler(
+            { senderFrame: { url: goodUrl, parent: {} }, sender: sender.sender },
+            [],
+          ),
       /untrusted/,
     );
   }
@@ -409,4 +412,22 @@ test("splash failsafe and Escape work even when runtime never starts", () => {
     timers[timers.length - 1]!();
     assert.equal(window.document.getElementById("vestra-splash"), null);
   }
+});
+
+test("bootstrap accepts a main frame whose object identity differs and rejects subframes", async () => {
+  const { handlers, sender } = mainFixture();
+  const bootstrap = handlers.get("vestra:native:bootstrap")!;
+  const wrapper = {
+    senderFrame: { url: goodUrl, parent: null },
+    sender: { mainFrame: { url: goodUrl, parent: null } },
+  };
+  assert.ok(await bootstrap(wrapper, {}));
+  await assert.rejects(
+    () =>
+      bootstrap(
+        { senderFrame: { url: goodUrl, parent: {} }, sender: sender.sender },
+        {},
+      ),
+    /untrusted IPC sender: subframe/,
+  );
 });
