@@ -111,6 +111,146 @@ app
       }
       assert.fail(label);
     };
+    // Reproducible Liquid Glass capture: a generated local wallpaper (no network),
+    // a tall scrollable chat, a screenshot and a 2 s requestAnimationFrame scroll run.
+    const captureGlassArtifacts = async () => {
+      const fs = require("node:fs");
+      const zlib = require("node:zlib");
+      const dir = process.env.VESTRA_SMOKE_ARTIFACT_DIR;
+      assert.ok(dir, "VESTRA_SMOKE_ARTIFACT_DIR is set by smoke-electron.mjs");
+      fs.mkdirSync(dir, { recursive: true });
+      const label = (process.env.VESTRA_SMOKE_LABEL || "run").replace(
+        /[^\w.-]/g,
+        "_",
+      );
+      const png = (width, height) => {
+        const crcTable = Array.from({ length: 256 }, (_, n) => {
+          let c = n;
+          for (let k = 0; k < 8; k++)
+            c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+          return c >>> 0;
+        });
+        const crc = (buffer) => {
+          let c = 0xffffffff;
+          for (const byte of buffer) c = crcTable[(c ^ byte) & 255] ^ (c >>> 8);
+          return (c ^ 0xffffffff) >>> 0;
+        };
+        const chunk = (type, data) => {
+          const body = Buffer.concat([Buffer.from(type), data]);
+          const out = Buffer.alloc(body.length + 8);
+          out.writeUInt32BE(data.length, 0);
+          body.copy(out, 4);
+          out.writeUInt32BE(crc(body), body.length + 4);
+          return out;
+        };
+        const header = Buffer.alloc(13);
+        header.writeUInt32BE(width, 0);
+        header.writeUInt32BE(height, 4);
+        header[8] = 8;
+        header[9] = 2;
+        const raw = Buffer.alloc((width * 3 + 1) * height);
+        for (let y = 0; y < height; y++) {
+          const row = y * (width * 3 + 1);
+          for (let x = 0; x < width; x++) {
+            const wave = Math.sin(x / 19) * Math.cos(y / 23);
+            raw[row + 1 + x * 3] = 90 + (x / width) * 120 + wave * 30;
+            raw[row + 2 + x * 3] = 60 + (y / height) * 110 - wave * 30;
+            raw[row + 3 + x * 3] = 150 + ((x + y) / (width + height)) * 90;
+          }
+        }
+        return Buffer.concat([
+          Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]),
+          chunk("IHDR", header),
+          chunk("IDAT", zlib.deflateSync(raw)),
+          chunk("IEND", Buffer.alloc(0)),
+        ]);
+      };
+      const wallpaper =
+        "data:image/png;base64," + png(384, 216).toString("base64");
+      await win.loadURL("https://discord.com/channels/789/123");
+      await waitFor(
+        "Boolean(window.Vestra && window.Vestra.started)",
+        "runtime boots for artifact capture",
+      );
+      win.setSize(1280, 800);
+      // The bootstrap splash covers the page until startup completes; the
+      // capture must show the themed UI, so drop it if it lingers.
+      await waitFor(
+        "document.getElementById('vestra-splash') === null",
+        "splash exits",
+      ).catch(() => evaluate("document.getElementById('vestra-splash')?.remove()"));
+      await page(
+        (preset, wallpaper) => {
+          const v = window.Vestra;
+          v.Settings.setThemes([
+            {
+              id: "glass",
+              name: preset.name,
+              author: "Vestra",
+              css: preset.css,
+              enabled: true,
+            },
+          ]);
+          v.Settings.setThemeCustomization("glass", {
+            surfaceOverrides: true,
+            backgroundImage: wallpaper,
+            blur: 26,
+            opacity: 68,
+            saturation: 140,
+            brightness: 100,
+          });
+          const style = document.createElement("style");
+          style.textContent =
+            "html,body{height:100%;overflow:hidden}#app-mount{position:fixed;inset:0;display:flex;gap:12px;padding:12px;box-sizing:border-box}#app-mount>:not(#fixture-chat):not(#fixture-side):not(#fixture-rail){display:none!important}#fixture-rail{width:72px}#fixture-side{width:240px}#fixture-chat{flex:1;overflow:auto;padding:16px;box-sizing:border-box;color:#eee;font:14px sans-serif}.fixture-msg{padding:10px 0}";
+          document.head.append(style);
+          const chat = document.getElementById("fixture-chat");
+          chat.textContent = "";
+          for (let i = 0; i < 400; i++) {
+            const row = document.createElement("div");
+            row.className = "fixture-msg";
+            row.textContent =
+              "Message " +
+              i +
+              " lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor.";
+            chat.append(row);
+          }
+        },
+        presets.find((preset) => preset.name === "Vestra Liquid Glass"),
+        wallpaper,
+      );
+      await pause(500);
+      const shot = await win.webContents.capturePage();
+      fs.writeFileSync(path.join(dir, `${label}-glass.png`), shot.toPNG());
+      const scroll = await evaluate(`new Promise((resolve) => {
+        const chat = document.getElementById('fixture-chat');
+        const max = chat.scrollHeight - chat.clientHeight;
+        const deltas = [];
+        const start = performance.now();
+        let last = start, offset = 0, direction = 1;
+        const tick = (now) => {
+          deltas.push(now - last);
+          last = now;
+          offset += direction * 24;
+          if (offset <= 0 || offset >= max) { direction = -direction; offset = Math.max(0, Math.min(max, offset)); }
+          chat.scrollTop = offset;
+          if (now - start < 2000) requestAnimationFrame(tick);
+          else {
+            const sorted = deltas.slice(1).sort((a, b) => a - b);
+            resolve({
+              frames: sorted.length,
+              over16ms: sorted.filter((d) => d > 16.7).length,
+              p95ms: Math.round((sorted[Math.max(0, Math.ceil(sorted.length * 0.95) - 1)] || 0) * 100) / 100,
+            });
+          }
+        };
+        requestAnimationFrame(tick);
+      })`);
+      fs.writeFileSync(
+        path.join(dir, `${label}-scroll.json`),
+        JSON.stringify(scroll, null, 2) + "\n",
+      );
+      console.log("Scroll benchmark:", JSON.stringify(scroll));
+    };
     try {
       await win.loadURL("https://discord.com/channels/789/123");
       let ready = false;
@@ -1610,6 +1750,15 @@ app
         await evaluate("document.getElementById('vestra-splash') === null"),
         true,
       );
+      // Opt-in baseline capture: never gates pass/fail, so a measurement failure
+      // is reported and ignored rather than failing the smoke.
+      if (process.env.VESTRA_SMOKE_ARTIFACTS === "1" && motion === "full") {
+        try {
+          await captureGlassArtifacts();
+        } catch (error) {
+          console.warn("Artifact capture skipped:", error);
+        }
+      }
       console.log(
         "PASS Electron sandbox + CSP + IPC + 11 plugins + local files + theme surfaces + editor input/scroll + settings recorder/conflicts + custom shortcuts + actions/cleanup + splash + dragging/persistence + launcher hide/restore + overlay + external-page exclusion",
       );

@@ -108,6 +108,8 @@ try {
   for (const motion of ["full", "reduced"]) {
     await fs.cp(path.join(fixture, "app-data"), path.join(fixture, "app-data-" + motion), { recursive: true });
     const env = { ...process.env, VESTRA_TEST_MOTION: motion };
+    if (process.env.VESTRA_SMOKE_ARTIFACTS === "1")
+      env.VESTRA_SMOKE_ARTIFACT_DIR = path.join(root, "scripts/.artifacts");
     delete env.ELECTRON_RUN_AS_NODE;
     const flag =
       motion === "reduced"
