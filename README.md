@@ -22,7 +22,9 @@ are planned; they are not part of this release.
 5. Pick a theme and enable the plugins you want.
 
 Desktop settings are saved under `%AppData%\Vestra\settings` for each Discord channel,
-with a last-valid backup. Clearing Discord storage does not reset your preferences.
+with a last-valid backup. Changes are saved shortly after you stop adjusting, and
+any pending change is written when Discord closes. Clearing Discord storage does
+not reset your preferences.
 
 The Manager keeps an original backup. **Uninstall** restores it while preserving
 Vestra preferences. **Repair** always reinstalls Vestra, even when the status is healthy.
@@ -104,7 +106,9 @@ remembers its own choices; **Restore original** removes the overrides. Local
 pictures are resized and embedded in your settings so moving the source file or
 restarting Discord does not lose them. Liquid Glass uses frosted translucent
 panels over a lit backdrop; it approximates glass with CSS rather than native
-iOS optical refraction.
+iOS optical refraction. The wallpaper is blurred once into an image that the
+large panes show as a fixed background, so scrolling does not re-blur it every
+frame.
 
 Open **Text & readability** for text color, glow color/strength/size and separate
 opacity controls for home pages, profiles/menus and settings. Glow starts off;
@@ -165,11 +169,15 @@ The usage table shows the default bindings.
 **Plugins → Open plugin folder** opens `%AppData%\Vestra\plugins`. Drop a built
 Vestra `.plugin.js` file there and fully restart Discord. Built-in plugins are part
 of the runtime. Local builds follow their saved toggle or `enabledByDefault`; the
-SDK builder defaults new builds to enabled.
+SDK builder defaults new builds to enabled. Plugins start in the background after
+Vestra's own interface loads. A plugin that takes longer than 15 seconds to start
+stays enabled, shows an error on its card and is retried at the next launch. A
+local or store plugin that reuses a built-in plugin's name is skipped.
 
 **Themes → Open theme folder** opens `%AppData%\Vestra\themes`. Add `.css` files,
 then click **Refresh files**. Changes to existing files preserve their selection;
-missing files keep their saved CSS and show a file-unavailable label. Import CSS copies the file into this folder
+missing files keep their saved CSS and show a file-unavailable label, and such a
+theme can be removed. Import CSS copies the file into this folder
 without overwriting an existing file. **Save file** exports a library theme there.
 Removing a file-backed theme moves its file to the system Trash.
 

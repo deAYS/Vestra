@@ -6,7 +6,7 @@ import * as os from "node:os";
 import * as realFs from "node:fs";
 import { parseStartStatus, type StartStatusFile } from "@vestra/shared";
 import { Window } from "happy-dom";
-import { isDiscordRendererUrl } from "@vestra/shared";
+import { isDiscordRendererUrl, VESTRA_NATIVE_CHANNELS } from "@vestra/shared";
 import { buildMainHookSource } from "./mainHook.js";
 import { buildPreloadSource } from "./preload.js";
 import { buildLoaderSource } from "./loader.js";
@@ -214,6 +214,10 @@ interface FixtureOptions {
   receipt?: unknown;
   discordVersion?: string;
   failRename?: boolean;
+  /** Settings file rename (tmp -> json) throws, so `writeSettings` rejects. */
+  failSettingsRename?: boolean;
+  /** Settings tmp writes wait until the test calls a function from `heldWrites`. */
+  holdSettingsWrites?: boolean;
 }
 
 function mainFixture(
@@ -224,6 +228,14 @@ function mainFixture(
     string,
     (event: unknown, args: unknown) => Promise<unknown>
   >();
+  const syncHandlers = new Map<
+    string,
+    (event: { returnValue?: unknown }, ...args: unknown[]) => void
+  >();
+  const files = new Map<string, string>();
+  const warnings: unknown[][] = [];
+  const timers: Array<{ fn: () => void; ms: number; cleared: boolean }> = [];
+  const heldWrites: Array<() => void> = [];
   const registered: unknown[] = [];
   const modernSession = {
     getPreloadScripts: () => registered,
@@ -256,6 +268,12 @@ function mainFixture(
         handler: (e: unknown, a: unknown) => Promise<unknown>,
       ) {
         handlers.set(name, handler);
+      },
+      on(
+        name: string,
+        handler: (event: { returnValue?: unknown }, ...args: unknown[]) => void,
+      ) {
+        syncHandlers.set(name, handler);
       },
     },
     shell: {
@@ -312,7 +330,22 @@ function mainFixture(
       async readdir() {
         return [];
       },
+      async writeFile(filename: string, text: string) {
+        if (opts.holdSettingsWrites && /[\\/]settings[\\/][a-z]+\.json\.tmp$/.test(filename))
+          await new Promise<void>((resolve) => heldWrites.push(resolve));
+        files.set(filename, text);
+      },
+      async rename(from: string, to: string) {
+        if (opts.failSettingsRename && /[\\/]settings[\\/][a-z]+\.json$/.test(to))
+          throw Object.assign(new Error("EPERM"), { code: "EPERM" });
+        const text = files.get(from);
+        if (text === undefined) throw Object.assign(new Error("ENOENT"), { code: "ENOENT" });
+        files.delete(from);
+        files.set(to, text);
+      },
       async readFile(filename: string) {
+        const written = files.get(filename);
+        if (written !== undefined) return written;
         if (filename.endsWith("installed.json"))
           return JSON.stringify({
             Good: { enabled: true, version: "1.0.0" },
@@ -326,8 +359,21 @@ function mainFixture(
     buildMainHookSource({ preloadPath: "/payload/vestra-preload.cjs" }),
     {
       URL,
-      console: { ...console, warn() {} },
+      Buffer,
+      console: {
+        ...console,
+        warn(...args: unknown[]) {
+          warnings.push(args);
+        },
+      },
       process: { execPath, env: {}, pid: 4242 },
+      setTimeout(fn: () => void, ms: number) {
+        timers.push({ fn, ms, cleared: false });
+        return timers.length - 1;
+      },
+      clearTimeout(id: number) {
+        if (timers[id]) timers[id]!.cleared = true;
+      },
       setImmediate(fn: () => void) {
         fn();
       },
@@ -342,6 +388,11 @@ function mainFixture(
   const frame = { url: goodUrl };
   return {
     handlers,
+    syncHandlers,
+    files,
+    warnings,
+    timers,
+    heldWrites,
     shellCalls,
     electron,
     registered,
@@ -489,6 +540,223 @@ test("bootstrap accepts a main frame whose object identity differs and rejects s
       ),
     /untrusted IPC sender: subframe/,
   );
+});
+
+/** Fake sync-IPC event: resolves once main sets `returnValue` (it may do so late). */
+function syncEvent(base: object) {
+  let settle: (value: unknown) => void = () => {};
+  const reply = new Promise<unknown>((resolve) => {
+    settle = resolve;
+  });
+  const event = Object.defineProperty({ ...base }, "returnValue", {
+    set: (value: unknown) => settle(value),
+  }) as { returnValue?: unknown };
+  return { event, reply };
+}
+
+test("settings:flush is internal, sender-checked and writes the main frame's settings before replying", async () => {
+  const { handlers, syncHandlers, files, sender } = mainFixture();
+  assert.equal(
+    (VESTRA_NATIVE_CHANNELS as readonly string[]).includes("settings:flush"),
+    false,
+  );
+  assert.equal(handlers.has("vestra:native:settings:flush"), false);
+  const flush = syncHandlers.get("vestra:native:settings:flush");
+  assert.ok(flush, "sync flush listener is registered");
+  const text = JSON.stringify({ plugins: { FocusMode: { enabled: true, settings: {} } } });
+  const settingsFile = () =>
+    [...files.entries()].find(([name]) => /[\\/]settings[\\/]canary\.json$/.test(name))?.[1];
+
+  for (const untrusted of [
+    { senderFrame: { url: goodUrl, parent: {} }, sender: sender.sender },
+    { senderFrame: { url: "https://evil.test/app" }, sender: sender.sender },
+    {},
+  ]) {
+    const { event, reply } = syncEvent(untrusted);
+    flush!(event, text);
+    assert.equal(await reply, false);
+  }
+  assert.equal(settingsFile(), undefined, "rejected senders never write");
+
+  for (const bad of ["not json", "[]", 42, undefined]) {
+    const { event, reply } = syncEvent(sender);
+    flush!(event, bad);
+    assert.equal(await reply, false);
+  }
+  assert.equal(settingsFile(), undefined);
+
+  const { event, reply } = syncEvent(sender);
+  flush!(event, text);
+  assert.equal(await reply, true);
+  assert.equal(settingsFile(), text);
+});
+
+test("settings:flush answers false after 2 s on a slow disk, once, while the write still lands", async () => {
+  const { syncHandlers, files, sender, timers, heldWrites } = mainFixture(
+    "C:/Discord/DiscordCanary.exe",
+    { holdSettingsWrites: true },
+  );
+  const flush = syncHandlers.get("vestra:native:settings:flush")!;
+  const replies: unknown[] = [];
+  const event = Object.defineProperty({ ...sender }, "returnValue", {
+    set: (value: unknown) => replies.push(value),
+  }) as { returnValue?: unknown };
+  const text = JSON.stringify({ plugins: {} });
+  flush(event, text);
+  for (let i = 0; i < 10 && heldWrites.length === 0; i++)
+    await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(heldWrites.length, 1, "the write is in progress");
+  assert.deepEqual(replies, [], "the renderer is still waiting");
+  const bound = timers.find((t) => t.ms === 2000 && !t.cleared);
+  assert.ok(bound, "a 2 s bound is armed");
+  bound!.fn();
+  assert.deepEqual(replies, [false]);
+  heldWrites[0]!();
+  for (let i = 0; i < 10; i++) await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(replies, [false], "only the first reply is sent");
+  assert.equal(
+    [...files.entries()].find(([name]) => /[\\/]settings[\\/]canary\.json$/.test(name))?.[1],
+    text,
+    "the write continues after the timeout",
+  );
+});
+
+test("settings:flush replies false and logs when the main-side write rejects", async () => {
+  const { syncHandlers, sender, warnings, timers } = mainFixture(
+    "C:/Discord/DiscordCanary.exe",
+    { failSettingsRename: true },
+  );
+  const flush = syncHandlers.get("vestra:native:settings:flush")!;
+  const { event, reply } = syncEvent(sender);
+  flush(event, JSON.stringify({ plugins: {} }));
+  assert.equal(await reply, false);
+  assert.ok(
+    warnings.some((args) => String(args[0]).includes("settings flush failed") && args[1] === "EPERM"),
+    "the failure is logged without a path",
+  );
+  assert.ok(timers.every((t) => t.ms !== 2000 || t.cleared), "the bound timer is cleared");
+});
+
+test("settings:flush survives a throwing returnValue setter without unhandled rejections", async () => {
+  const { syncHandlers, sender } = mainFixture();
+  const flush = syncHandlers.get("vestra:native:settings:flush")!;
+  const unhandled: unknown[] = [];
+  const onUnhandled = (reason: unknown) => unhandled.push(reason);
+  process.on("unhandledRejection", onUnhandled);
+  try {
+    let attempts = 0;
+    const event = Object.defineProperty({ ...sender }, "returnValue", {
+      set: () => {
+        attempts++;
+        throw new Error("fixture: renderer gone");
+      },
+    }) as { returnValue?: unknown };
+    assert.doesNotThrow(() => flush(event, JSON.stringify({ plugins: {} })));
+    for (let i = 0; i < 10 && attempts === 0; i++)
+      await new Promise((resolve) => setImmediate(resolve));
+    for (let i = 0; i < 5; i++) await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(attempts, 1, "the late reply was attempted once");
+    assert.deepEqual(unhandled, []);
+  } finally {
+    process.off("unhandledRejection", onUnhandled);
+  }
+});
+
+test("preload exposes a synchronous settings flush and wires it into the settings store", async () => {
+  const world: Record<string, unknown> = {};
+  const page = vm.createContext({ window: world, order: [], console });
+  const sent: unknown[][] = [];
+  let reply: unknown = true;
+  const native = {
+    contextBridge: {
+      exposeInMainWorld(name: string, value: unknown) {
+        world[name] = value;
+      },
+    },
+    ipcRenderer: {
+      sendSync(...args: unknown[]) {
+        sent.push(args);
+        return reply;
+      },
+      async invoke() {
+        return {
+          bundle: `window.Vestra = { Vestra: { Settings: { async connectStorage(storage) { window.storage = storage; }, load() {} }, Native: { connect() {} }, async start() {} } };`,
+          plugins: [],
+          loader: buildLoaderSource(),
+        };
+      },
+    },
+    webFrame: {
+      executeJavaScript(source: string) {
+        return Promise.resolve(vm.runInContext(source, page));
+      },
+    },
+  };
+  const host = new Window({ url: goodUrl });
+  host.document.body.innerHTML =
+    '<main id="app-mount"><div class="sidebarList_fixture"></div></main>';
+  const context = vm.createContext({
+    URL,
+    console,
+    location: { href: goodUrl },
+    process: { isMainFrame: true },
+    window: { addEventListener() {} },
+    document: host.document,
+    MutationObserver: host.MutationObserver,
+    setTimeout,
+    clearTimeout,
+    require: () => native,
+  });
+  try {
+    vm.runInContext(buildPreloadSource({ splash: false }), context);
+    for (let attempt = 0; attempt < 40 && !world["storage"]; attempt++)
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    const bridge = world["VestraNative"] as {
+      flushSettingsSync(text: unknown): boolean;
+    };
+    assert.equal(bridge.flushSettingsSync('{"a":1}'), true);
+    assert.deepEqual(sent, [["vestra:native:settings:flush", '{"a":1}']]);
+    reply = undefined;
+    assert.equal(bridge.flushSettingsSync('{"a":2}'), false, "only an explicit true counts");
+    assert.equal(bridge.flushSettingsSync(42), false);
+    assert.equal(sent.length, 2, "non-string text never reaches main");
+    reply = true;
+    const storage = world["storage"] as {
+      writeSettingsFileSync?: (text: string) => boolean;
+    };
+    assert.equal(typeof storage.writeSettingsFileSync, "function");
+    assert.equal(storage.writeSettingsFileSync!('{"b":1}'), true);
+    assert.deepEqual(sent.at(-1), ["vestra:native:settings:flush", '{"b":1}']);
+  } finally {
+    await host.happyDOM.close();
+  }
+
+  const limited = { ...world };
+  vm.runInNewContext(
+    buildPreloadSource({ splash: false, capabilities: ["app:getVersion"] }),
+    {
+      URL,
+      console,
+      location: { href: goodUrl },
+      process: { isMainFrame: true },
+      window: { addEventListener() {} },
+      document: { readyState: "loading" },
+      require: () => ({
+        ...native,
+        contextBridge: {
+          exposeInMainWorld(name: string, value: unknown) {
+            limited[name] = value;
+          },
+        },
+      }),
+    },
+  );
+  sent.length = 0;
+  assert.equal(
+    (limited["VestraNative"] as { flushSettingsSync(t: string): boolean }).flushSettingsSync("{}"),
+    false,
+  );
+  assert.equal(sent.length, 0, "hosts without settings:write never flush");
 });
 
 function tempAppData(): string {

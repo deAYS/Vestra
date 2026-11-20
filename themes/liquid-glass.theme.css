@@ -2,11 +2,14 @@
  * @name Vestra Liquid Glass
  * @author Vestra
  * @description Pearl glass, translucent floating panels and soft prismatic light.
- * @version 2.2.0
+ * @version 2.3.0
  */
 :root,body,:is(.theme-dark,.theme-darker,.theme-midnight,.theme-light,.custom-theme-background):not(.custom-user-profile-theme){
   color-scheme:dark;
   --glass-pane:linear-gradient(135deg,#ffffff1c,#ffffff06 38%,#ffffff0c);
+  --glass-blur:26px;
+  --glass-saturation:125%;
+  --vestra-glass-preview-filter:blur(26px) saturate(125%);
   --vestra-wallpaper:radial-gradient(ellipse 58vw 83vh at 70% 25%,transparent 56%,#fbe9da65 57%,#f9e4d52e 59%,transparent 65%),radial-gradient(ellipse 46vw 65vh at 8% 92%,transparent 48%,#d9c6ff40 51%,transparent 59%),radial-gradient(ellipse 42vw 58vh at 83% 10%,#e3b69d8c,transparent 83%),radial-gradient(ellipse 30vw 80vh at 4% 75%,#9b84d6b3,transparent 87%),radial-gradient(ellipse 46vw 18vh at 54% 83%,#b2dcce70,transparent 82%),radial-gradient(ellipse 30vw 50vh at 65% 40%,#d2c2ee80,transparent 85%),linear-gradient(125deg,#211e2e 2%,#5c4a67 42%,#433c48 64%,#292f37 100%);
   --glass-edge:#ffffff2d;
   --glass-shadow:inset 0 1px 0 #ffffff45,inset 1px 0 0 #ffffff14,inset 0 -1px 0 #00000028,0 12px 40px #0907112b;
@@ -137,8 +140,7 @@ html,body{background:#262132!important;}
 }
 #app-mount :is(div,main,section):has(> :is([class*="chat_"],[class*="sidebar_"],[class*="sidebarList_"],[class*="membersWrap_"])):not(.custom-user-profile-theme):not(.custom-user-profile-theme *){background:transparent!important;}
 #app-mount :is([class*="guilds_"],[class*="sidebarList_"],[class*="privateChannels_"],[class*="chat_"],[class*="membersWrap_"]):not(.custom-user-profile-theme):not(.custom-user-profile-theme *):not([data-vestra-root]){
-  background:var(--glass-pane),#16121e3d!important;
-  backdrop-filter:blur(26px) saturate(125%);
+  background:var(--glass-pane),linear-gradient(#16121e3d,#16121e3d),var(--vestra-glass-image,none) center/cover fixed!important;
   border:1px solid var(--glass-edge)!important;
   border-radius:22px!important;
   box-shadow:var(--glass-shadow)!important;
@@ -146,17 +148,19 @@ html,body{background:#262132!important;}
 }
 #app-mount [class*="guilds_"]:not(.custom-user-profile-theme *){margin:0 8px 10px 8px;border-radius:24px!important;padding-top:12px!important;box-sizing:border-box;}
 #app-mount :is([class*="sidebarList_"],[class*="privateChannels_"]):not(.custom-user-profile-theme *){margin:0 8px 8px 0;}
-#app-mount [class*="chat_"]:not(.custom-user-profile-theme):not(.custom-user-profile-theme *):not([data-vestra-root]){margin:0 10px 10px 0;background:var(--glass-pane),#16121e33!important;}
+#app-mount [class*="chat_"]:not(.custom-user-profile-theme):not(.custom-user-profile-theme *):not([data-vestra-root]){margin:0 10px 10px 0;background:var(--glass-pane),linear-gradient(#16121e33,#16121e33),var(--vestra-glass-image,none) center/cover fixed!important;}
 #app-mount :is([class*="chatContent_"],[class*="messagesWrapper_"],[class*="scrollerContent_"],[class*="members_"],[class*="member_"],[class*="nowPlayingColumn_"]):not(.custom-user-profile-theme):not(.custom-user-profile-theme *){background:transparent!important;}
 #app-mount [class*="membersWrap_"]:not(.custom-user-profile-theme *){margin:10px 10px 10px 0;border-radius:18px!important;}
 #app-mount :is([class*="subtitleContainer_"] > section,[class*="title_"][role="region"]):not(.custom-user-profile-theme *){background:linear-gradient(110deg,#ffffff14,#ffffff04)!important;border-bottom:1px solid #ffffff1c!important;box-shadow:0 1px 0 #0000000a!important;}
 #app-mount :is([class*="panels_"],[class*="channelTextArea_"]):not(.custom-user-profile-theme):not(.custom-user-profile-theme *){
-  background:linear-gradient(135deg,#ffffff26,#ffffff0b 55%,#ffffff16),#2821314d!important;
-  backdrop-filter:blur(30px) saturate(140%);
+  background:linear-gradient(135deg,#ffffff26,#ffffff0b 55%,#ffffff16),linear-gradient(#2821314d,#2821314d),var(--vestra-glass-image,none) center/cover fixed!important;
   border:1px solid #ffffff38!important;
   border-radius:22px!important;
   box-shadow:var(--glass-shadow)!important;
 }
+#app-mount :is([class*="guilds_"],[class*="sidebarList_"],[class*="privateChannels_"],[class*="chat_"],[class*="membersWrap_"],[class*="panels_"],[class*="channelTextArea_"],[class*="container_"]:has(>[class*="tabBody_"]))>*{--vestra-glass-image:none;}
+:root[data-vestra-glass="layer"] #app-mount{isolation:isolate;}
+:root[data-vestra-glass="layer"] #app-mount::before{content:"";position:fixed;inset:-52px;pointer-events:none;z-index:-1;background:var(--vestra-custom-wallpaper,var(--vestra-wallpaper));filter:blur(26px) saturate(125%);}
 #app-mount [class*="channelTextArea_"]:focus-within{border-color:#ffffff65!important;box-shadow:var(--glass-shadow),0 0 0 3px #ddcfff0c!important;}
 #app-mount :is([class*="scrollableContainer_"],[class*="form_"],[class*="themedBackground_"],[class*="typing_"]):not(.custom-user-profile-theme):not(.custom-user-profile-theme *){background:transparent!important;}
 #app-mount :is([class*="form_"],[class*="content_"])::before{display:none!important;}
@@ -171,7 +175,6 @@ html,body{background:#262132!important;}
 #app-mount :is([class*="embedFull_"],[class*="activityCard_"],[class*="activity_"],[class*="biteSize_"]):not(.custom-user-profile-theme):not(.custom-user-profile-theme *){background:#ffffff0b!important;border-radius:14px!important;box-shadow:inset 0 0 0 1px #ffffff13;}
 .vs-settings-launcher[data-theme-follow=true],.vs-launcher-menu[data-theme-follow=true],.vs-overlay-panel:has(.vs-settings-root[data-theme-follow=true]){background:linear-gradient(135deg,#ffffff23,#ffffff08),#2b2633b8!important;backdrop-filter:blur(30px) saturate(140%);border-color:#ffffff40!important;box-shadow:var(--glass-shadow),0 16px 60px #00000035!important;}
 @media(max-width:1000px){#app-mount [class*="guilds_"]{margin-left:4px;margin-right:5px;}#app-mount [class*="chat_"]{margin-right:5px;}}
-@supports not (backdrop-filter:blur(1px)){#app-mount :is([class*="chat_"],[class*="sidebarList_"],[class*="privateChannels_"],[class*="membersWrap_"],[class*="panels_"]){background:#302936ed!important;}}
 
 /* Readable glass surfaces */
 :root{
@@ -180,11 +183,11 @@ html,body{background:#262132!important;}
   --glass-settings-bg:rgb(var(--glass-settings-rgb,23 20 30) / var(--glass-settings-opacity,.96));
 }
 #app-mount :is([class*="container_"]:has(>[class*="tabBody_"]),[class*="applicationStore_"],[class*="shop_"],[class*="shopView_"],[class*="storePage_"],[class*="questHomePage_"],[class*="homePage_"]):not(.custom-user-profile-theme):not(.custom-user-profile-theme *):not([data-vestra-root]){
-  background:var(--glass-pane),var(--glass-home-bg)!important;
-  backdrop-filter:blur(var(--glass-blur,26px));
+  background:var(--glass-pane),linear-gradient(var(--glass-home-bg),var(--glass-home-bg)),var(--vestra-glass-image,none) center/cover fixed!important;
   border:1px solid var(--glass-edge)!important;border-radius:var(--glass-radius,22px)!important;
   box-shadow:var(--glass-shadow);margin:0 10px 10px 0;min-height:0;
 }
+#app-mount :is([role="dialog"],.user-profile-popout,.user-profile-modal,.user-profile-modal-v2,[class*="userPopout_"],[class*="userProfileModal_"],[class*="autocomplete_"],[class*="menu_"][role="menu"],[class*="messagesPopoutWrap_"],[class*="recentMentionsPopout_"],[class*="standardSidebarView_"],[class*="settingsModal_"],[class*="settingsLayer_"]){--vestra-glass-image:none;}
 #app-mount [class*="tabBody_"]:not(.custom-user-profile-theme):not(.custom-user-profile-theme *):not([data-vestra-root]){background:transparent!important;}
 #app-mount [class*="nowPlayingColumn_"]:not(.custom-user-profile-theme):not(.custom-user-profile-theme *):not([data-vestra-root]){background:#ffffff06!important;border-left:1px solid var(--glass-edge)!important;}
 #app-mount :is(.user-profile-popout,.user-profile-modal,.user-profile-modal-v2,.user-profile-sidebar,.user-profile-sidebar-redesign,[class*="userPopout_"],[class*="userProfileModal_"]):not(.custom-user-profile-theme):not(.custom-user-profile-theme *):not([data-vestra-root]){

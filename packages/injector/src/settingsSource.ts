@@ -9,7 +9,10 @@ export function buildSettingsSource(): string {
     if (!value || typeof value !== "object" || Array.isArray(value)) throw new SyntaxError("Settings must be a JSON object.");
     return text;
   }
+  let settingsWrite = Promise.resolve();
   async function readSettings() {
+    // A reload after a slow close flush must see that write, not the older file.
+    await settingsWrite.catch(() => {});
     let failure;
     const candidates = [settingsPath(), settingsPath() + ".bak", path.join(app.getPath("userData"), SETTINGS_FILE)];
     for (const candidate of candidates) {
@@ -22,7 +25,6 @@ export function buildSettingsSource(): string {
     if (failure) throw failure;
     return null;
   }
-  let settingsWrite = Promise.resolve();
   function writeSettings(text) {
     validSettings(text);
     const write = settingsWrite.catch(() => {}).then(async () => {

@@ -12,3 +12,4 @@ release/
 *.log
 coverage/
 *.tsbuildinfo
+scripts/.artifacts/

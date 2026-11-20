@@ -47,7 +47,9 @@ export function buildAddonsSource(): string {
   async function removeThemeFile(filename) {
     if (!validAddonName(filename, ".css")) throw new TypeError("Invalid theme filename");
     const file = path.join(await addonFolder("themes"), filename);
-    const info = await fs.promises.lstat(file);
+    let info;
+    try { info = await fs.promises.lstat(file); }
+    catch (error) { if (error && error.code === "ENOENT") return true; throw error; }
     if (!info.isFile() || info.isSymbolicLink()) throw new Error("Not a regular theme file");
     await shell.trashItem(file);
     return true;

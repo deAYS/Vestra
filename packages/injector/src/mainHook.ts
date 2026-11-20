@@ -371,6 +371,39 @@ export function buildMainHookSource(options: MainHookOptions): string {
     writeStatus("start", { ok: false, reason });
   });
 
+  // Internal (not a native capability): blocking settings flush for page close.
+  // The renderer waits in sendSync until returnValue is set, so the reply is
+  // sent after the shared write queue (same .bak rule, same ordering) settles.
+  // Every path replies exactly once: a missing reply would hang the closing
+  // page, so a slow disk gets false after SETTINGS_FLUSH_TIMEOUT_MS while the
+  // write itself still completes.
+  const SETTINGS_FLUSH_TIMEOUT_MS = 2000;
+  if (CAPABILITIES.indexOf("settings:write") !== -1) {
+    ipcMain.on(PREFIX + "settings:flush", (event, text) => {
+      let replied = false;
+      let timer;
+      function reply(value) {
+        if (replied) return;
+        replied = true;
+        try { if (timer !== undefined) clearTimeout(timer); } catch (_) {}
+        try { event.returnValue = value; } catch (_) {}
+      }
+      try {
+        if (senderRejection(event, trustedUrl) !== null || typeof text !== "string") return reply(false);
+        timer = setTimeout(() => reply(false), SETTINGS_FLUSH_TIMEOUT_MS);
+        writeSettings(text).then(
+          () => reply(true),
+          (error) => {
+            try { console.warn("[Vestra] settings flush failed:", error && error.code ? error.code : "write error"); } catch (_) {}
+            reply(false);
+          },
+        );
+      } catch (_) {
+        reply(false);
+      }
+    });
+  }
+
   // Internal: the preload reports a successful start that reused its cached
   // payload (no new bootstrap call), so the status reflects this session.
   ipcMain.handle(PREFIX + "started", async (event) => {

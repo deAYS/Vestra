@@ -28,6 +28,7 @@ import { withInstallLock } from "@vestra/installer";
 import { createRecoveryLoop } from "../src/main/recovery/loop.js";
 import {
   RecoveryNotices,
+  installedManagerTarget,
   type NoticeContent,
 } from "../src/main/recovery/notices.js";
 
@@ -975,4 +976,46 @@ test("archive changes are debounced 5 s; staged folders run at once", async () =
     f.calls.filter((call) => call.startsWith("evaluate")),
     ["evaluate:asar-changed", "evaluate:staged", "evaluate:staged"],
   );
+});
+
+async function managerHome(record?: string): Promise<string> {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "vestra-target-"));
+  if (record !== undefined)
+    await fs.writeFile(path.join(dir, "manager-installation.json"), record);
+  return dir;
+}
+
+test("failure notice launches the recorded installed Manager", async () => {
+  const dir = await managerHome();
+  const target = path.join(dir, "Vestra Manager.exe");
+  await fs.writeFile(target, "");
+  await fs.writeFile(
+    path.join(dir, "manager-installation.json"),
+    JSON.stringify({ portable: false, target }),
+  );
+  assert.equal(await installedManagerTarget(dir, "copy.exe"), target);
+});
+
+test("failure notice falls back to this process without a usable record", async () => {
+  const missingTarget = path.join(os.tmpdir(), "vestra-nope", "Manager.exe");
+  const records = [
+    undefined,
+    "not json",
+    "null",
+    JSON.stringify({ portable: false }),
+    JSON.stringify({ portable: false, target: "relative.exe" }),
+    JSON.stringify({ portable: false, target: missingTarget }),
+  ];
+  for (const record of records) {
+    const dir = await managerHome(record);
+    assert.equal(await installedManagerTarget(dir, "copy.exe"), "copy.exe");
+  }
+  const dir = await managerHome();
+  const folder = path.join(dir, "folder.exe");
+  await fs.mkdir(folder);
+  await fs.writeFile(
+    path.join(dir, "manager-installation.json"),
+    JSON.stringify({ portable: false, target: folder }),
+  );
+  assert.equal(await installedManagerTarget(dir, "copy.exe"), "copy.exe");
 });

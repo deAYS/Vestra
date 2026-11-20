@@ -97,7 +97,95 @@ export type SettingsListener = (snapshot: Readonly<VestraSettings>) => void;
 
 interface SettingsFileStorage {
   readSettingsFile(): Promise<string | undefined>;
-  writeSettingsFile(text: string): Promise<void>;
+  writeSettingsFile(text: string): Promise<unknown>;
+  /** Blocking write for page close; true only when the file was written. */
+  writeSettingsFileSync?: ((text: string) => boolean) | undefined;
+}
+
+/** Timer seam for the write debounce (tests inject a fake clock). */
+export interface SettingsTimers {
+  setTimeout(callback: () => void, ms: number): unknown;
+  clearTimeout(handle: unknown): void;
+}
+
+export interface SettingsStoreOptions {
+  timers?: SettingsTimers | undefined;
+}
+
+/** Trailing quiet period before a file write, and the longest a change may wait. */
+const WRITE_DEBOUNCE_MS = 300;
+const WRITE_MAX_WAIT_MS = 2000;
+
+const defaultTimers: SettingsTimers = {
+  setTimeout: (callback, ms) => globalThis.setTimeout(callback, ms),
+  clearTimeout: (handle) => {
+    globalThis.clearTimeout(handle as ReturnType<typeof setTimeout>);
+  },
+};
+
+const NOT_JSON = "Setting values must be JSON data";
+
+/** A Date from any realm (the internal slot check, not `instanceof`). */
+function isDate(object: object): boolean {
+  if (object instanceof Date) return true;
+  try {
+    Date.prototype.getTime.call(object);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The prototype of a plain object: null, `Object.prototype`, or another
+ * realm's `Object.prototype` (an iframe or `vm` context), recognised as a
+ * root prototype whose own `constructor` is a function named `Object`.
+ */
+function isPlainPrototype(proto: unknown): boolean {
+  if (proto === null || proto === Object.prototype) return true;
+  if (typeof proto !== "object" || Object.getPrototypeOf(proto) !== null)
+    return false;
+  const constructor: unknown = Object.getOwnPropertyDescriptor(
+    proto,
+    "constructor",
+  )?.value;
+  return typeof constructor === "function" && constructor.name === "Object";
+}
+
+/**
+ * Plugin values are stored as JSON; reject anything that would not round-trip.
+ * Plain objects, arrays and dates from other realms are accepted too.
+ */
+function assertJsonData(value: unknown, ancestors: object[]): void {
+  if (value === null || value === undefined) return;
+  switch (typeof value) {
+    case "string":
+    case "boolean":
+      return;
+    case "number":
+      if (!Number.isFinite(value)) throw new TypeError(NOT_JSON);
+      return;
+    case "object":
+      break;
+    default:
+      throw new TypeError(NOT_JSON);
+  }
+  const object = value as object;
+  if (isDate(object)) return;
+  if (ancestors.includes(object)) throw new TypeError(NOT_JSON);
+  const isArray = Array.isArray(object);
+  if (!isArray && !isPlainPrototype(Object.getPrototypeOf(object)))
+    throw new TypeError(NOT_JSON);
+  ancestors.push(object);
+  for (const item of isArray
+    ? (object as unknown[])
+    : Object.values(object as Record<string, unknown>))
+    assertJsonData(item, ancestors);
+  ancestors.pop();
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -161,6 +249,49 @@ function cloneSettings(state: VestraSettings): VestraSettings {
 interface LoadResult {
   settings: VestraSettings;
   migrated: boolean;
+}
+
+/**
+ * Validate one saved appearance field by field: invalid values fall back to
+ * their defaults. A value that is not an object at all is dropped.
+ */
+function repairCustomization(raw: unknown): {
+  customization: ThemeCustomization | undefined;
+  invalid: string[];
+} {
+  if (!isRecord(raw)) return { customization: undefined, invalid: ["appearance"] };
+  const fields: Record<string, unknown> = {};
+  const invalid: string[] = [];
+  for (const [key, schema] of Object.entries(ThemeCustomizationSchema.shape)) {
+    const checked = schema.safeParse(raw[key]);
+    if (checked.success) fields[key] = checked.data;
+    else invalid.push(key);
+  }
+  return { customization: ThemeCustomizationSchema.parse(fields), invalid };
+}
+
+/** A theme whose only problem is its appearance keeps its CSS; one warning per theme. */
+function loadTheme(
+  raw: unknown,
+  logger: ScopedLogger,
+): { theme?: Theme; repaired: boolean } {
+  const checked = ThemeSchema.safeParse(raw);
+  if (checked.success) return { theme: checked.data, repaired: false };
+  if (!isRecord(raw) || raw["customization"] === undefined)
+    return { repaired: false };
+  const { customization: rawCustomization, ...rest } = raw;
+  const base = ThemeSchema.safeParse(rest);
+  if (!base.success) return { repaired: false };
+  const { customization, invalid } = repairCustomization(rawCustomization);
+  logger.warn(
+    `Settings: theme "${base.data.name}" had invalid appearance values (${invalid.join(", ")}); ${
+      customization ? "reset them to defaults" : "removed its appearance"
+    }.`,
+  );
+  return {
+    theme: customization ? { ...base.data, customization } : base.data,
+    repaired: true,
+  };
 }
 
 /** Normalize parsed JSON into settings, salvaging valid fields and migrating legacy shapes. */
@@ -276,10 +407,11 @@ function normalizeParsed(parsed: unknown, logger: ScopedLogger): LoadResult {
   const ids = new Set<string>();
   if (Array.isArray(parsed["themes"])) {
     for (const raw of parsed["themes"].slice(0, 32)) {
-      const checked = ThemeSchema.safeParse(raw);
-      if (checked.success && !ids.has(checked.data.id)) {
-        ids.add(checked.data.id);
-        themes.push(checked.data);
+      const loaded = loadTheme(raw, logger);
+      if (loaded.repaired) migrated = true;
+      if (loaded.theme && !ids.has(loaded.theme.id)) {
+        ids.add(loaded.theme.id);
+        themes.push(loaded.theme);
       }
     }
   }
@@ -297,22 +429,68 @@ function normalizeParsed(parsed: unknown, logger: ScopedLogger): LoadResult {
 export class SettingsStore {
   private nativeStorage: SettingsFileStorage | undefined;
   private nativeRaw: string | undefined;
-  private nativeWrites: Promise<void> = Promise.resolve();
+  private nativeWrites: Promise<unknown> = Promise.resolve();
   private persistenceError: string | undefined;
+  /** True while `persistenceError` came from serialisation, not from storage access. */
+  private serializationFailed = false;
   private state: VestraSettings = cloneSettings(DEFAULT_SETTINGS);
   private readonly listeners = new Set<SettingsListener>();
   private readonly logger: ScopedLogger;
   private readonly useLocalStorage: boolean;
   private readonly memoryRaw: { raw: string | null } = { raw: null };
+  private readonly timers: SettingsTimers;
+  /**
+   * Native file writes are debounced and tracked by revision: `revision`
+   * counts changes, `confirmedRevision` is the newest one storage confirmed,
+   * `handedRevision` the newest one handed to storage (possibly in flight).
+   * Write results update the banner only when they belong to the newest
+   * write (`writeSeq`), so a late result never overrides a newer one.
+   *
+   * Retry policy: a failed write leaves the store dirty and is retried on
+   * the next change or `flush()`. There is no background retry. On page
+   * close the first listener sends a blocking flush of the current state;
+   * when that fails, the second close listener (`pagehide` after
+   * `beforeunload`) skips the same revision rather than blocking again.
+   */
+  private revision = 0;
+  private confirmedRevision = 0;
+  private handedRevision = 0;
+  private writeSeq = 0;
+  /** Revision whose blocking flush already failed; the next close listener skips it. */
+  private syncFailedRevision = -1;
+  private writeQueued = false;
+  private trailingTimer: unknown;
+  private maxWaitTimer: unknown;
+  private syncWriter: ((text: string) => boolean) | undefined;
+  private connecting: Promise<boolean> | undefined;
 
-  constructor(logger?: ScopedLogger) {
+  constructor(logger?: ScopedLogger, options?: SettingsStoreOptions) {
     this.logger = logger ?? Logger.extend("Settings");
     this.useLocalStorage = canUseLocalStorage();
+    this.timers = options?.timers ?? defaultTimers;
   }
 
-  /** Connect before plugin registration; desktop preferences live outside Discord storage. */
+  /**
+   * Connect before plugin registration; desktop preferences live outside
+   * Discord storage. Concurrent callers share the in-flight connection, so a
+   * later caller never replaces storage that is already connecting.
+   */
   async connectStorage(storage: SettingsFileStorage): Promise<boolean> {
-    if (this.nativeStorage) return true;
+    while (this.connecting) await this.connecting;
+    if (this.nativeStorage) {
+      this.adoptSyncWriter(storage);
+      return true;
+    }
+    const attempt = this.connectNow(storage);
+    this.connecting = attempt;
+    try {
+      return await attempt;
+    } finally {
+      if (this.connecting === attempt) this.connecting = undefined;
+    }
+  }
+
+  private async connectNow(storage: SettingsFileStorage): Promise<boolean> {
     try {
       const saved = await storage.readSettingsFile();
       this.nativeRaw =
@@ -320,12 +498,14 @@ export class SettingsStore {
         (this.useLocalStorage ? readRaw() : this.memoryRaw.raw) ??
         undefined;
       this.nativeStorage = storage;
+      this.adoptSyncWriter(storage);
       this.load();
       this.persist();
       await this.flush();
       return true;
     } catch (error) {
       this.nativeStorage = undefined;
+      this.syncWriter = undefined;
       this.persistenceError =
         error instanceof Error ? error.message : String(error);
       this.logger.captureError(error, "Settings.connectStorage");
@@ -334,8 +514,64 @@ export class SettingsStore {
     }
   }
 
+  /** Keep the first blocking writer offered; never drop one for a storage without it. */
+  private adoptSyncWriter(storage: SettingsFileStorage): void {
+    const writeSync = storage.writeSettingsFileSync;
+    if (this.syncWriter || typeof writeSync !== "function") return;
+    this.syncWriter = (text) => writeSync.call(storage, text);
+  }
+
+  /**
+   * Write pending changes now and wait for them. Rejects when that write
+   * fails (the banner state is set too); resolves at once when nothing is
+   * pending, even if an older write failed.
+   */
   async flush(): Promise<void> {
+    if (!this.nativeStorage || !this.isDirty()) return;
+    this.writeNow();
     await this.nativeWrites;
+  }
+
+  /**
+   * Blocking flush for page close (`beforeunload`/`pagehide`). Returns true when
+   * nothing is pending or the synchronous writer confirmed the write. A write
+   * still in flight does not count as saved, so the current snapshot is sent.
+   */
+  flushSync(): boolean {
+    this.cancelTimers();
+    if (!this.nativeStorage || !this.isDirty()) return true;
+    const writeSync = this.syncWriter;
+    if (!writeSync) {
+      // No blocking channel on this host: best effort through the async path.
+      this.writeNow();
+      return false;
+    }
+    const revision = this.revision;
+    // beforeunload and pagehide both fire on close: block at most once per state.
+    if (this.syncFailedRevision === revision) return false;
+    const seq = ++this.writeSeq;
+    let ok = false;
+    let failure: unknown;
+    try {
+      const raw = this.serializeNative();
+      this.handedRevision = Math.max(this.handedRevision, revision);
+      ok = writeSync(raw) === true;
+    } catch (error) {
+      failure = error;
+    }
+    if (ok) {
+      this.syncFailedRevision = -1;
+      this.writeSucceeded(revision, seq);
+      return true;
+    }
+    this.syncFailedRevision = revision;
+    this.writeFailed(
+      revision,
+      seq,
+      failure ?? new Error("Preferences could not be saved to disk."),
+      "Settings.flushSync",
+    );
+    return false;
   }
 
   getPersistenceStatus(): {
@@ -354,6 +590,14 @@ export class SettingsStore {
 
   /** Load persisted state into memory. Never throws; corrupt data resets with a log. */
   load(): void {
+    // Unsaved changes are part of the persisted state; never roll them back.
+    if (this.nativeStorage && this.isDirty()) {
+      try {
+        this.serializeNative();
+      } catch (err: unknown) {
+        this.logger.captureError(err, "Settings.load");
+      }
+    }
     const raw = this.nativeStorage
       ? this.nativeRaw
       : this.useLocalStorage
@@ -416,6 +660,7 @@ export class SettingsStore {
   }
 
   setPluginSettings(name: string, settings: Record<string, unknown>): void {
+    assertJsonData(settings, []);
     const prev = this.state.plugins[name];
     this.state.plugins[name] = {
       enabled: prev?.enabled ?? false,
@@ -429,7 +674,9 @@ export class SettingsStore {
     return this.state.plugins[name]?.settings[key];
   }
 
+  /** Throws TypeError when `value` is not JSON data (functions, BigInt, cycles, class instances…). */
   setPluginSetting(name: string, key: string, value: unknown): void {
+    assertJsonData(value, []);
     const prev = this.state.plugins[name];
     this.state.plugins[name] = {
       enabled: prev?.enabled ?? false,
@@ -528,41 +775,26 @@ export class SettingsStore {
     };
   }
 
+  /**
+   * Record a change. Desktop files are written once per burst (300 ms quiet,
+   * 2 s max wait) and serialised only at write time; browser and memory
+   * storage stay synchronous because `load()` reads them straight back.
+   */
   private persist(): void {
+    if (this.nativeStorage) {
+      this.revision++;
+      this.scheduleWrite();
+      return;
+    }
+    let raw: string;
     try {
-      // Desktop files can hold the bounded library and its last working CSS.
-      // Browser storage stays small; local files are refreshed when available.
-      const raw = JSON.stringify({
-        ...this.state,
-        themes: this.state.themes.map((theme) =>
-          theme.sourceFile && !this.nativeStorage
-            ? { ...theme, css: "" }
-            : theme,
-        ),
-      });
-      if (this.nativeStorage) {
-        this.nativeRaw = raw;
-        const storage = this.nativeStorage;
-        this.nativeWrites = this.nativeWrites
-          .catch(() => {})
-          .then(() => storage.writeSettingsFile(raw));
-        void this.nativeWrites.then(
-          () => {
-            if (this.persistenceError) {
-              this.persistenceError = undefined;
-              this.emit();
-            }
-          },
-          (error) => {
-            this.persistenceError =
-              error instanceof Error ? error.message : String(error);
-            this.logger.captureError(error, "Settings.saveFile");
-            this.emit();
-          },
-        );
-        this.memoryRaw.raw = raw;
-        return;
-      }
+      raw = this.serialize();
+    } catch (err: unknown) {
+      this.logger.captureError(err, "Settings.save");
+      this.setPersistenceError(errorMessage(err), true);
+      return;
+    }
+    try {
       if (this.useLocalStorage) {
         writeRaw(raw);
       } else {
@@ -570,7 +802,114 @@ export class SettingsStore {
       }
     } catch (err: unknown) {
       this.logger.captureError(err, "Settings.save");
+      return;
     }
+    if (this.serializationFailed) this.setPersistenceError(undefined);
+  }
+
+  private serialize(): string {
+    // Desktop files can hold the bounded library and its last working CSS.
+    // Browser storage stays small; local files are refreshed when available.
+    return JSON.stringify({
+      ...this.state,
+      themes: this.state.themes.map((theme) =>
+        theme.sourceFile && !this.nativeStorage
+          ? { ...theme, css: "" }
+          : theme,
+      ),
+    });
+  }
+
+  private serializeNative(): string {
+    const raw = this.serialize();
+    this.nativeRaw = raw;
+    this.memoryRaw.raw = raw;
+    return raw;
+  }
+
+  /** Unsaved until storage confirms it; an in-flight write still counts as dirty. */
+  private isDirty(): boolean {
+    return this.revision !== this.confirmedRevision;
+  }
+
+  /** Dirty and not already handed to storage by a write that may still succeed. */
+  private needsWrite(): boolean {
+    return this.isDirty() && this.revision !== this.handedRevision;
+  }
+
+  private scheduleWrite(): void {
+    this.timers.clearTimeout(this.trailingTimer);
+    this.trailingTimer = this.timers.setTimeout(() => {
+      this.writeNow();
+    }, WRITE_DEBOUNCE_MS);
+    if (this.maxWaitTimer === undefined)
+      this.maxWaitTimer = this.timers.setTimeout(() => {
+        this.writeNow();
+      }, WRITE_MAX_WAIT_MS);
+  }
+
+  private cancelTimers(): void {
+    if (this.trailingTimer !== undefined)
+      this.timers.clearTimeout(this.trailingTimer);
+    if (this.maxWaitTimer !== undefined)
+      this.timers.clearTimeout(this.maxWaitTimer);
+    this.trailingTimer = undefined;
+    this.maxWaitTimer = undefined;
+  }
+
+  /** Queue one file write; it serialises the latest state when its turn comes. */
+  private writeNow(): void {
+    this.cancelTimers();
+    const storage = this.nativeStorage;
+    if (!storage || !this.needsWrite() || this.writeQueued) return;
+    this.writeQueued = true;
+    const write = this.nativeWrites
+      .catch(() => {})
+      .then(async () => {
+        this.writeQueued = false;
+        if (this.nativeStorage !== storage || !this.needsWrite()) return;
+        const revision = this.revision;
+        const seq = ++this.writeSeq;
+        this.handedRevision = revision;
+        try {
+          await storage.writeSettingsFile(this.serializeNative());
+        } catch (error) {
+          this.writeFailed(revision, seq, error, "Settings.saveFile");
+          throw error;
+        }
+        this.writeSucceeded(revision, seq);
+      });
+    this.nativeWrites = write;
+    // Failures are reported by writeFailed; flush() callers still see the rejection.
+    write.catch(() => {});
+  }
+
+  private writeSucceeded(revision: number, seq: number): void {
+    if (revision > this.confirmedRevision) this.confirmedRevision = revision;
+    if (seq === this.writeSeq) this.setPersistenceError(undefined);
+  }
+
+  private writeFailed(
+    revision: number,
+    seq: number,
+    error: unknown,
+    context: string,
+  ): void {
+    this.logger.captureError(error, context);
+    // Not saved: the next change, flush() or close may hand it over again.
+    if (this.handedRevision === revision)
+      this.handedRevision = this.confirmedRevision;
+    if (seq === this.writeSeq) this.setPersistenceError(errorMessage(error));
+  }
+
+  private setPersistenceError(
+    error: string | undefined,
+    fromSerialization = false,
+  ): void {
+    this.serializationFailed = error !== undefined && fromSerialization;
+    if (this.persistenceError === error) return;
+    this.persistenceError = error;
+    this.emit();
   }
 
   private emit(): void {

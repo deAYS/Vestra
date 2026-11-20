@@ -3,6 +3,7 @@ import {
   applyThemePreset,
   importTheme,
   refreshLocalThemes,
+  removeTheme,
   THEME_LIBRARY,
 } from "../themes.js";
 import { Native } from "../api/native.js";
@@ -14,7 +15,7 @@ import { Icon } from "./Brand.js";
 import type { PageProps } from "./types.js";
 import { ThemePeek } from "./ThemePeek.js";
 import { ThemeCustomizer } from "./ThemeCustomizer.js";
-import { customizedThemeCss } from "../themeCustomization.js";
+import { themePreviewCss } from "../themeCustomization.js";
 import {
   importThemePackage,
   downloadThemePackage,
@@ -88,10 +89,7 @@ export function ThemesPage({ settings }: PageProps): JSX.Element {
   const remove = async (theme: Theme): Promise<void> => {
     setPending(true);
     try {
-      if (theme.sourceFile) await Native.removeThemeFile(theme.sourceFile);
-      settings.setThemes(
-        settings.getThemes().filter((entry) => entry.id !== theme.id),
-      );
+      await removeTheme(settings, theme);
       setError("");
     } catch (problem) {
       setError(problem instanceof Error ? problem.message : String(problem));
@@ -326,7 +324,7 @@ export function ThemesPage({ settings }: PageProps): JSX.Element {
                 : "Ready to apply"}
             </p>
           </div>
-          <ThemePeek name={theme.name} css={customizedThemeCss(theme)} />
+          <ThemePeek name={theme.name} css={themePreviewCss(theme)} />
           <button
             type="button"
             disabled={pending}

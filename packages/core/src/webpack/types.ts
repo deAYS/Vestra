@@ -15,7 +15,10 @@ export type RequireSource = () => unknown;
 export interface WaitForOptions {
   /** Resolve undefined after this long without a match. Default 10_000. */
   timeoutMs?: number;
-  /** Rescan interval. Default 50. */
+  /**
+   * Validated (> 0) for compatibility. Waiters re-check when webpack registers
+   * modules, with a shared fallback check every 250 ms, instead of polling.
+   */
   intervalMs?: number;
   /** Abort early (resolves undefined). */
   signal?: AbortSignal;

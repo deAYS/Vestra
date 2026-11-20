@@ -111,6 +111,152 @@ app
       }
       assert.fail(label);
     };
+    // Reproducible Liquid Glass capture: a generated local wallpaper (no network),
+    // a tall scrollable chat, a screenshot and a 2 s requestAnimationFrame scroll run.
+    const captureGlassArtifacts = async () => {
+      const fs = require("node:fs");
+      const zlib = require("node:zlib");
+      const dir = process.env.VESTRA_SMOKE_ARTIFACT_DIR;
+      assert.ok(dir, "VESTRA_SMOKE_ARTIFACT_DIR is set by smoke-electron.mjs");
+      fs.mkdirSync(dir, { recursive: true });
+      const label = (process.env.VESTRA_SMOKE_LABEL || "run").replace(
+        /[^\w.-]/g,
+        "_",
+      );
+      const png = (width, height) => {
+        const crcTable = Array.from({ length: 256 }, (_, n) => {
+          let c = n;
+          for (let k = 0; k < 8; k++)
+            c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+          return c >>> 0;
+        });
+        const crc = (buffer) => {
+          let c = 0xffffffff;
+          for (const byte of buffer) c = crcTable[(c ^ byte) & 255] ^ (c >>> 8);
+          return (c ^ 0xffffffff) >>> 0;
+        };
+        const chunk = (type, data) => {
+          const body = Buffer.concat([Buffer.from(type), data]);
+          const out = Buffer.alloc(body.length + 8);
+          out.writeUInt32BE(data.length, 0);
+          body.copy(out, 4);
+          out.writeUInt32BE(crc(body), body.length + 4);
+          return out;
+        };
+        const header = Buffer.alloc(13);
+        header.writeUInt32BE(width, 0);
+        header.writeUInt32BE(height, 4);
+        header[8] = 8;
+        header[9] = 2;
+        const raw = Buffer.alloc((width * 3 + 1) * height);
+        for (let y = 0; y < height; y++) {
+          const row = y * (width * 3 + 1);
+          for (let x = 0; x < width; x++) {
+            const wave = Math.sin(x / 19) * Math.cos(y / 23);
+            raw[row + 1 + x * 3] = 90 + (x / width) * 120 + wave * 30;
+            raw[row + 2 + x * 3] = 60 + (y / height) * 110 - wave * 30;
+            raw[row + 3 + x * 3] = 150 + ((x + y) / (width + height)) * 90;
+          }
+        }
+        return Buffer.concat([
+          Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]),
+          chunk("IHDR", header),
+          chunk("IDAT", zlib.deflateSync(raw)),
+          chunk("IEND", Buffer.alloc(0)),
+        ]);
+      };
+      const wallpaper =
+        "data:image/png;base64," + png(384, 216).toString("base64");
+      await win.loadURL("https://discord.com/channels/789/123");
+      await waitFor(
+        "Boolean(window.Vestra && window.Vestra.started)",
+        "runtime boots for artifact capture",
+      );
+      win.setSize(1280, 800);
+      // The bootstrap splash covers the page until startup completes; the
+      // capture must show the themed UI, so drop it if it lingers.
+      await waitFor(
+        "document.getElementById('vestra-splash') === null",
+        "splash exits",
+      ).catch(() => evaluate("document.getElementById('vestra-splash')?.remove()"));
+      await page(
+        (preset, wallpaper) => {
+          const v = window.Vestra;
+          v.Settings.setThemes([
+            {
+              id: "glass",
+              name: preset.name,
+              author: "Vestra",
+              css: preset.css,
+              enabled: true,
+            },
+          ]);
+          v.Settings.setThemeCustomization("glass", {
+            surfaceOverrides: true,
+            backgroundImage: wallpaper,
+            blur: 26,
+            opacity: 68,
+            saturation: 140,
+            brightness: 100,
+          });
+          const style = document.createElement("style");
+          style.textContent =
+            "html,body{height:100%;overflow:hidden}#app-mount{position:fixed;inset:0;display:flex;gap:12px;padding:12px;box-sizing:border-box}#app-mount>:not(#fixture-chat):not(#fixture-side):not(#fixture-rail){display:none!important}#fixture-rail{width:72px}#fixture-side{width:240px}#fixture-chat{flex:1;overflow:auto;padding:16px;box-sizing:border-box;color:#eee;font:14px sans-serif}.fixture-msg{padding:10px 0}";
+          document.head.append(style);
+          const chat = document.getElementById("fixture-chat");
+          chat.textContent = "";
+          for (let i = 0; i < 400; i++) {
+            const row = document.createElement("div");
+            row.className = "fixture-msg";
+            row.textContent =
+              "Message " +
+              i +
+              " lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor.";
+            chat.append(row);
+          }
+        },
+        presets.find((preset) => preset.name === "Vestra Liquid Glass"),
+        wallpaper,
+      );
+      // Before the pre-blurred wallpaper (Liquid Glass 2.2.0) there is no
+      // mode to wait for; afterwards the image must be ready before capture.
+      await waitFor(
+        "document.documentElement.dataset.vestraGlass === 'image' || !document.querySelector('style[data-vestra-style=theme-glass]')?.textContent.includes('--vestra-glass-image')",
+        "the glass wallpaper is ready for capture",
+      );
+      await pause(500);
+      const shot = await win.webContents.capturePage();
+      fs.writeFileSync(path.join(dir, `${label}-glass.png`), shot.toPNG());
+      const scroll = await evaluate(`new Promise((resolve) => {
+        const chat = document.getElementById('fixture-chat');
+        const max = chat.scrollHeight - chat.clientHeight;
+        const deltas = [];
+        const start = performance.now();
+        let last = start, offset = 0, direction = 1;
+        const tick = (now) => {
+          deltas.push(now - last);
+          last = now;
+          offset += direction * 24;
+          if (offset <= 0 || offset >= max) { direction = -direction; offset = Math.max(0, Math.min(max, offset)); }
+          chat.scrollTop = offset;
+          if (now - start < 2000) requestAnimationFrame(tick);
+          else {
+            const sorted = deltas.slice(1).sort((a, b) => a - b);
+            resolve({
+              frames: sorted.length,
+              over16ms: sorted.filter((d) => d > 16.7).length,
+              p95ms: Math.round((sorted[Math.max(0, Math.ceil(sorted.length * 0.95) - 1)] || 0) * 100) / 100,
+            });
+          }
+        };
+        requestAnimationFrame(tick);
+      })`);
+      fs.writeFileSync(
+        path.join(dir, `${label}-scroll.json`),
+        JSON.stringify(scroll, null, 2) + "\n",
+      );
+      console.log("Scroll benchmark:", JSON.stringify(scroll));
+    };
     try {
       await win.loadURL("https://discord.com/channels/789/123");
       let ready = false;
@@ -125,6 +271,11 @@ app
         ready,
         true,
         "runtime booted inside sandbox with strict CSP",
+      );
+      // start() resolves once the UI is up; enabled plugins boot right after.
+      await waitFor(
+        "window.Vestra.Styles.has('ExamplePlugin') && window.Vestra.Styles.has('LocalFolderFixture')",
+        "enabled plugins finish booting in the background",
       );
       const result = await evaluate(`(async () => {
       const v = window.Vestra;
@@ -570,17 +721,25 @@ app
           ]),
         presets.find((preset) => preset.name === "Vestra Liquid Glass"),
       );
-      const glassSurface = await evaluate(
-        `(() => {const style=getComputedStyle(document.getElementById('fixture-chat'));return {color:style.backgroundColor,blur:style.backdropFilter,wallpaper:getComputedStyle(document.getElementById('app-mount')).backgroundImage}})()`,
+      await waitFor(
+        "document.documentElement.dataset.vestraGlass === 'image'",
+        "the shipped Glass gradient is blurred once into an image",
       );
-      assert.equal(
-        glassSurface.color,
-        "rgba(22, 18, 30, 0.2)",
-        "Glass main surfaces are translucent, not a solid navy palette",
+      const glassSurface = await evaluate(
+        `(() => {const style=getComputedStyle(document.getElementById('fixture-chat'));return {image:style.backgroundImage,blur:style.backdropFilter,wallpaper:getComputedStyle(document.getElementById('app-mount')).backgroundImage}})()`,
       );
       assert.ok(
-        glassSurface.blur.includes("26px"),
-        "Glass uses actual backdrop blur",
+        glassSurface.image.includes("linear-gradient(rgba(22, 18, 30, 0.2), rgba(22, 18, 30, 0.2))"),
+        `Glass main surfaces are translucent tints, not a solid navy palette: ${glassSurface.image}`,
+      );
+      assert.equal(
+        glassSurface.blur,
+        "none",
+        "large Glass panes have no live backdrop blur",
+      );
+      assert.ok(
+        /url\("data:image\/(webp|jpeg);base64,/.test(glassSurface.image),
+        "large Glass panes show the pre-blurred wallpaper",
       );
       assert.ok(
         glassSurface.wallpaper.includes("radial-gradient"),
@@ -610,13 +769,16 @@ app
       ]) {
         assert.equal(
           await page(
-            (selector) =>
-              getComputedStyle(document.querySelector(selector))
-                .backgroundColor,
+            (selector) => {
+              const style = getComputedStyle(document.querySelector(selector));
+              return style.backgroundImage.includes("rgba(22, 18, 30, 0.55)")
+                ? style.backdropFilter
+                : style.backgroundImage;
+            },
             selector,
           ),
-          "rgba(22, 18, 30, 0.55)",
-          "Home routes get a separate backing panel",
+          "none",
+          "Home routes get a separate backing panel without a live blur",
         );
       }
       assert.equal(
@@ -806,11 +968,12 @@ app
         );
       }
       win.setBounds(appearanceBounds);
-      assert.equal(
-        await evaluate(
-          "getComputedStyle(document.getElementById('fixture-chat')).backgroundColor",
-        ),
-        "rgba(22, 18, 30, 0.2)",
+      assert.ok(
+        (
+          await evaluate(
+            "getComputedStyle(document.getElementById('fixture-chat')).backgroundImage",
+          )
+        ).includes("rgba(22, 18, 30, 0.2)"),
         "dragging stays a preview until Apply",
       );
       await evaluate(
@@ -824,19 +987,45 @@ app
         "document.querySelector('.vs-theme-customizer footer')?.textContent.includes('Appearance saved')",
         "saved feedback waits for disk confirmation",
       );
-      assert.equal(
-        await evaluate(
-          "getComputedStyle(document.getElementById('fixture-chat')).backgroundColor",
-        ),
-        "rgba(22, 18, 30, 0.68)",
+      await waitFor(
+        "document.documentElement.dataset.vestraGlass === 'image'",
+        "the chosen backdrop is blurred once into an image",
+      );
+      const customizedPane = await evaluate(
+        "(() => {const style=getComputedStyle(document.getElementById('fixture-chat'));return {image:style.backgroundImage,attachment:style.backgroundAttachment,blur:style.backdropFilter,popout:getComputedStyle(document.getElementById('plain-profile')).backdropFilter,preview:getComputedStyle(document.querySelector('.vs-appearance-preview iframe').contentDocument.querySelector('.chat_preview')).backdropFilter}})()",
+      );
+      assert.ok(
+        customizedPane.image.includes("rgba(22, 18, 30, 0.68)"),
         "opacity changes the actual main surface",
       );
-      assert.equal(
+      assert.ok(
+        /url\("data:image\/(webp|jpeg);base64,/.test(customizedPane.image) &&
+          customizedPane.attachment.split(", ").at(-1) === "fixed",
+        `the main surface shows the pre-blurred backdrop fixed to the window: ${customizedPane.attachment}`,
+      );
+      assert.equal(customizedPane.blur, "none", "no live blur on the main surface");
+      assert.deepEqual(
         await evaluate(
-          "getComputedStyle(document.getElementById('fixture-chat')).backdropFilter",
+          "[document.documentElement.style.getPropertyValue('--vestra-glass-image'), getComputedStyle(document.documentElement).getPropertyValue('--vestra-glass-image').trim().startsWith('url(')]",
         ),
-        "blur(14px)",
-        "blur changes the actual main surface",
+        ["", true],
+        "the blurred image lives in an adopted stylesheet, not <html>'s inline style",
+      );
+      assert.equal(customizedPane.popout, "blur(14px)", "blur still applies to popouts");
+      assert.equal(customizedPane.preview, "blur(14px)", "the appearance preview shows the blur");
+      const nestedPane = await evaluate(
+        "(() => {document.getElementById('fixture-chat').insertAdjacentHTML('beforeend','<div id=\"fixture-nested\" class=\"channelTextArea_fixture\">Message</div>');const image=getComputedStyle(document.getElementById('fixture-nested')).backgroundImage;document.getElementById('fixture-nested').remove();return image})()",
+      );
+      assert.ok(
+        !nestedPane.includes("url(") && nestedPane.includes("rgba(22, 18, 30, 0.68)"),
+        `a pane inside a pane tints over its parent instead of repainting the image: ${nestedPane}`,
+      );
+      const popoutPane = await evaluate(
+        "(() => {document.getElementById('plain-profile').insertAdjacentHTML('beforeend','<div id=\"fixture-popout-input\" class=\"channelTextArea_fixture\">Message</div>');const image=getComputedStyle(document.getElementById('fixture-popout-input')).backgroundImage;document.getElementById('fixture-popout-input').remove();return image})()",
+      );
+      assert.ok(
+        !popoutPane.includes("url("),
+        `a pane class inside a popout does not paint the wallpaper image: ${popoutPane}`,
       );
       assert.equal(
         await evaluate(
@@ -959,17 +1148,93 @@ app
         "window.Vestra.Settings.getThemes().some(theme=>theme.id!=='glass'&&theme.customization?.opacity===68&&!theme.enabled)",
         "a shared theme imports with its appearance and does not replace the active one",
       );
+      // The fixture's own settings file (appData is the fixture folder; the
+      // hook was loaded as Discord.exe, so the channel is stable).
+      const settingsFile = path.join(
+        app.getPath("appData"),
+        "Vestra",
+        "settings",
+        "stable.json",
+      );
+      const savedSetting = (key) => {
+        try {
+          const saved = JSON.parse(
+            require("node:fs").readFileSync(settingsFile, "utf8"),
+          );
+          return saved?.plugins?.Vestra?.settings?.[key];
+        } catch {
+          return undefined;
+        }
+      };
       await evaluate("window.Vestra.Settings.flush()");
-      await win.loadURL("https://discord.com/channels/789/123");
+      assert.equal(
+        await evaluate(
+          "window.Vestra.Settings.setPluginSetting('Vestra','smokeSyncFlush',1);window.Vestra.Settings.flushSync()",
+        ),
+        true,
+        "the blocking settings flush reaches the main process and is confirmed",
+      );
+      assert.equal(
+        savedSetting("smokeSyncFlush"),
+        1,
+        "the blocking flush is in the settings file",
+      );
+      // No flush: the page-close listener must write this before the reload.
+      // The page navigates well within the 300 ms debounce, so only
+      // beforeunload/pagehide -> flushSettingsSync -> the sender-checked sync
+      // IPC -> the main-process write can put the value on disk.
+      await evaluate(
+        "window.Vestra.Settings.setPluginSetting('Vestra','smokeCloseFlush',2);window.__fixtureSetAt=performance.now();true",
+      );
+      assert.equal(
+        savedSetting("smokeCloseFlush"),
+        undefined,
+        "the change is not on disk before the page closes",
+      );
+      const reloaded = new Promise((resolve) =>
+        win.webContents.once("did-finish-load", resolve),
+      );
+      const closeAfterMs = await evaluate(
+        "(() => {const elapsed=performance.now()-window.__fixtureSetAt;setTimeout(()=>{location.href='https://discord.com/channels/789/123'},0);return elapsed})()",
+      );
+      assert.ok(
+        closeAfterMs < 250,
+        `the page closes within the debounce (${Math.round(closeAfterMs)} ms after the change)`,
+      );
+      await reloaded;
       await waitFor(
         "Boolean(window.Vestra?.started) && document.getElementById('vestra-splash') === null",
         "customized Glass restores in a new renderer",
       );
+      // The new renderer rewrites the file on connect; poll past that write.
+      const closeFlushDeadline = Date.now() + 6000;
+      while (
+        savedSetting("smokeCloseFlush") !== 2 &&
+        Date.now() < closeFlushDeadline
+      )
+        await pause(50);
       assert.equal(
+        savedSetting("smokeCloseFlush"),
+        2,
+        "the page-close flush wrote the change to the settings file",
+      );
+      assert.deepEqual(
         await evaluate(
-          "getComputedStyle(document.getElementById('fixture-chat')).backgroundColor",
+          "[window.Vestra.Settings.getPluginSetting('Vestra','smokeSyncFlush'),window.Vestra.Settings.getPluginSetting('Vestra','smokeCloseFlush')]",
         ),
-        "rgba(22, 18, 30, 0.68)",
+        [1, 2],
+        "settings changed right before a reload survive it",
+      );
+      await waitFor(
+        "document.documentElement.dataset.vestraGlass === 'image'",
+        "the blurred backdrop is rendered again after a restart",
+      );
+      assert.ok(
+        (
+          await evaluate(
+            "getComputedStyle(document.getElementById('fixture-chat')).backgroundImage",
+          )
+        ).includes("rgba(22, 18, 30, 0.68)"),
         "appearance survives a renderer restart",
       );
       assert.ok(
@@ -983,14 +1248,22 @@ app
       await evaluate(
         "window.Vestra.Settings.setThemeCustomization('glass',undefined)",
       );
-      assert.equal(
-        await evaluate(
-          "getComputedStyle(document.getElementById('fixture-chat')).backgroundColor",
-        ),
-        "rgba(22, 18, 30, 0.2)",
+      assert.ok(
+        (
+          await evaluate(
+            "getComputedStyle(document.getElementById('fixture-chat')).backgroundImage",
+          )
+        ).includes("rgba(22, 18, 30, 0.2)"),
         "Restore original returns to the authored Glass theme",
       );
       await evaluate("window.Vestra.Settings.setThemes([])");
+      assert.deepEqual(
+        await evaluate(
+          "[document.documentElement.dataset.vestraGlass ?? null, getComputedStyle(document.documentElement).getPropertyValue('--vestra-glass-image').trim(), document.adoptedStyleSheets.length]",
+        ),
+        [null, "", 0],
+        "disabling the theme removes the blurred backdrop",
+      );
 
       await page(async (names) => {
         document
@@ -1014,15 +1287,20 @@ app
             ]),
           preset,
         );
+        if (preset.name === "Vestra Liquid Glass")
+          await waitFor(
+            "document.documentElement.dataset.vestraGlass === 'image'",
+            "the Glass wallpaper is rendered before comparing surfaces",
+          );
         const nativeColor = await evaluate(
-          "getComputedStyle(document.getElementById('fixture-chat')).backgroundColor",
+          "(s=>s.backgroundColor+' '+s.backgroundImage)(getComputedStyle(document.getElementById('fixture-chat')))",
         );
         await evaluate(
           "window.Vestra.Settings.setThemeCustomization('review',{surfaceOverrides:false,textColor:'#e8e3ff',glowStrength:35})",
         );
         assert.equal(
           await evaluate(
-            "getComputedStyle(document.getElementById('fixture-chat')).backgroundColor",
+            "(s=>s.backgroundColor+' '+s.backgroundImage)(getComputedStyle(document.getElementById('fixture-chat')))",
           ),
           nativeColor,
           `${preset.name} keeps its palette when only text effects change`,
@@ -1610,6 +1888,15 @@ app
         await evaluate("document.getElementById('vestra-splash') === null"),
         true,
       );
+      // Opt-in baseline capture: never gates pass/fail, so a measurement failure
+      // is reported and ignored rather than failing the smoke.
+      if (process.env.VESTRA_SMOKE_ARTIFACTS === "1" && motion === "full") {
+        try {
+          await captureGlassArtifacts();
+        } catch (error) {
+          console.warn("Artifact capture skipped:", error);
+        }
+      }
       console.log(
         "PASS Electron sandbox + CSP + IPC + 11 plugins + local files + theme surfaces + editor input/scroll + settings recorder/conflicts + custom shortcuts + actions/cleanup + splash + dragging/persistence + launcher hide/restore + overlay + external-page exclusion",
       );

@@ -62,6 +62,11 @@ export function buildPreloadSource(options?: PreloadOptions): string {
     invoke(channel, args) {
       if (!trusted(location.href) || capabilities.indexOf(channel) === -1) return Promise.reject(new Error("Native channel denied"));
       return ipcRenderer.invoke(prefix + channel, Array.isArray(args) ? args : []);
+    },
+    // Blocking write used only when the page closes; true once main wrote the file.
+    flushSettingsSync(text) {
+      if (!trusted(location.href) || capabilities.indexOf("settings:write") === -1 || typeof text !== "string") return false;
+      try { return ipcRenderer.sendSync(prefix + "settings:flush", text) === true; } catch (_) { return false; }
     }
   });
   let splash;
@@ -122,7 +127,7 @@ export function buildPreloadSource(options?: PreloadOptions): string {
       await webFrame.executeJavaScript("if(window[Symbol.for('vestra.sessionRuntime')])window.Vestra=window[Symbol.for('vestra.sessionRuntime')];void 0;");
       // Execute explicitly in the page world. DOM script tags are blocked by CSP.
       if (!initialized) {
-        await webFrame.executeJavaScript(payload.bundle + "\\n;window.Vestra = window.Vestra.Vestra || window.Vestra.default || window.Vestra; (async () => { await window.Vestra.Settings.connectStorage({readSettingsFile:()=>window.VestraNative.invoke('settings:read',[]).then(value=>value??undefined),writeSettingsFile:text=>window.VestraNative.invoke('settings:write',[text])}); window.Vestra.Settings.load(); })();\\n//# sourceURL=vestra.js");
+        await webFrame.executeJavaScript(payload.bundle + "\\n;window.Vestra = window.Vestra.Vestra || window.Vestra.default || window.Vestra; (async () => { await window.Vestra.Settings.connectStorage({readSettingsFile:()=>window.VestraNative.invoke('settings:read',[]).then(value=>value??undefined),writeSettingsFile:text=>window.VestraNative.invoke('settings:write',[text]),writeSettingsFileSync:text=>window.VestraNative.flushSettingsSync(text)}); window.Vestra.Settings.load(); })();\\n//# sourceURL=vestra.js");
         initialized = true;
       }
       for (const plugin of payload.plugins || []) {

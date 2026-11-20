@@ -192,3 +192,34 @@ launch.
 
 Recovery is an enabled, visible Manager setting rather than a guarantee against
 future Discord changes. It does not stop Discord updates or download remote code.
+
+## Runtime speed
+
+Glass themes (Liquid Glass 2.3.0 and customized themes) no longer apply a live
+`backdrop-filter` to large panes, which re-blurred the wallpaper on every
+scrolled frame. The wallpaper is blurred once into an image, with the
+customization's blur, saturation and brightness baked in (half resolution when
+blur is 8 px or more), and painted as the panes' fixed background. It is
+re-rendered after a resize or zoom settles. Gaps between panes keep the sharp
+wallpaper; small popouts and menus keep live blur.
+
+Fallbacks, in order: one fixed blurred layer when the image cannot be read
+(a cross-origin image without CORS), cannot be drawn at all (a wallpaper built
+from CSS variables, or an image laid out other than `center/cover`), or when a
+pane ancestor is transformed; a plain tint when there is nothing to blur (a flat
+colour, or no blur). The renderer logs
+`[Vestra] glass mode: <image|layer|tint> (<reason>)`. Liquid Glass 2.2.0 upgrades
+automatically and customizations are kept. These are fixture checks, not a
+logged-in Discord validation.
+
+Settings are saved once changes stop (after 300 ms, at most every 2 s while they
+keep changing) and flushed synchronously when Discord closes, bounded to 2 s.
+Plugin settings must be JSON data, and one invalid customization value resets
+only that value. Theme styles are rebuilt only when theme inputs change, and
+Vestra's style blocks move only when Discord's styles were added after them.
+
+Vestra's own interface loads before plugins, which start in the background. A
+plugin start is limited to 15 s: the plugin stays enabled, is retried at the next
+launch and shows the error on its card. A store or local plugin named like a
+built-in plugin is skipped with a console warning. Webpack lookups are cached and
+module waits wake on registration, with a 250 ms fallback check.

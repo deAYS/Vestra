@@ -7,6 +7,25 @@ import { Logger, type ScopedLogger } from "./api/logger.js";
 import { patcher as sharedPatcher, type Patcher } from "./api/patcher.js";
 import { Settings, type SettingsStore } from "./api/settings.js";
 
+/** A plugin whose start() takes longer than this is skipped for this launch. */
+export const PLUGIN_START_TIMEOUT_MS = 15000;
+export const PLUGIN_START_TIMEOUT_MESSAGE = "Plugin took too long to start";
+
+export interface PluginManagerTimers {
+  setTimeout(fn: () => void, ms: number): unknown;
+  clearTimeout(id: unknown): void;
+}
+
+export interface PluginManagerOptions {
+  /** Injected for deterministic tests; defaults to the global timers. */
+  timers?: PluginManagerTimers | undefined;
+}
+
+const defaultTimers: PluginManagerTimers = {
+  setTimeout: (fn, ms) => setTimeout(fn, ms),
+  clearTimeout: (id) => { clearTimeout(id as ReturnType<typeof setTimeout>); },
+};
+
 export interface EnabledStateStorage {
   loadEnabledStates(): Record<string, boolean>;
   saveEnabledStates(states: Readonly<Record<string, boolean>>): void;
@@ -123,7 +142,21 @@ interface MutablePluginState {
   enabled: boolean;
   started: boolean;
   lastError: unknown;
+  /** A start() that outlived its timeout and has not settled yet; never started twice. */
+  pendingStart: Promise<void> | undefined;
+  /** An enable() since the timeout wants that pending start to count when it finishes. */
+  adoptPendingStart: boolean;
+  /** Disable/shutdown ran while the start was pending (its patches are gone). */
+  pendingInterrupted: boolean;
+  /** The boot run during which the user/API toggled this plugin. */
+  toggledDuring: BootRun | undefined;
 }
+
+interface BootRun {
+  aborted: boolean;
+}
+
+type StartOutcome = { ok: true } | { ok: false; error: unknown };
 
 export class PluginManager {
   private readonly plugins = new Map<string, MutablePluginState>();
@@ -132,6 +165,17 @@ export class PluginManager {
   private readonly patcher: Patcher;
   private readonly operations = new Map<string, Promise<unknown>>();
   private readonly listeners = new Set<() => void>();
+  private readonly timers: PluginManagerTimers;
+  /** The boot currently running in `startEnabled()`, if any. */
+  private boot: BootRun | undefined;
+  /**
+   * Set as soon as stop is requested (`abortBoot()`/`shutdown()`), cleared by
+   * the next boot. While set, an interrupted late start is only undone, never
+   * restarted, so nothing starts or persists behind a running shutdown.
+   */
+  private stopRequested = false;
+  /** Built-in definitions by name; other plugins may not take these names. */
+  private readonly reserved = new Map<string, PluginDefinition>();
 
   subscribe(listener: () => void): () => void {
     this.listeners.add(listener);
@@ -154,15 +198,28 @@ export class PluginManager {
     return next;
   }
 
-  constructor(storage?: EnabledStateStorage, logger?: ScopedLogger, patcher?: Patcher) {
+  constructor(storage?: EnabledStateStorage, logger?: ScopedLogger, patcher?: Patcher, options?: PluginManagerOptions) {
     this.storage = storage ?? createDefaultEnabledStateStorage();
     this.logger = logger ?? Logger.extend("PluginManager");
     // Disabling a plugin removes its owned patches, so a
     // stopped plugin can never leave a modified function behind.
     this.patcher = patcher ?? sharedPatcher;
+    this.timers = options?.timers ?? defaultTimers;
   }
 
-  /** Register a plugin. Throws on invalid definition or duplicate name. */
+  /**
+   * Reserve the names of built-in plugins. Store/local plugins load before the
+   * runtime registers built-ins, so a same-named one would otherwise take over.
+   */
+  reserveNames(definitions: Iterable<PluginDefinition>): void {
+    for (const definition of definitions) this.reserved.set(definition.name, definition);
+  }
+
+  /**
+   * Register a plugin. Throws on invalid definition or duplicate name; a
+   * non-built-in plugin using a reserved built-in name is skipped with a
+   * console warning.
+   */
   register(definition: PluginDefinition): void {
     const parsed = PluginDefinitionSchema.safeParse(definition);
     if (!parsed.success) {
@@ -171,20 +228,41 @@ export class PluginManager {
     }
     // Validate without stripping plugin-specific fields or method `this` state.
     const def = definition;
+    const builtin = this.reserved.get(def.name);
+    if (builtin !== undefined && builtin !== def) {
+      this.logger.warn(`Skipped plugin "${def.name}": the name belongs to a built-in plugin.`);
+      return;
+    }
     if (this.plugins.has(def.name)) {
       this.logger.error(`Duplicate plugin name rejected: "${def.name}"`);
       throw new Error(`Duplicate plugin name: "${def.name}"`);
     }
     const persisted = this.safeLoadStates();
     const enabled = persisted[def.name] ?? def.enabledByDefault ?? false;
-    this.plugins.set(def.name, { definition: def, enabled, started: false, lastError: undefined });
+    this.plugins.set(def.name, {
+      definition: def,
+      enabled,
+      started: false,
+      lastError: undefined,
+      pendingStart: undefined,
+      adoptPendingStart: false,
+      pendingInterrupted: false,
+      toggledDuring: undefined,
+    });
     this.emit();
     this.logger.info(`Registered plugin "${def.name}" (enabled: ${enabled})`);
   }
 
   /** Enable + start a plugin. Returns false (never throws) if start fails. */
   async enable(name: string): Promise<boolean> {
+    this.markToggled(name);
     return this.enqueue(name, () => this.enableNow(name));
+  }
+
+  /** A user/API toggle during boot wins: the boot never overrides it. */
+  private markToggled(name: string): void {
+    const state = this.plugins.get(name);
+    if (state !== undefined && this.boot !== undefined) state.toggledDuring = this.boot;
   }
 
   private async enableNow(name: string): Promise<boolean> {
@@ -200,26 +278,142 @@ export class PluginManager {
       state.started = true;
       return true;
     }
+    return this.runStart(name, state);
+  }
+
+  /**
+   * Start (or keep waiting on a timed-out earlier start: never two at once),
+   * time-boxed to PLUGIN_START_TIMEOUT_MS. Runs inside the plugin's queue.
+   */
+  private async runStart(name: string, state: MutablePluginState): Promise<boolean> {
+    const reused = state.pendingStart;
+    let pending: Promise<void>;
+    if (reused !== undefined) {
+      pending = reused;
+    } else {
+      try {
+        pending = Promise.resolve(state.definition.start?.());
+      } catch (err: unknown) {
+        pending = Promise.reject(err);
+      }
+    }
+    let timedOut: boolean;
     try {
-      await state.definition.start();
-      state.started = true;
-      state.lastError = undefined;
-      return true;
+      timedOut = await this.timeBox(pending);
     } catch (err: unknown) {
+      if (reused === undefined) {
+        state.started = false;
+        state.lastError = err;
+        // A partially started plugin may already own patches/listeners/styles.
+        try { await state.definition.stop?.(); } catch (cleanupError) { this.logger.captureError(cleanupError, `plugin "${name}" cleanup`); }
+        this.unpatchOwner(name);
+        state.enabled = false;
+        this.persist();
+        this.logger.captureError(err, `plugin "${name}" start`);
+        return false;
+      }
+      // A start that already timed out failed: keep `enabled` so it retries next launch.
+      const interrupted = state.pendingInterrupted;
+      this.clearPendingStart(state);
+      await this.undoStart(name, state, err);
+      return interrupted && this.canRestart(state) ? this.runStart(name, state) : false;
+    }
+    if (timedOut) {
+      // Keep it enabled so it retries next launch; never block other plugins.
       state.started = false;
-      state.lastError = err;
-      // A partially started plugin may already own patches/listeners/styles.
-      try { await state.definition.stop?.(); } catch (cleanupError) { this.logger.captureError(cleanupError, `plugin "${name}" cleanup`); }
-      this.unpatchOwner(name);
-      state.enabled = false;
-      this.persist();
-      this.logger.captureError(err, `plugin "${name}" start`);
+      state.lastError = new Error(PLUGIN_START_TIMEOUT_MESSAGE);
+      state.adoptPendingStart = reused !== undefined;
+      this.logger.warn(`Plugin "${name}" took longer than ${PLUGIN_START_TIMEOUT_MS} ms to start; skipped for now.`);
+      if (reused === undefined) {
+        state.pendingStart = pending;
+        state.pendingInterrupted = false;
+        pending.then(
+          () => this.settleLateStart(name, state, pending, { ok: true }),
+          (error: unknown) => this.settleLateStart(name, state, pending, { ok: false, error }),
+        );
+      }
       return false;
     }
+    if (reused !== undefined) {
+      const interrupted = state.pendingInterrupted;
+      this.clearPendingStart(state);
+      if (interrupted) {
+        // Disable/shutdown already removed its patches: undo it and start fresh once.
+        await this.undoStart(name, state, undefined);
+        return this.canRestart(state) ? this.runStart(name, state) : false;
+      }
+    }
+    state.started = true;
+    state.lastError = undefined;
+    return true;
+  }
+
+  /** Resolves true when `pending` is still unsettled after the start timeout. */
+  private timeBox(pending: Promise<void>): Promise<boolean> {
+    return new Promise<boolean>((resolve, reject) => {
+      const timer = this.timers.setTimeout(() => resolve(true), PLUGIN_START_TIMEOUT_MS);
+      pending.then(
+        () => { this.timers.clearTimeout(timer); resolve(false); },
+        (err: unknown) => { this.timers.clearTimeout(timer); reject(err); },
+      );
+    });
+  }
+
+  private clearPendingStart(state: MutablePluginState): void {
+    state.pendingStart = undefined;
+    state.adoptPendingStart = false;
+    state.pendingInterrupted = false;
+  }
+
+  private canRestart(state: MutablePluginState): boolean {
+    return state.enabled && !this.stopRequested;
+  }
+
+  /** Undo whatever a settled start left behind. Never changes `enabled` or persists. */
+  private async undoStart(name: string, state: MutablePluginState, err: unknown): Promise<void> {
+    state.started = false;
+    if (err !== undefined) {
+      state.lastError = err;
+      this.logger.captureError(err, `plugin "${name}" late start`);
+    }
+    try {
+      await state.definition.stop?.();
+    } catch (stopError: unknown) {
+      this.logger.captureError(stopError, `plugin "${name}" late start cleanup`);
+    }
+    this.unpatchOwner(name);
+  }
+
+  /**
+   * A start that outlived its timeout settled with nobody waiting on it.
+   * - Re-enabled meanwhile and never interrupted: it counts as started.
+   * - Interrupted by disable/shutdown: undo it, then start fresh once if the
+   *   plugin is enabled again and the runtime is running.
+   * - Otherwise: undo it (stop once). `enabled` is never changed here.
+   */
+  private settleLateStart(name: string, state: MutablePluginState, pending: Promise<void>, outcome: StartOutcome): void {
+    void this.enqueue(name, async () => {
+      // An enable() that awaited this start already handled the result.
+      if (state.pendingStart !== pending) return;
+      const interrupted = state.pendingInterrupted;
+      const adopt = state.adoptPendingStart && state.enabled;
+      this.clearPendingStart(state);
+      if (outcome.ok && adopt && !interrupted) {
+        state.started = true;
+        state.lastError = undefined;
+        this.logger.info(`Plugin "${name}" finished starting late.`);
+        return;
+      }
+      await this.undoStart(name, state, outcome.ok ? undefined : outcome.error);
+      if (interrupted && this.canRestart(state)) await this.runStart(name, state);
+    }).catch((cleanupError: unknown) => {
+      this.logger.captureError(cleanupError, `plugin "${name}" late start cleanup`);
+    });
   }
 
   /** Stop + disable a plugin. Stop errors are captured; state always cleans up. */
   async disable(name: string): Promise<boolean> {
+    this.markToggled(name);
     return this.enqueue(name, () => this.disableNow(name));
   }
 
@@ -239,9 +433,16 @@ export class PluginManager {
     }
     state.started = false;
     state.enabled = false;
+    this.interruptPendingStart(state);
     this.unpatchOwner(name);
     this.persist();
     return true;
+  }
+
+  /** Its patches are about to go: a pending start must not be adopted later. */
+  private interruptPendingStart(state: MutablePluginState): void {
+    state.adoptPendingStart = false;
+    if (state.pendingStart !== undefined) state.pendingInterrupted = true;
   }
 
   /** Disable every plugin (untoggles + persists). Individual failures never block the rest. */
@@ -251,11 +452,19 @@ export class PluginManager {
     }
   }
 
+  /** Stop the running boot after the start in flight; no further plugin starts. */
+  abortBoot(): void {
+    this.stopRequested = true;
+    if (this.boot !== undefined) this.boot.aborted = true;
+  }
+
   /**
    * Runtime shutdown: stop every running plugin but KEEP persisted enabled
    * flags so the next `start()` restores them. Stop errors are captured.
+   * Nothing is persisted after this until the next boot.
    */
   async shutdown(): Promise<void> {
+    this.abortBoot();
     for (const [name, state] of [...this.plugins]) {
       await this.enqueue(name, async () => {
         if (state.started && state.definition.stop !== undefined) {
@@ -267,23 +476,39 @@ export class PluginManager {
           }
         }
         state.started = false;
+        this.interruptPendingStart(state);
         this.unpatchOwner(name);
       });
     }
     this.persist();
   }
 
-  /** Re-read settings after Settings.load(), then boot persisted/default flags. */
+  /**
+   * Boot persisted/default flags. Each plugin's saved flag is re-read when its
+   * turn comes, plugins toggled since the boot began are left alone, and
+   * `abortBoot()`/`shutdown()` stops the loop after the start in flight.
+   */
   async startEnabled(): Promise<void> {
-    const saved = this.safeLoadStates();
-    for (const [name, state] of this.plugins) {
-      const desired = saved[name] ?? state.definition.enabledByDefault ?? false;
-      if (desired) await this.enable(name);
-      else if (state.started) await this.disable(name);
-      else state.enabled = false;
+    this.stopRequested = false;
+    const boot: BootRun = { aborted: false };
+    this.boot = boot;
+    try {
+      for (const [name, state] of this.plugins) {
+        if (boot.aborted) break;
+        await this.enqueue(name, async () => {
+          if (boot.aborted || state.toggledDuring === boot) return;
+          const saved = this.safeLoadStates();
+          const desired = saved[name] ?? state.definition.enabledByDefault ?? false;
+          if (desired) await this.enableNow(name);
+          else if (state.started) await this.disableNow(name);
+          else state.enabled = false;
+        });
+      }
+      if (!boot.aborted) this.persist();
+    } finally {
+      if (this.boot === boot) this.boot = undefined;
+      this.emit();
     }
-    this.persist();
-    this.emit();
   }
 
   /** Remove one plugin's patches. Best-effort: patcher errors never fail lifecycle. */

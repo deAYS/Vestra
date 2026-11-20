@@ -50,6 +50,9 @@ export interface VestraRuntime {
   readonly Toasts: ToastManager;
 }
 
+// Store/local plugins load before start(); keep built-in names theirs.
+pluginManager.reserveNames(BUILTIN_PLUGINS);
+
 let started = false;
 let exposedGlobal = false;
 let stopThemes: (() => void) | undefined;
@@ -58,6 +61,50 @@ let stopShortcuts: (() => void) | undefined;
 let stopPluginShortcuts: (() => void) | undefined;
 let updateTimer: ReturnType<typeof setInterval> | undefined;
 let lastUpdateNotice = "";
+let removeCloseFlush: (() => void) | undefined;
+/** Background plugin boot; stop() waits for it so nothing starts after stop. */
+let pluginBoot: Promise<void> | undefined;
+
+function bootPlugins(): void {
+  pluginBoot = pluginManager.startEnabled().catch((err: unknown) => {
+    Logger.captureError(err, "Vestra.start.Plugins");
+  });
+}
+
+/** Bounded: every plugin start is time-boxed by the plugin manager. */
+async function waitForPluginBoot(): Promise<void> {
+  const boot = pluginBoot;
+  pluginBoot = undefined;
+  await boot;
+}
+
+/** Page close cannot await: write pending settings through the blocking channel. */
+function installCloseFlush(): void {
+  if (removeCloseFlush) return;
+  const target = globalThis as {
+    addEventListener?: (type: string, listener: () => void) => void;
+    removeEventListener?: (type: string, listener: () => void) => void;
+  };
+  if (
+    typeof target.addEventListener !== "function" ||
+    typeof target.removeEventListener !== "function"
+  )
+    return;
+  const flushOnClose = (): void => {
+    try {
+      Settings.flushSync();
+    } catch (err: unknown) {
+      Logger.captureError(err, "Vestra.close.Settings.flush");
+    }
+  };
+  target.addEventListener("beforeunload", flushOnClose);
+  target.addEventListener("pagehide", flushOnClose);
+  removeCloseFlush = () => {
+    target.removeEventListener?.("beforeunload", flushOnClose);
+    target.removeEventListener?.("pagehide", flushOnClose);
+    removeCloseFlush = undefined;
+  };
+}
 
 async function checkUpdateNotice(): Promise<void> {
   if (!Native.isAvailable()) return;
@@ -150,6 +197,7 @@ async function startRuntime(): Promise<void> {
     } catch (err: unknown) {
       Logger.captureError(err, "Vestra.start.Settings.load");
     }
+    installCloseFlush();
     // Boot persisted plugins registered before start().
     for (const plugin of BUILTIN_PLUGINS) {
       if (!pluginManager.get(plugin.name)) pluginManager.register(plugin);
@@ -163,9 +211,9 @@ async function startRuntime(): Promise<void> {
       }
     }
     stopThemes = startThemes();
-    await pluginManager.startEnabled();
-    // Overlay host (toasts + keybind settings panel). Mounts into its own
-    // root div; safe no-ops without a DOM.
+    // Overlay host (toasts, launcher, settings panel) mounts before plugins
+    // start so a slow plugin never delays the UI. Own root div; safe no-op
+    // without a DOM.
     try {
       stopOverlay?.();
       stopShortcuts?.();
@@ -182,6 +230,9 @@ async function startRuntime(): Promise<void> {
     }
     exposeGlobal(runtime);
     started = true;
+    // start() resolves once the UI is up (the loader then closes the splash);
+    // plugins keep booting in the background.
+    bootPlugins();
     clearInterval(updateTimer);
     updateTimer = setInterval(
       () => void checkUpdateNotice(),
@@ -194,7 +245,7 @@ async function startRuntime(): Promise<void> {
       if (Settings.getPluginSetting("Vestra", "startupNotification") !== false)
         Toasts.info(
           `${VESTRA_BRANDING.name} is ready`,
-          `${enabled} plugin${enabled === 1 ? "" : "s"} active. Your workspace is ready.`,
+          `${enabled} plugin${enabled === 1 ? "" : "s"} enabled. Your workspace is ready.`,
           5000,
         );
     } catch (err: unknown) {
@@ -202,11 +253,19 @@ async function startRuntime(): Promise<void> {
     }
   } catch (err: unknown) {
     Logger.captureError(err, "Vestra.start");
+    pluginManager.abortBoot();
+    await waitForPluginBoot();
     await pluginManager.shutdown();
     stopThemes?.();
     stopOverlay?.();
     stopShortcuts?.();
     stopPluginShortcuts?.();
+    try {
+      await Settings.flush();
+    } catch (flushErr: unknown) {
+      Logger.captureError(flushErr, "Vestra.start.Settings.flush");
+    }
+    removeCloseFlush?.();
     revokeGlobal();
     throw err;
   }
@@ -224,6 +283,9 @@ async function stopRuntime(): Promise<void> {
     stopPluginShortcuts?.();
     stopPluginShortcuts = undefined;
     Logger.info("Stopping Vestra runtime…");
+    // No further plugin starts; wait only for the one in flight.
+    pluginManager.abortBoot();
+    await waitForPluginBoot();
     // Suspend running plugins; enabled flags persist for next start().
     await pluginManager.shutdown();
     // Plugins release their own resources; themes belong to the runtime.
@@ -248,11 +310,13 @@ async function stopRuntime(): Promise<void> {
     } finally {
       stopOverlay = undefined;
     }
+    // Pending changes only; a clean store does not rewrite the file.
     try {
-      Settings.save();
       await Settings.flush();
     } catch (err: unknown) {
       Logger.captureError(err, "Vestra.stop.Settings.save");
+    } finally {
+      removeCloseFlush?.();
     }
     revokeGlobal();
   } catch (err: unknown) {
