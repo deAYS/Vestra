@@ -1100,10 +1100,28 @@ app
         "a shared theme imports with its appearance and does not replace the active one",
       );
       await evaluate("window.Vestra.Settings.flush()");
+      assert.equal(
+        await evaluate(
+          "window.Vestra.Settings.setPluginSetting('Vestra','smokeSyncFlush',1);window.Vestra.Settings.flushSync()",
+        ),
+        true,
+        "the blocking settings flush reaches the main process and is confirmed",
+      );
+      // No flush: the page-close listener must write this before the reload.
+      await evaluate(
+        "window.Vestra.Settings.setPluginSetting('Vestra','smokeCloseFlush',2)",
+      );
       await win.loadURL("https://discord.com/channels/789/123");
       await waitFor(
         "Boolean(window.Vestra?.started) && document.getElementById('vestra-splash') === null",
         "customized Glass restores in a new renderer",
+      );
+      assert.deepEqual(
+        await evaluate(
+          "[window.Vestra.Settings.getPluginSetting('Vestra','smokeSyncFlush'),window.Vestra.Settings.getPluginSetting('Vestra','smokeCloseFlush')]",
+        ),
+        [1, 2],
+        "settings changed right before a reload survive it",
       );
       assert.equal(
         await evaluate(

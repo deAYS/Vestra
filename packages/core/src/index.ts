@@ -58,6 +58,35 @@ let stopShortcuts: (() => void) | undefined;
 let stopPluginShortcuts: (() => void) | undefined;
 let updateTimer: ReturnType<typeof setInterval> | undefined;
 let lastUpdateNotice = "";
+let removeCloseFlush: (() => void) | undefined;
+
+/** Page close cannot await: write pending settings through the blocking channel. */
+function installCloseFlush(): void {
+  if (removeCloseFlush) return;
+  const target = globalThis as {
+    addEventListener?: (type: string, listener: () => void) => void;
+    removeEventListener?: (type: string, listener: () => void) => void;
+  };
+  if (
+    typeof target.addEventListener !== "function" ||
+    typeof target.removeEventListener !== "function"
+  )
+    return;
+  const flushOnClose = (): void => {
+    try {
+      Settings.flushSync();
+    } catch (err: unknown) {
+      Logger.captureError(err, "Vestra.close.Settings.flush");
+    }
+  };
+  target.addEventListener("beforeunload", flushOnClose);
+  target.addEventListener("pagehide", flushOnClose);
+  removeCloseFlush = () => {
+    target.removeEventListener?.("beforeunload", flushOnClose);
+    target.removeEventListener?.("pagehide", flushOnClose);
+    removeCloseFlush = undefined;
+  };
+}
 
 async function checkUpdateNotice(): Promise<void> {
   if (!Native.isAvailable()) return;
@@ -150,6 +179,7 @@ async function startRuntime(): Promise<void> {
     } catch (err: unknown) {
       Logger.captureError(err, "Vestra.start.Settings.load");
     }
+    installCloseFlush();
     // Boot persisted plugins registered before start().
     for (const plugin of BUILTIN_PLUGINS) {
       if (!pluginManager.get(plugin.name)) pluginManager.register(plugin);
@@ -207,6 +237,12 @@ async function startRuntime(): Promise<void> {
     stopOverlay?.();
     stopShortcuts?.();
     stopPluginShortcuts?.();
+    try {
+      await Settings.flush();
+    } catch (flushErr: unknown) {
+      Logger.captureError(flushErr, "Vestra.start.Settings.flush");
+    }
+    removeCloseFlush?.();
     revokeGlobal();
     throw err;
   }
@@ -248,11 +284,13 @@ async function stopRuntime(): Promise<void> {
     } finally {
       stopOverlay = undefined;
     }
+    // Pending changes only; a clean store does not rewrite the file.
     try {
-      Settings.save();
       await Settings.flush();
     } catch (err: unknown) {
       Logger.captureError(err, "Vestra.stop.Settings.save");
+    } finally {
+      removeCloseFlush?.();
     }
     revokeGlobal();
   } catch (err: unknown) {

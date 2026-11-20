@@ -371,6 +371,27 @@ export function buildMainHookSource(options: MainHookOptions): string {
     writeStatus("start", { ok: false, reason });
   });
 
+  // Internal (not a native capability): blocking settings flush for page close.
+  // The renderer waits in sendSync until returnValue is set, so the reply is
+  // sent after the shared write queue (same .bak rule, same ordering) settles.
+  // Every path sets returnValue: a missing reply would hang the closing page.
+  if (CAPABILITIES.indexOf("settings:write") !== -1) {
+    ipcMain.on(PREFIX + "settings:flush", (event, text) => {
+      try {
+        if (senderRejection(event, trustedUrl) !== null || typeof text !== "string") {
+          event.returnValue = false;
+          return;
+        }
+        writeSettings(text).then(
+          () => { event.returnValue = true; },
+          () => { event.returnValue = false; },
+        );
+      } catch (_) {
+        try { event.returnValue = false; } catch (_) {}
+      }
+    });
+  }
+
   // Internal: the preload reports a successful start that reused its cached
   // payload (no new bootstrap call), so the status reflects this session.
   ipcMain.handle(PREFIX + "started", async (event) => {
