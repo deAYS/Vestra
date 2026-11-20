@@ -237,6 +237,7 @@ function mainFixture(
       legacy.splice(0, legacy.length, ...s);
     },
   };
+  const shellCalls: Array<[string, string]> = [];
   const electron = {
     app: {
       getPath: (name: string) =>
@@ -257,8 +258,12 @@ function mainFixture(
       },
     },
     shell: {
-      async openPath() {
+      async openPath(p: string) {
+        shellCalls.push(["openPath", p]);
         return "";
+      },
+      showItemInFolder(p: string) {
+        shellCalls.push(["showItemInFolder", p]);
       },
     },
     BrowserWindow: function (options: unknown) {
@@ -292,6 +297,7 @@ function mainFixture(
     mkdirSync: guarded(realFs.mkdirSync),
     writeFileSync: guarded(realFs.writeFileSync),
     renameSync: guarded(realFs.renameSync),
+    realpathSync: (p: string) => realFs.realpathSync(p),
     promises: {
       async mkdir() {},
       async lstat() {
@@ -330,6 +336,7 @@ function mainFixture(
   const frame = { url: goodUrl };
   return {
     handlers,
+    shellCalls,
     electron,
     registered,
     legacy,
@@ -617,6 +624,62 @@ test("an unwritable status directory never breaks bootstrap", async () => {
     assert.equal(realFs.readFileSync(blocker, "utf8"), "not a directory");
   } finally {
     realFs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+function shellFixture() {
+  const appData = tempAppData();
+  const home = path.join(appData, "Vestra");
+  const inside = path.join(home, "plugins", "a.txt");
+  realFs.mkdirSync(path.dirname(inside), { recursive: true });
+  realFs.writeFileSync(inside, "x");
+  const outsideDir = path.join(appData, "outside");
+  realFs.mkdirSync(outsideDir);
+  realFs.writeFileSync(path.join(outsideDir, "evil.exe"), "x");
+  const junction = path.join(home, "link");
+  realFs.symlinkSync(outsideDir, junction, "junction");
+  const fx = mainFixture("C:/Discord/Discord.exe", {
+    appData,
+    receipt: { channel: "stable" },
+  });
+  const bad = [
+    "C:\\Windows\\notepad.exe",
+    "\\\\host\\share\\x.exe",
+    "//host/share/x.exe",
+    "\\\\?\\C:\\Windows\\notepad.exe",
+    "\\\\.\\C:\\Windows\\notepad.exe",
+    path.join(home, "..", "outside", "evil.exe"),
+    path.join(junction, "evil.exe"),
+    path.join(home, "missing.txt"),
+    "plugins\\a.txt",
+    path.join(outsideDir, "evil.exe"),
+    inside + String.fromCharCode(0),
+    42,
+    "",
+  ];
+  return { appData, home, inside, bad, ...fx };
+}
+
+test("shell channels open only existing paths inside the Vestra folder", async () => {
+  const { appData, home, inside, bad, handlers, sender, shellCalls } =
+    shellFixture();
+  try {
+    for (const [channel, call] of [
+      ["vestra:native:shell:openPath", "openPath"],
+      ["vestra:native:shell:showItemInFolder", "showItemInFolder"],
+    ] as const) {
+      const handler = handlers.get(channel)!;
+      shellCalls.length = 0;
+      assert.equal(await handler(sender, [inside]), true);
+      assert.equal(await handler(sender, [home]), true);
+      assert.deepEqual(shellCalls, [[call, inside], [call, home]]);
+      shellCalls.length = 0;
+      for (const p of bad)
+        await assert.rejects(() => handler(sender, [p]), /outside Vestra folders/, String(p));
+      assert.deepEqual(shellCalls, []);
+    }
+  } finally {
+    realFs.rmSync(appData, { recursive: true, force: true });
   }
 });
 

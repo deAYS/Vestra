@@ -47,6 +47,31 @@ export interface FastHealthResult {
   detail?: string | undefined;
 }
 
+/**
+ * True when `p` is an existing absolute local path inside `home` after
+ * resolving links. Embedded in the hook via toString(): must stay
+ * self-contained plain ES2020 (fs and path are passed in).
+ */
+export function insideVestraHome(
+  fs: { realpathSync(p: string): string },
+  path: {
+    isAbsolute(p: string): boolean;
+    relative(from: string, to: string): string;
+  },
+  home: string,
+  p: unknown,
+): boolean {
+  try {
+    if (typeof p !== "string" || p === "" || p.indexOf("\0") !== -1) return false;
+    if (/^[\\/]{2}/.test(p)) return false;
+    if (!path.isAbsolute(p)) return false;
+    const rel = path.relative(fs.realpathSync(home), fs.realpathSync(p));
+    return !/^\.\.(?:[\\/]|$)/.test(rel) && !path.isAbsolute(rel);
+  } catch (_) {
+    return false;
+  }
+}
+
 const APP_PATH_ALLOWLIST = [
   "userData",
   "home",
@@ -169,8 +194,11 @@ export function buildMainHookSource(options: MainHookOptions): string {
   const SETTINGS_FILE = ${JSON.stringify(settingsFile)};
   const APP_PATHS = ${JSON.stringify(APP_PATH_ALLOWLIST)};
   ${buildSettingsSource()}
-  function validPath(p) {
-    return typeof p === "string" && p !== "" && p.indexOf("\\0") === -1;
+  const insideVestraHome = ${insideVestraHome.toString()};
+  function vestraPath(channel, p) {
+    const home = path.join(app.getPath("appData"), "Vestra");
+    if (!insideVestraHome(fs, path, home, p)) throw new TypeError(channel + ": path outside Vestra folders");
+    return p;
   }
 
   // Fast health check: read-mostly, zero filesystem writes, never throws.
@@ -251,14 +279,12 @@ export function buildMainHookSource(options: MainHookOptions): string {
       return writeSettings(text);
     },
     "shell:openPath": async (p) => {
-      if (!validPath(p)) throw new TypeError("shell:openPath needs a path");
-      const res = await shell.openPath(p);
+      const res = await shell.openPath(vestraPath("shell:openPath", p));
       if (res !== "") throw new Error(res);
       return true;
     },
     "shell:showItemInFolder": async (p) => {
-      if (!validPath(p)) throw new TypeError("shell:showItemInFolder needs a path");
-      shell.showItemInFolder(p);
+      shell.showItemInFolder(vestraPath("shell:showItemInFolder", p));
       return true;
     },
     "app:getVersion": async () => app.getVersion(),
