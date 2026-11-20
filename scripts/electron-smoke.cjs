@@ -716,6 +716,10 @@ app
           ]),
         presets.find((preset) => preset.name === "Vestra Liquid Glass"),
       );
+      await waitFor(
+        "document.documentElement.dataset.vestraGlass === 'image'",
+        "the shipped Glass gradient is blurred once into an image",
+      );
       const glassSurface = await evaluate(
         `(() => {const style=getComputedStyle(document.getElementById('fixture-chat'));return {image:style.backgroundImage,blur:style.backdropFilter,wallpaper:getComputedStyle(document.getElementById('app-mount')).backgroundImage}})()`,
       );
@@ -727,6 +731,10 @@ app
         glassSurface.blur,
         "none",
         "large Glass panes have no live backdrop blur",
+      );
+      assert.ok(
+        /url\("data:image\/(webp|jpeg);base64,/.test(glassSurface.image),
+        "large Glass panes show the pre-blurred wallpaper",
       );
       assert.ok(
         glassSurface.wallpaper.includes("radial-gradient"),
@@ -993,6 +1001,13 @@ app
       assert.equal(customizedPane.blur, "none", "no live blur on the main surface");
       assert.equal(customizedPane.popout, "blur(14px)", "blur still applies to popouts");
       assert.equal(customizedPane.preview, "blur(14px)", "the appearance preview shows the blur");
+      const nestedPane = await evaluate(
+        "(() => {document.getElementById('fixture-chat').insertAdjacentHTML('beforeend','<div id=\"fixture-nested\" class=\"channelTextArea_fixture\">Message</div>');const image=getComputedStyle(document.getElementById('fixture-nested')).backgroundImage;document.getElementById('fixture-nested').remove();return image})()",
+      );
+      assert.ok(
+        !nestedPane.includes("url(") && nestedPane.includes("rgba(22, 18, 30, 0.68)"),
+        `a pane inside a pane tints over its parent instead of repainting the image: ${nestedPane}`,
+      );
       assert.equal(
         await evaluate(
           "getComputedStyle(document.getElementById('fixture-chat')).borderRadius",
@@ -1169,14 +1184,14 @@ app
         ).includes("rgba(22, 18, 30, 0.2)"),
         "Restore original returns to the authored Glass theme",
       );
+      await evaluate("window.Vestra.Settings.setThemes([])");
       assert.deepEqual(
         await evaluate(
           "[document.documentElement.dataset.vestraGlass ?? null, document.documentElement.style.getPropertyValue('--vestra-glass-image')]",
         ),
         [null, ""],
-        "restoring the theme removes the blurred backdrop",
+        "disabling the theme removes the blurred backdrop",
       );
-      await evaluate("window.Vestra.Settings.setThemes([])");
 
       await page(async (names) => {
         document
@@ -1200,6 +1215,11 @@ app
             ]),
           preset,
         );
+        if (preset.name === "Vestra Liquid Glass")
+          await waitFor(
+            "document.documentElement.dataset.vestraGlass === 'image'",
+            "the Glass wallpaper is rendered before comparing surfaces",
+          );
         const nativeColor = await evaluate(
           "(s=>s.backgroundColor+' '+s.backgroundImage)(getComputedStyle(document.getElementById('fixture-chat')))",
         );

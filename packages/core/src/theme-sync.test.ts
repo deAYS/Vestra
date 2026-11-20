@@ -318,7 +318,7 @@ test("the glass wallpaper follows the active customized theme and ignores unrela
   assert.deepEqual(calls, ["stop"], "an uncustomized theme needs no wallpaper");
   const image = "data:image/png;base64,QQ==";
   settings.setThemeCustomization(theme.id, { ...DEFAULT_THEME_CUSTOMIZATION, blur: 14, saturation: 75, brightness: 90, backgroundImage: image });
-  assert.deepEqual(calls.at(-1), { image, blur: 14, saturation: 75, brightness: 90 });
+  assert.deepEqual(calls.at(-1), { image, css: null, blur: 14, saturation: 75, brightness: 90 });
   const count = calls.length;
   settings.setEnabled("FixturePlugin", true);
   settings.setPluginSetting("FixturePlugin", "value", 3);

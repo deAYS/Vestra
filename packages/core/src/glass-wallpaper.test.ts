@@ -242,3 +242,67 @@ test("a newer update wins over a slower earlier render, and stop cancels a pendi
   assert.equal(h.variable(), "", "a render finishing after stop sets nothing");
   assert.equal(h.mode(), null);
 });
+
+test("a CSS wallpaper is rasterized at window size and blurred like an image", async () => {
+  const h = harness();
+  const css = 'radial-gradient(ellipse 58vw 83vh at 70% 25%,transparent 56%,#fbe9da65 57%),linear-gradient(125deg,#211e2e 2%,#292f37 100%)';
+  h.renderer.update(inputs({ image: null, css, blur: 26, saturation: 125, brightness: 100 }));
+  await settle();
+  assert.equal(h.loads.length, 1);
+  const svg = decodeURIComponent(h.loads[0]!.replace(/^data:image\/svg\+xml;charset=utf-8,/, ""));
+  assert.ok(h.loads[0]!.startsWith("data:image/svg+xml;charset=utf-8,"));
+  assert.ok(svg.includes('width="1280" height="800"'), "the wallpaper is laid out at the window size");
+  assert.ok(svg.includes(`background:${css}`), "the theme's wallpaper is painted as-is");
+  assert.equal(outputs(h)[0]?.context.filter, "blur(26px) saturate(125%) brightness(100%)");
+  assert.equal(h.mode(), "image");
+  h.resize(1000, 700);
+  await h.advance(250);
+  assert.equal(h.loads.length, 2, "viewport units follow the new window size");
+  assert.ok(decodeURIComponent(h.loads[1]!).includes('width="1000" height="700"'));
+});
+
+test("CSS wallpaper text cannot break out of the SVG markup", async () => {
+  const h = harness();
+  h.renderer.update(inputs({ image: null, css: 'linear-gradient(red,blue)"/><script>alert(1)</script><x a="&' }));
+  await settle();
+  const svg = decodeURIComponent(h.loads[0]!.replace(/^data:image\/svg\+xml;charset=utf-8,/, ""));
+  assert.ok(!svg.includes("<script"), "markup is escaped");
+  assert.ok(svg.includes("&quot;/&gt;&lt;script&gt;"));
+});
+
+test("a failed image load is retried on the next resize", async () => {
+  let fail = true;
+  const doc = new Window().document as unknown as Document;
+  const loads: string[] = [];
+  const listeners = new Set<() => void>();
+  let timer: (() => void) | undefined;
+  const renderer = createGlassRenderer({
+    document: doc,
+    window: {
+      innerWidth: 800, innerHeight: 600, devicePixelRatio: 1,
+      addEventListener: (_: string, listener: () => void) => listeners.add(listener),
+      removeEventListener: (_: string, listener: () => void) => listeners.delete(listener),
+      setTimeout: (run: () => void) => { timer = run; return 1; },
+      clearTimeout: () => { timer = undefined; },
+    } as unknown as globalThis.Window,
+    createCanvas: (width, height) => ({
+      width, height,
+      getContext: () => ({ filter: "none", drawImage() {} }),
+      toDataURL: (type: string) => `data:${type};base64,AA`,
+    }) as unknown as HTMLCanvasElement,
+    loadImage: (src) => {
+      loads.push(src);
+      if (fail) return Promise.reject(new Error("offline"));
+      return Promise.resolve({ naturalWidth: 10, naturalHeight: 10 } as HTMLImageElement);
+    },
+  });
+  renderer.update(inputs({ image: "https://example.com/wall.png" }));
+  await settle();
+  assert.equal(doc.documentElement.getAttribute("data-vestra-glass"), "layer");
+  fail = false;
+  for (const listener of listeners) listener();
+  timer?.();
+  await settle();
+  assert.equal(loads.length, 2, "the failed load is not cached");
+  assert.equal(doc.documentElement.getAttribute("data-vestra-glass"), "image");
+});

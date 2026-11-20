@@ -7,6 +7,9 @@
 :root,body,:is(.theme-dark,.theme-darker,.theme-midnight,.theme-light,.custom-theme-background):not(.custom-user-profile-theme){
   color-scheme:dark;
   --glass-pane:linear-gradient(135deg,#ffffff1c,#ffffff06 38%,#ffffff0c);
+  --glass-blur:26px;
+  --glass-saturation:125%;
+  --vestra-glass-preview-filter:blur(26px) saturate(125%);
   --vestra-wallpaper:radial-gradient(ellipse 58vw 83vh at 70% 25%,transparent 56%,#fbe9da65 57%,#f9e4d52e 59%,transparent 65%),radial-gradient(ellipse 46vw 65vh at 8% 92%,transparent 48%,#d9c6ff40 51%,transparent 59%),radial-gradient(ellipse 42vw 58vh at 83% 10%,#e3b69d8c,transparent 83%),radial-gradient(ellipse 30vw 80vh at 4% 75%,#9b84d6b3,transparent 87%),radial-gradient(ellipse 46vw 18vh at 54% 83%,#b2dcce70,transparent 82%),radial-gradient(ellipse 30vw 50vh at 65% 40%,#d2c2ee80,transparent 85%),linear-gradient(125deg,#211e2e 2%,#5c4a67 42%,#433c48 64%,#292f37 100%);
   --glass-edge:#ffffff2d;
   --glass-shadow:inset 0 1px 0 #ffffff45,inset 1px 0 0 #ffffff14,inset 0 -1px 0 #00000028,0 12px 40px #0907112b;
@@ -155,6 +158,7 @@ html,body{background:#262132!important;}
   border-radius:22px!important;
   box-shadow:var(--glass-shadow)!important;
 }
+#app-mount :is([class*="guilds_"],[class*="sidebarList_"],[class*="privateChannels_"],[class*="chat_"],[class*="membersWrap_"],[class*="panels_"],[class*="channelTextArea_"],[class*="container_"]:has(>[class*="tabBody_"]))>*{--vestra-glass-image:none;}
 #app-mount [class*="channelTextArea_"]:focus-within{border-color:#ffffff65!important;box-shadow:var(--glass-shadow),0 0 0 3px #ddcfff0c!important;}
 #app-mount :is([class*="scrollableContainer_"],[class*="form_"],[class*="themedBackground_"],[class*="typing_"]):not(.custom-user-profile-theme):not(.custom-user-profile-theme *){background:transparent!important;}
 #app-mount :is([class*="form_"],[class*="content_"])::before{display:none!important;}

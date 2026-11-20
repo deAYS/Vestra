@@ -280,7 +280,7 @@ test("customized glass paints large panes from the pre-blurred image with no liv
     const popouts = rules.filter((rule) => POPOUTS.test(rule.selector) && !LARGE_PANES.test(rule.selector));
     assert.ok(popouts.some((rule) => rule.body.includes("backdrop-filter")), "popouts and menus keep their blur");
     // The generated rule follows (and overrides) the theme's own pane rules.
-    const paneRule = [...rules].reverse().find((rule) => rule.selector.includes('[class*="channelTextArea_"]') && rule.body.includes("--vestra-glass-image"));
+    const paneRule = [...rules].reverse().find((rule) => rule.selector.includes('[class*="channelTextArea_"]') && !rule.selector.endsWith(">*") && rule.body.includes("--vestra-glass-image"));
     assert.ok(paneRule, "panes reference the blurred image");
     assert.ok(
       paneRule.body.includes("linear-gradient(rgb(") && paneRule.body.includes(" / 0.68)") &&
@@ -305,9 +305,50 @@ test("glass inputs come from the customization and are absent without surface ov
   );
   assert.deepEqual(
     glassInputs({ css, customization: { ...DEFAULT_THEME_CUSTOMIZATION, blur: 14, saturation: 75, brightness: 90, backgroundImage: "data:image/png;base64,QQ==" } }),
-    { image: "data:image/png;base64,QQ==", blur: 14, saturation: 75, brightness: 90 },
+    { image: "data:image/png;base64,QQ==", css: null, blur: 14, saturation: 75, brightness: 90 },
   );
-  assert.equal(glassInputs({ css, customization: DEFAULT_THEME_CUSTOMIZATION })?.image, null);
+  assert.deepEqual(
+    glassInputs({ css, customization: DEFAULT_THEME_CUSTOMIZATION }),
+    { image: null, css: null, blur: 26, saturation: 125, brightness: 100 },
+    "a flat colour needs no blurred copy",
+  );
+});
+
+test("CSS wallpapers feed the renderer for Liquid Glass with and without a customization", () => {
+  const glass = THEME_LIBRARY.find((theme) => theme.name === "Vestra Liquid Glass")!;
+  const wallpaper = glass.css.match(/--vestra-wallpaper:([^;]+);/)![1]!;
+  assert.deepEqual(
+    glassInputs({ css: glass.css, customization: undefined }),
+    { image: null, css: wallpaper, blur: 26, saturation: 125, brightness: 100 },
+    "the shipped theme blurs its own gradient as its panes did",
+  );
+  assert.deepEqual(
+    glassInputs({ css: glass.css, customization: { ...DEFAULT_THEME_CUSTOMIZATION, surfaceOverrides: false, glowStrength: 30 } }),
+    glassInputs({ css: glass.css, customization: undefined }),
+    "text-only changes keep the theme's own glass",
+  );
+  assert.deepEqual(
+    glassInputs({ css: glass.css, customization: { ...DEFAULT_THEME_CUSTOMIZATION, blur: 12, saturation: 80, brightness: 95 } }),
+    { image: null, css: wallpaper, blur: 12, saturation: 80, brightness: 95 },
+  );
+  const colored = glassInputs({ css: glass.css, customization: { ...DEFAULT_THEME_CUSTOMIZATION, backgroundColor: "#123456" } });
+  assert.equal(colored?.css, "radial-gradient(ellipse at 85% 10%,#ffffff16,transparent 65%),#123456");
+  assert.equal(glassInputs({ css: ":root{--glass-blur:20px;--vestra-wallpaper:url(https://example.com/a.png)}", customization: undefined }), null, "remote images cannot be drawn from CSS");
+  assert.equal(glassInputs({ css: ":root{--vestra-wallpaper:linear-gradient(red,blue)}", customization: undefined }), null, "themes opt in by declaring their glass blur");
+  assert.ok(glass.css.includes("--vestra-glass-preview-filter:blur(26px) saturate(125%);"), "previews blur the shipped theme too");
+  assert.ok(
+    customizedThemeCss({ css: glass.css, customization: { ...DEFAULT_THEME_CUSTOMIZATION, blur: 12 } }).includes("--vestra-glass-preview-filter:blur(12px);"),
+    "previews blur whenever the app does",
+  );
+});
+
+test("panes nested in panes tint over their parent instead of repainting the image", () => {
+  const glass = THEME_LIBRARY.find((theme) => theme.name === "Vestra Liquid Glass")!;
+  for (const css of [glass.css, customizedThemeCss({ css: glass.css, customization: DEFAULT_THEME_CUSTOMIZATION })])
+    assert.ok(
+      cssRules(css).some((rule) => rule.selector.includes('[class*="channelTextArea_"]') && rule.selector.endsWith(">*") && rule.body.includes("--vestra-glass-image:none")),
+      "pane children reset the image variable",
+    );
 });
 
 test("Liquid Glass 2.3.0 has no live backdrop blur on large panes", () => {

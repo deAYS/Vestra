@@ -8,15 +8,21 @@
  * paint it as a fixed background beneath their tint. The sharp wallpaper on
  * `#app-mount` still shows in the gaps between panes.
  *
+ * The wallpaper is either an image (`image`) or, for themes whose wallpaper is
+ * CSS (gradients, colours), that CSS background value (`css`), laid out at
+ * the window size in an SVG image so viewport units resolve as on the page.
+ *
  * Modes, on `<html data-vestra-glass>`:
  * - `image`: the blurred image is in `--vestra-glass-image`;
  * - `layer`: the wallpaper cannot be read into a canvas (cross-origin without
  *   CORS, decode error); CSS blurs the one fixed wallpaper layer instead;
- * - `tint`: no wallpaper image (or no blur); panes use their tints only.
+ * - `tint`: no wallpaper (or no blur); panes use their tints only.
  */
 
 export interface GlassInputs {
   image: string | null;
+  /** CSS background value of a wallpaper without an image (used when `image` is null). */
+  css?: string | null;
   blur: number;
   saturation: number;
   brightness: number;
@@ -33,10 +39,38 @@ export const GLASS_IMAGE_VARIABLE = "--vestra-glass-image";
 export const GLASS_MODE_ATTRIBUTE = "data-vestra-glass";
 const RESIZE_DEBOUNCE_MS = 250;
 
+/** An SVG image of the CSS wallpaper at the given size (no scripts, no network). */
+function cssWallpaperSource(css: string, width: number, height: number): string {
+  const style = `width:${width}px;height:${height}px;background:${css}`
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}"><foreignObject x="0" y="0" width="${width}" height="${height}"><div xmlns="http://www.w3.org/1999/xhtml" style="${style}"></div></foreignObject></svg>`;
+  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+}
+
+/** What to draw for these inputs at this window size, if anything. */
+function wallpaperSource(
+  inputs: GlassInputs,
+  win: Window,
+): string | null {
+  if (!(inputs.blur > 0)) return null;
+  if (inputs.image) return inputs.image;
+  if (inputs.css)
+    return cssWallpaperSource(
+      inputs.css,
+      Math.max(1, Math.round(win.innerWidth)),
+      Math.max(1, Math.round(win.innerHeight)),
+    );
+  return null;
+}
+
 function sameInputs(a: GlassInputs | undefined, b: GlassInputs): boolean {
   return (
     !!a &&
     a.image === b.image &&
+    (a.css ?? null) === (b.css ?? null) &&
     a.blur === b.blur &&
     a.saturation === b.saturation &&
     a.brightness === b.brightness
@@ -100,7 +134,8 @@ export function createGlassRenderer(deps: {
       resizeTimer = undefined;
       const size = viewport();
       if (
-        current?.image &&
+        current &&
+        wallpaperSource(current, win) &&
         (size.width !== rendered?.width || size.height !== rendered?.height)
       )
         void render(current, ++generation);
@@ -124,8 +159,15 @@ export function createGlassRenderer(deps: {
       scale,
     };
   };
+  /** The decoded image is reused for resizes; a failed load is retried. */
   const decode = (src: string): Promise<HTMLImageElement> => {
-    if (decoded?.src !== src) decoded = { src, image: loadImage(src) };
+    if (decoded?.src !== src) {
+      const entry = { src, image: loadImage(src) };
+      decoded = entry;
+      entry.image.catch(() => {
+        if (decoded === entry) decoded = undefined;
+      });
+    }
     return decoded.image;
   };
 
@@ -179,7 +221,9 @@ export function createGlassRenderer(deps: {
     let url: string | null = null;
     const size = viewport();
     try {
-      const image = await decode(inputs.image!);
+      const source = wallpaperSource(inputs, win);
+      if (!source) throw new Error("No wallpaper to draw.");
+      const image = await decode(source);
       if (run !== generation) return;
       url = draw(image, inputs, size);
     } catch {
@@ -202,7 +246,7 @@ export function createGlassRenderer(deps: {
       if (sameInputs(current, inputs)) return;
       current = { ...inputs };
       const run = ++generation;
-      if (!inputs.image || !(inputs.blur > 0)) {
+      if (!wallpaperSource(inputs, win)) {
         listen(false);
         decoded = undefined;
         clearImage();
