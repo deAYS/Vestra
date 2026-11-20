@@ -24,6 +24,12 @@ import {
   type DiscordSystem,
 } from "../src/main/discordLifecycle.js";
 import type { DiscordChannel } from "../src/shared/channels.js";
+import { withInstallLock } from "@vestra/installer";
+import { createRecoveryLoop } from "../src/main/recovery/loop.js";
+import {
+  RecoveryNotices,
+  type NoticeContent,
+} from "../src/main/recovery/notices.js";
 
 const VERSION = "1.0.9";
 const enabled = { enabled: true, channels: ["stable" as DiscordChannel] };
@@ -82,6 +88,16 @@ async function harness(options: Options = {}) {
     patchError: undefined as (() => Error) | undefined,
     onPatch: undefined as (() => Promise<void>) | undefined,
     attemptsSeen: [] as number[],
+    phasesSeen: [] as string[],
+    /** Per-call answers for processesFor; falls back to `pids` when empty. */
+    pidsSequence: [] as number[][],
+    healAfterPatch: true,
+    lifecycleResult: { ok: true, results: [] } as {
+      ok: boolean;
+      results: Array<{ ok: boolean; detail?: string }>;
+    },
+    failures: [] as string[],
+    phases: [] as string[],
     calls: { discover: 0, check: 0, patch: 0, processes: 0, lifecycle: 0 },
     notified: [] as string[],
   };
@@ -109,8 +125,8 @@ async function harness(options: Options = {}) {
   const lifecycle = {
     async run() {
       h.calls.lifecycle++;
-      h.healthy = true;
-      return { ok: true, results: [] };
+      if (h.lifecycleResult.ok) h.healthy = true;
+      return h.lifecycleResult as never;
     },
   };
   const monitor = new RecoveryMonitor(
@@ -118,17 +134,21 @@ async function harness(options: Options = {}) {
       service,
       async processesFor() {
         h.calls.processes++;
-        return [...h.pids];
+        return [...(h.pidsSequence.shift() ?? h.pids)];
       },
       isAlive: (pid) => h.alive.has(pid),
       async patch() {
         h.calls.patch++;
-        h.attemptsSeen.push((await readRecoveryState(home)).stable?.attempts ?? 0);
+        const before = (await readRecoveryState(home)).stable;
+        h.attemptsSeen.push(before?.attempts ?? 0);
+        h.phasesSeen.push(`${before?.phase ?? "none"}/${before?.detail ?? ""}`);
         await h.onPatch?.();
         if (h.patchError) throw h.patchError();
-        h.healthy = true;
+        if (h.healAfterPatch) h.healthy = true;
       },
       notify: (channel, version) => h.notified.push(`${channel}:${version}`),
+      notifyFailed: (channel, version) => h.failures.push(`${channel}:${version}`),
+      onPhase: (channel, phase) => h.phases.push(`${channel}:${phase}`),
       now: () => h.time,
       async wait(ms) {
         h.waits.push(ms);
@@ -238,7 +258,7 @@ test("a running unpatched version waits for exit, notifies once and patches when
   }
 });
 
-test("in-use failures never count toward the retry cap", async () => {
+test("in-use failures while Discord runs never count toward the retry cap", async () => {
   const { h, monitor, cleanup } = await harness();
   try {
     const errors = [
@@ -248,16 +268,60 @@ test("in-use failures never count toward the retry cap", async () => {
       () => Object.assign(new Error("busy"), { code: "EBUSY" }),
       () => Object.assign(new Error("busy"), { code: "EBUSY" }),
     ];
-    for (const error of errors) {
-      h.patchError = error;
-      await monitor.evaluate(enabled, "staged");
-      await monitor.settled();
-    }
-    assert.equal(h.calls.patch, 5);
+    // Each time: no Discord at first, the patch hits the lock, Discord is found, then exits.
+    h.pidsSequence = errors.flatMap(() => [[], [7]]);
+    h.onPatch = async () => {
+      h.patchError = errors[h.calls.patch - 1];
+    };
+    await monitor.evaluate(enabled, "staged");
+    await monitor.settled();
+    assert.equal(h.calls.patch, 6, "five in-use failures, then success");
+    assert.deepEqual(h.attemptsSeen, [0, 0, 0, 0, 0, 0]);
+    assert.ok(h.phasesSeen.slice(1).every((seen) => seen.startsWith("waiting-for-exit/")));
+    assert.deepEqual(h.notified, [`stable:${VERSION}`], "one notice per version");
+    assert.deepEqual(h.failures, []);
     const state = await readRecoveryState(h.home);
-    assert.equal(state.stable?.phase, "waiting-for-exit");
-    assert.equal(state.stable?.attempts, 0);
-    assert.deepEqual(h.attemptsSeen, [0, 0, 0, 0, 0]);
+    assert.equal(state.stable?.phase, "patched");
+  } finally {
+    await cleanup();
+  }
+});
+
+test("an in-use failure with no Discord running is blocked and capped", async () => {
+  const { h, monitor, cleanup } = await harness();
+  try {
+    h.patchError = () => Object.assign(new Error("busy"), { code: "EBUSY" });
+    await monitor.evaluate(enabled, "staged");
+    await monitor.settled();
+    assert.equal(h.calls.patch, 3);
+    assert.deepEqual(h.attemptsSeen, [0, 1, 2]);
+    assert.deepEqual(h.phasesSeen.slice(1), ["idle/blocked", "idle/blocked"]);
+    const state = await readRecoveryState(h.home);
+    assert.equal(state.stable?.phase, "failed");
+    assert.equal(state.stable?.detail, "blocked");
+    assert.equal(state.stable?.attempts, 3);
+    assert.deepEqual(h.notified, [], "nothing to restart");
+    assert.deepEqual(h.failures, [`stable:${VERSION}`]);
+    await monitor.evaluate(enabled, "sweep");
+    await monitor.settled();
+    assert.equal(h.calls.patch, 3);
+  } finally {
+    await cleanup();
+  }
+});
+
+test("a patch that reports success but does not verify counts as a failed attempt", async () => {
+  const { h, monitor, cleanup } = await harness();
+  try {
+    h.healAfterPatch = false;
+    await monitor.evaluate(enabled, "staged");
+    await monitor.settled();
+    assert.equal(h.calls.patch, 3);
+    assert.deepEqual(h.attemptsSeen, [0, 1, 2]);
+    const state = await readRecoveryState(h.home);
+    assert.equal(state.stable?.phase, "failed");
+    assert.equal(state.stable?.detail, "verification-failed");
+    assert.deepEqual(h.failures, [`stable:${VERSION}`]);
   } finally {
     await cleanup();
   }
@@ -278,10 +342,12 @@ test("other failures back off 1 min then 5 min and stop after three attempts", a
     assert.equal(state.stable?.attempts, 3);
     assert.ok(state.stable?.detail);
     assert.doesNotMatch(state.stable!.detail!, /[\\/:]/, "reason codes only");
+    assert.deepEqual(h.failures, [`stable:${VERSION}`], "one failure notice");
     await monitor.evaluate(enabled, "sweep");
     await monitor.evaluate(enabled, "staged");
     await monitor.settled();
     assert.equal(h.calls.patch, 3, "no fourth attempt for the same archive");
+    assert.deepEqual(h.failures, [`stable:${VERSION}`], "no repeat failure notice");
   } finally {
     await cleanup();
   }
@@ -487,24 +553,30 @@ test("watch events map to staged folders and replaced archives only", () => {
   assert.equal(classifyResourcesEvent("change", null), null);
 });
 
-test("watchers cover each root and its version folders, survive errors and close", async () => {
+test("watchers cover each tracked root and only its current version folder", async () => {
   const base = await fs.mkdtemp(path.join(os.tmpdir(), "vestra-watch-test-"));
   try {
     const root = path.join(base, "Discord");
+    await fs.mkdir(path.join(root, "app-1.0.8", "resources"), { recursive: true });
     await fs.mkdir(path.join(root, "app-1.0.9", "resources"), { recursive: true });
     await fs.mkdir(path.join(root, ".app-1.0.10.installing", "resources"), {
       recursive: true,
     });
     await fs.writeFile(path.join(root, "Update.exe"), "");
+    const missing = path.join(base, "missing");
     const watched: string[] = [];
     const closed: string[] = [];
     const listeners = new Map<string, (event: string, name: string | null) => void>();
     const events: string[] = [];
     const stop = watchRoots(
-      [root, path.join(base, "missing")],
+      [
+        { rootDir: root, appDir: path.join(root, "app-1.0.9") },
+        { rootDir: root, appDir: path.join(root, "app-1.0.9") },
+        { rootDir: missing, appDir: path.join(missing, "app-1") },
+      ],
       (where, kind) => events.push(`${path.basename(where)}:${kind}`),
       ((dir: string, listener: (event: string, name: string | null) => void) => {
-        if (dir.endsWith("missing")) throw new Error("ENOENT");
+        if (dir.startsWith(missing)) throw new Error("ENOENT");
         watched.push(path.relative(base, dir));
         listeners.set(path.relative(base, dir), listener);
         return {
@@ -530,4 +602,225 @@ test("watchers cover each root and its version folders, survive errors and close
   } finally {
     await fs.rm(base, { recursive: true, force: true });
   }
+});
+
+test("Restart Discord runs under the install lock", async () => {
+  const { h, monitor, cleanup } = await harness();
+  const gate = deferred();
+  try {
+    // A holder outside this call chain owns the lock.
+    const holder = withInstallLock(h.home, () => gate.promise);
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    await assert.rejects(
+      () => monitor.restartAndRepair("stable"),
+      /Another installation operation/,
+    );
+    assert.equal(h.calls.lifecycle, 0);
+    gate.release();
+    await holder;
+    await monitor.restartAndRepair("stable");
+    assert.equal(h.calls.lifecycle, 1);
+  } finally {
+    gate.release();
+    await cleanup();
+  }
+});
+
+test("a failed Restart Discord keeps the archive's attempt budget", async () => {
+  const { h, monitor, cleanup } = await harness();
+  try {
+    h.patchError = () => new Error("boom");
+    await monitor.evaluate(enabled, "staged");
+    await monitor.settled();
+    const before = (await readRecoveryState(h.home)).stable;
+    assert.equal(before?.attempts, 3);
+    h.lifecycleResult = {
+      ok: false,
+      results: [{ ok: false, detail: "Inject failed for C:\\Fixture\\app.asar: invalid asar" }],
+    };
+    await monitor.restartAndRepair("stable");
+    const after = (await readRecoveryState(h.home)).stable;
+    assert.equal(after?.phase, "failed");
+    assert.equal(after?.attempts, 3);
+    assert.equal(after?.signature, before?.signature);
+    assert.equal(after?.detail, "invalid-asar");
+    await monitor.evaluate(enabled, "sweep");
+    await monitor.settled();
+    assert.equal(h.calls.patch, 3, "the click does not reset the cap");
+    assert.deepEqual(h.failures, [`stable:${VERSION}`], "same archive, one notice");
+  } finally {
+    await cleanup();
+  }
+});
+
+function fakeNotices() {
+  const shown: Array<{
+    content: NoticeContent;
+    listeners: Map<string, () => void>;
+    closed: boolean;
+  }> = [];
+  const clicks: string[] = [];
+  const notices = new RecoveryNotices(
+    (content) => {
+      const entry = { content, listeners: new Map<string, () => void>(), closed: false };
+      shown.push(entry);
+      return {
+        on(event: "click" | "action", listener: () => void) {
+          entry.listeners.set(event, listener);
+          return this;
+        },
+        show() {},
+        close() {
+          entry.closed = true;
+        },
+      };
+    },
+    (channel) => clicks.push(channel),
+  );
+  return { notices, shown, clicks };
+}
+
+test("notifications stay clickable after Windows closes the toast, until clicked", () => {
+  const { notices, shown, clicks } = fakeNotices();
+  notices.show("stable", "waiting-for-exit", VERSION);
+  notices.show("stable", "waiting-for-exit", VERSION);
+  assert.equal(shown.length, 1, "one notice per channel and version");
+  assert.equal(shown[0]!.content.title, "Discord updated");
+  assert.equal(shown[0]!.content.body, "Restart Discord to bring Vestra back.");
+  assert.equal(shown[0]!.listeners.has("close"), false, "close does not release");
+  assert.equal(notices.size, 1);
+  notices.phase("stable", "waiting-for-exit", VERSION);
+  assert.equal(notices.size, 1, "still waiting: kept");
+  shown[0]!.listeners.get("click")!();
+  shown[0]!.listeners.get("action")!();
+  assert.deepEqual(clicks, ["stable"], "one restart per notice");
+  assert.equal(notices.size, 0);
+});
+
+test("notifications are withdrawn when the channel leaves their phase or version", () => {
+  const { notices, shown, clicks } = fakeNotices();
+  notices.show("stable", "waiting-for-exit", "1");
+  notices.show("ptb", "waiting-for-exit", "1");
+  notices.phase("stable", "patched", "1");
+  assert.equal(shown[0]!.closed, true);
+  assert.equal(shown[1]!.closed, false, "other channels are untouched");
+  notices.phase("ptb", "waiting-for-exit", "2");
+  assert.equal(shown[1]!.closed, true, "a newer version replaces the notice");
+  notices.show("stable", "failed", "1");
+  assert.equal(shown[2]!.content.title, "Vestra couldn't re-install");
+  notices.phase("stable", "failed", "1");
+  assert.equal(notices.size, 1);
+  notices.phase("stable", "idle", "1");
+  assert.equal(notices.size, 0);
+  assert.deepEqual(clicks, []);
+});
+
+type LoopConfig = { enabled: boolean; channels: DiscordChannel[]; runtime?: string };
+
+function fakeLoop(config: LoopConfig) {
+  const calls: string[] = [];
+  const timers: Array<{ ms: number; callback: () => void }> = [];
+  let handoff: () => Promise<void> = async () => {};
+  let reacquire = true;
+  let onEvent: ((root: string, kind: "staged" | "asar-changed") => void) | undefined;
+  const loop = createRecoveryLoop({
+    readConfig: async () => config,
+    evaluate: async (_config, trigger) => {
+      calls.push(`evaluate:${trigger}`);
+    },
+    targets: async () => [],
+    watch: (_targets, listener) => {
+      onEvent = listener;
+      calls.push("watch");
+      return () => calls.push("unwatch");
+    },
+    isOtherRuntime: (runtime) => runtime !== "self.exe",
+    handoff: async (runtime) => {
+      calls.push(`handoff:${runtime}`);
+      await handoff();
+    },
+    reacquire: () => {
+      calls.push("reacquire");
+      return reacquire;
+    },
+    quit: () => calls.push("quit"),
+    log: (error) => calls.push(`log:${reasonCode(error)}`),
+    setTimeout: (callback, ms) => {
+      timers.push({ ms, callback });
+      return timers.length;
+    },
+    clearTimeout: () => {},
+    setInterval: (callback, ms) => {
+      timers.push({ ms, callback });
+      return 0;
+    },
+    clearInterval: () => calls.push("clear-interval"),
+  });
+  return {
+    loop,
+    calls,
+    timers,
+    event(kind: "staged" | "asar-changed") {
+      onEvent!("root", kind);
+    },
+    failHandoff(error: Error, keepLock = true) {
+      handoff = async () => {
+        throw error;
+      };
+      reacquire = keepLock;
+    },
+  };
+}
+
+test("a failed handoff to the configured runtime keeps recovering in this process", async () => {
+  const f = fakeLoop({ enabled: true, channels: ["stable"], runtime: "other.exe" });
+  f.failHandoff(Object.assign(new Error("spawn failed"), { code: "ENOENT" }));
+  await f.loop.run("sweep");
+  assert.deepEqual(f.calls, [
+    "handoff:other.exe",
+    "log:ENOENT",
+    "reacquire",
+    "evaluate:sweep",
+    "watch",
+  ]);
+  f.calls.length = 0;
+  await f.loop.run("sweep");
+  assert.deepEqual(f.calls, ["evaluate:sweep", "unwatch", "watch"], "no second handoff");
+  assert.ok(f.timers.some((timer) => timer.ms === 600000), "10 min sweep");
+});
+
+test("a handoff that loses the instance lock quits; a successful one quits too", async () => {
+  const lost = fakeLoop({ enabled: true, channels: ["stable"], runtime: "other.exe" });
+  lost.failHandoff(new Error("spawn failed"), false);
+  await lost.loop.run("sweep");
+  assert.ok(lost.calls.includes("quit"));
+  assert.ok(!lost.calls.includes("evaluate:sweep"));
+  const ok = fakeLoop({ enabled: true, channels: ["stable"], runtime: "other.exe" });
+  await ok.loop.run("sweep");
+  assert.deepEqual(ok.calls, ["handoff:other.exe", "clear-interval", "quit"]);
+  const same = fakeLoop({ enabled: true, channels: ["stable"], runtime: "self.exe" });
+  await same.loop.run("sweep");
+  assert.deepEqual(same.calls, ["evaluate:sweep", "watch"]);
+  const off = fakeLoop({ enabled: false, channels: ["stable"] });
+  await off.loop.run("sweep");
+  assert.deepEqual(off.calls, ["clear-interval", "quit"]);
+});
+
+test("archive changes are debounced 5 s; staged folders run at once", async () => {
+  const f = fakeLoop({ enabled: true, channels: ["stable"] });
+  await f.loop.run("sweep");
+  f.calls.length = 0;
+  f.event("asar-changed");
+  f.event("asar-changed");
+  const debounces = f.timers.filter((timer) => timer.ms === 5000);
+  assert.equal(debounces.length, 2);
+  assert.deepEqual(f.calls, [], "nothing before the debounce fires");
+  debounces.at(-1)!.callback();
+  await f.loop.run("staged");
+  f.event("staged");
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  assert.deepEqual(
+    f.calls.filter((call) => call.startsWith("evaluate")),
+    ["evaluate:asar-changed", "evaluate:staged", "evaluate:staged"],
+  );
 });

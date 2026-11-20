@@ -29,24 +29,19 @@ export function classifyResourcesEvent(
   return name(filename)?.toLowerCase() === "app.asar" ? "asar-changed" : null;
 }
 
-function versionResources(root: string): string[] {
-  try {
-    return getRealFs()
-      .readdirSync(root, { withFileTypes: true })
-      .filter((entry) => entry.isDirectory() && /^app-/i.test(entry.name))
-      .map((entry) => path.join(root, entry.name, "resources"))
-      .filter((dir) => getRealFs().existsSync(dir));
-  } catch {
-    return [];
-  }
+/** The folders to watch for one tracked installation. */
+export interface WatchTarget {
+  rootDir: string;
+  appDir: string;
 }
 
 /**
- * Non-recursive watchers on each root and each current `app-*\resources`.
+ * Non-recursive watchers on each tracked root and on each tracked target's
+ * current `app-<v>\resources` only (older version folders are not watched).
  * Any watcher that cannot start or later fails is dropped; the sweep covers it.
  */
 export function watchRoots(
-  roots: string[],
+  targets: WatchTarget[],
   onEvent: (root: string, kind: WatchKind) => void,
   watch: Watch = (dir, listener) => fs.watch(dir, listener),
 ): () => void {
@@ -73,10 +68,17 @@ export function watchRoots(
       /* the sweep covers folders that cannot be watched */
     }
   };
-  for (const root of roots) {
-    open(root, root, classifyRootEvent);
-    for (const resources of versionResources(root))
-      open(resources, root, classifyResourcesEvent);
+  const roots = new Map<string, string>();
+  for (const target of targets)
+    roots.set(path.resolve(target.rootDir).toLowerCase(), target.rootDir);
+  for (const root of roots.values()) open(root, root, classifyRootEvent);
+  const resources = new Set<string>();
+  for (const target of targets) {
+    const dir = path.join(target.appDir, "resources");
+    if (resources.has(dir.toLowerCase()) || !getRealFs().existsSync(dir))
+      continue;
+    resources.add(dir.toLowerCase());
+    open(dir, target.rootDir, classifyResourcesEvent);
   }
   return () => {
     for (const watcher of watchers.splice(0)) {

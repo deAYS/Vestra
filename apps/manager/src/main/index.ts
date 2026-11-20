@@ -12,13 +12,14 @@ import {
   windowsDiscordSystem,
 } from "./discordLifecycle.js";
 import { MaintenanceController, readMaintenance } from "./maintenance.js";
+import { createRecoveryLoop } from "./recovery/loop.js";
 import {
   RecoveryMonitor,
   reasonCode,
   repairFailure,
-  type RecoveryTrigger,
 } from "./recovery/monitor.js";
-import { watchRoots, type WatchKind } from "./recovery/watch.js";
+import { RecoveryNotices } from "./recovery/notices.js";
+import { watchRoots } from "./recovery/watch.js";
 import type { DiscordChannel } from "../shared/channels.js";
 
 const service = createInstallerService(createServiceContext());
@@ -48,14 +49,6 @@ if (!primary) app.exit(0);
 registerManagerIpc(service, lifecycle, maintenance);
 const updates = new ManagerUpdates(service, maintenance);
 updates.register();
-
-const SWEEP_MS = 600_000;
-const ASAR_DEBOUNCE_MS = 5_000;
-const TRIGGER_RANK: Record<RecoveryTrigger, number> = {
-  staged: 0,
-  "asar-changed": 1,
-  sweep: 2,
-};
 
 /** Recovery log lines carry only a reason code: messages can embed paths. */
 function logRecovery(error: unknown): void {
@@ -97,114 +90,53 @@ async function patchWithoutRestart(channel: DiscordChannel): Promise<void> {
 
 async function runRecovery(): Promise<void> {
   const home = service.context.homeDir;
-  // Held so click handlers survive garbage collection.
-  const notices = new Map<string, Notification>();
+  const notices = new RecoveryNotices(
+    (content) => {
+      if (!Notification.isSupported()) return null;
+      return new Notification(content);
+    },
+    (channel) => void monitor.restartAndRepair(channel).catch(logRecovery),
+  );
   const monitor: RecoveryMonitor = new RecoveryMonitor(
     {
       service,
       processesFor: (target) => processesUnder(target),
       isAlive,
       patch: patchWithoutRestart,
-      notify(channel, version) {
-        if (!Notification.isSupported()) return;
-        const key = `${channel}:${version}`;
-        const notice = new Notification({
-          title: "Discord updated",
-          body: "Restart Discord to bring Vestra back.",
-          actions: [{ type: "button", text: "Restart Discord" }],
-        });
-        let clicked = false;
-        const restart = (): void => {
-          notices.delete(key);
-          if (clicked) return;
-          clicked = true;
-          void monitor.restartAndRepair(channel).catch(logRecovery);
-        };
-        notice.on("click", restart);
-        notice.on("action", restart);
-        notice.on("close", () => notices.delete(key));
-        notices.set(key, notice);
-        notice.show();
-      },
+      notify: (channel, version) =>
+        notices.show(channel, "waiting-for-exit", version),
+      notifyFailed: (channel, version) =>
+        notices.show(channel, "failed", version),
+      onPhase: (channel, phase, version) =>
+        notices.phase(channel, phase, version),
       now: () => Date.now(),
       wait: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
       onError: logRecovery,
     },
     lifecycle,
   );
-  let stopWatching = (): void => {};
-  let stopped = false;
-  let busy = false;
-  let queued: RecoveryTrigger | undefined;
-  let debounce: ReturnType<typeof setTimeout> | undefined;
-
-  const onEvent = (_root: string, kind: WatchKind): void => {
-    // Discord's own completion signal: act at once (the monitor settles 1 s).
-    if (kind === "staged") {
-      void run("staged");
-      return;
-    }
-    if (debounce) clearTimeout(debounce);
-    debounce = setTimeout(() => void run("asar-changed"), ASAR_DEBOUNCE_MS);
-  };
-  // One run at a time; a burst collapses into one queued run.
-  const run = async (trigger: RecoveryTrigger): Promise<void> => {
-    if (stopped) return;
-    if (busy) {
-      if (!queued || TRIGGER_RANK[trigger] > TRIGGER_RANK[queued])
-        queued = trigger;
-      return;
-    }
-    busy = true;
-    try {
-      const config = await readMaintenance(home);
-      if (!config.enabled || config.channels.length === 0) {
-        stop();
-        app.quit();
-        return;
-      }
-      if (
-        config.runtime &&
-        path.resolve(config.runtime) !== path.resolve(process.execPath)
-      ) {
-        stop();
-        app.releaseSingleInstanceLock();
-        await windowsDiscordSystem.launch(config.runtime, ["--maintain"]);
-        app.quit();
-        return;
-      }
-      try {
-        await monitor.evaluate(config, trigger);
-      } catch (error) {
-        logRecovery(error);
-      }
-      // Version folders come and go; follow the current ones.
-      if (trigger !== "asar-changed") {
-        const roots = [
-          ...new Set(
-            (await monitor.targets(config)).map((target) => target.rootDir),
-          ),
-        ];
-        stopWatching();
-        stopWatching = watchRoots(roots, onEvent);
-      }
-    } catch (error) {
-      logRecovery(error);
-    } finally {
-      busy = false;
-      const next = queued;
-      queued = undefined;
-      if (next) void run(next);
-    }
-  };
-  const sweepTimer = setInterval(() => void run("sweep"), SWEEP_MS);
-  const stop = (): void => {
-    stopped = true;
-    stopWatching();
-    if (debounce) clearTimeout(debounce);
-    clearInterval(sweepTimer);
-  };
-  await run("sweep");
+  const loop = createRecoveryLoop({
+    readConfig: () => readMaintenance(home),
+    evaluate: (config, trigger) => monitor.evaluate(config, trigger),
+    targets: (config) => monitor.targets(config),
+    watch: watchRoots,
+    isOtherRuntime: (runtime) =>
+      path.resolve(runtime) !== path.resolve(process.execPath),
+    async handoff(runtime) {
+      app.releaseSingleInstanceLock();
+      await windowsDiscordSystem.launch(runtime, ["--maintain"]);
+    },
+    reacquire: () => app.requestSingleInstanceLock(),
+    quit: () => app.quit(),
+    log: logRecovery,
+    setTimeout: (callback, ms) => setTimeout(callback, ms),
+    clearTimeout: (handle) =>
+      clearTimeout(handle as ReturnType<typeof setTimeout>),
+    setInterval: (callback, ms) => setInterval(callback, ms),
+    clearInterval: (handle) =>
+      clearInterval(handle as ReturnType<typeof setInterval>),
+  });
+  await loop.run("sweep");
 }
 
 async function boot(): Promise<void> {

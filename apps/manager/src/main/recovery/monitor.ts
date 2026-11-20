@@ -4,6 +4,7 @@ import {
   layoutHome,
   loadRegistry,
   toErrorCode,
+  withInstallLock,
   type DiscordInstallation,
   type InstallerService,
   type OperationSummary,
@@ -15,6 +16,7 @@ import {
   readRecoveryState,
   writeRecoveryState,
   type ChannelRecovery,
+  type RecoveryPhase,
 } from "./state.js";
 
 export type RecoveryTrigger = "sweep" | "staged" | "asar-changed";
@@ -35,8 +37,16 @@ export interface RecoveryDeps {
   isAlive(pid: number): boolean;
   /** Repair without stopping Discord, under withInstallLock. */
   patch(channel: DiscordChannel): Promise<void>;
-  /** Called once per (channel, version). */
+  /** Called once per (channel, version) when a running version waits for exit. */
   notify(channel: DiscordChannel, version: string): void;
+  /** Called once per (channel, archive) when recovery records `failed`. */
+  notifyFailed?(channel: DiscordChannel, version: string): void;
+  /** Every recorded phase, so notifications can be released when stale. */
+  onPhase?(
+    channel: DiscordChannel,
+    phase: RecoveryPhase,
+    version: string | undefined,
+  ): void;
   now(): number;
   wait(ms: number): Promise<void>;
   /** Failures of background follow-ups, which have no caller to throw to. */
@@ -120,6 +130,7 @@ export class RecoveryMonitor {
   private readonly tasks = new Map<DiscordChannel, Task>();
   private readonly running = new Set<Promise<void>>();
   private readonly notified = new Set<string>();
+  private readonly notifiedFailures = new Set<string>();
   private chain: Promise<unknown> = Promise.resolve();
 
   constructor(
@@ -175,38 +186,46 @@ export class RecoveryMonitor {
       task.cancelled = true;
       this.tasks.delete(channel);
     }
-    await this.exclusive(async () => {
-      const previous = (await readRecoveryState(this.home))[channel];
-      const target = (
-        await this.deps.service.discover({ channels: [channel] })
-      )[0];
-      const version = target ? versionOf(target) : previous?.version;
-      const fail = async (detail: string): Promise<void> =>
-        this.record(channel, {
-          phase: "failed",
+    await this.exclusive(() =>
+      withInstallLock(this.home, async () => {
+        const previous = (await readRecoveryState(this.home))[channel];
+        const target = (
+          await this.deps.service.discover({ channels: [channel] })
+        )[0];
+        const version = target ? versionOf(target) : previous?.version;
+        const fail = async (detail: string): Promise<void> => {
+          // Keep the archive's attempt budget: a click never resets the cap.
+          const signature =
+            (target ? await this.signature(target) : null) ??
+            previous?.signature;
+          await this.record(channel, {
+            phase: "failed",
+            ...(version === undefined ? {} : { version }),
+            at: this.deps.now(),
+            attempts: previous?.attempts ?? 0,
+            detail,
+            ...(signature === undefined ? {} : { signature }),
+          });
+        };
+        try {
+          const result = await this.lifecycle.run("repair", channel);
+          if (!result.ok) {
+            const detail = result.results.find((item) => !item.ok)?.detail;
+            await fail(toErrorCode(detail));
+            return;
+          }
+        } catch (error) {
+          await fail(reasonCode(error));
+          throw error;
+        }
+        await this.record(channel, {
+          phase: "patched",
           ...(version === undefined ? {} : { version }),
           at: this.deps.now(),
-          attempts: previous?.attempts ?? 0,
-          detail,
+          attempts: 0,
         });
-      try {
-        const result = await this.lifecycle.run("repair", channel);
-        if (!result.ok) {
-          const detail = result.results.find((item) => !item.ok)?.detail;
-          await fail(toErrorCode(detail));
-          return;
-        }
-      } catch (error) {
-        await fail(reasonCode(error));
-        throw error;
-      }
-      await this.record(channel, {
-        phase: "patched",
-        ...(version === undefined ? {} : { version }),
-        at: this.deps.now(),
-        attempts: 0,
-      });
-    });
+      }),
+    );
   }
 
   /** Resolves once queued evaluations and background follow-ups have finished. */
@@ -284,34 +303,35 @@ export class RecoveryMonitor {
       // the attempts stay with what is on disk now, or the cap would reset.
       const current = (await this.signature(target)) ?? signature;
       if (isInUse(error)) {
-        await this.record(channel, {
-          phase: "waiting-for-exit",
-          version,
-          at: this.deps.now(),
-          attempts,
-          detail: "in-use",
-          signature: current,
-        });
-        // One fresh look; with nothing to wait for, the next event or sweep retries.
+        // Discord started meanwhile: wait for it, without spending an attempt.
         const pids = await this.deps.processesFor(target);
-        if (pids.length > 0)
+        if (pids.length > 0) {
           await this.waitForExit(target, version, current, attempts, pids);
+          return;
+        }
+        // Locked with no Discord running (scanner, another tool): capped.
+        await this.failedAttempt(target, version, current, attempts, "blocked");
         return;
       }
-      const next = attempts + 1;
-      const failed = next >= MAX_ATTEMPTS;
-      await this.record(channel, {
-        phase: failed ? "failed" : "idle",
+      await this.failedAttempt(
+        target,
         version,
-        at: this.deps.now(),
-        attempts: next,
-        detail: reasonCode(error),
-        signature: current,
-      });
-      if (!failed)
-        this.schedule(channel, "retry", () =>
-          this.deps.wait(BACKOFF_MS[next - 1]!),
-        );
+        current,
+        attempts,
+        reasonCode(error),
+      );
+      return;
+    }
+    // A repair that reports success must also verify; otherwise it counts.
+    if (!(await this.healthy(target))) {
+      const current = (await this.signature(target)) ?? signature;
+      await this.failedAttempt(
+        target,
+        version,
+        current,
+        attempts,
+        "verification-failed",
+      );
       return;
     }
     await this.record(channel, {
@@ -320,6 +340,31 @@ export class RecoveryMonitor {
       at: this.deps.now(),
       attempts: 0,
     });
+  }
+
+  /** Spends one attempt: back off while retries remain, else record `failed`. */
+  private async failedAttempt(
+    target: DiscordInstallation,
+    version: string,
+    signature: string,
+    attempts: number,
+    detail: string,
+  ): Promise<void> {
+    const { channel } = target;
+    const next = attempts + 1;
+    const failed = next >= MAX_ATTEMPTS;
+    await this.record(channel, {
+      phase: failed ? "failed" : "idle",
+      version,
+      at: this.deps.now(),
+      attempts: next,
+      detail,
+      signature,
+    });
+    if (!failed)
+      this.schedule(channel, "retry", () =>
+        this.deps.wait(BACKOFF_MS[next - 1]!),
+      );
   }
 
   private async waitForExit(
@@ -433,5 +478,22 @@ export class RecoveryMonitor {
     const state = await readRecoveryState(this.home);
     state[channel] = entry;
     await writeRecoveryState(this.home, state);
+    this.observe(() => this.deps.onPhase?.(channel, entry.phase, entry.version));
+    if (entry.phase !== "failed") return;
+    const key = `${channel}:${entry.signature ?? entry.version ?? ""}`;
+    if (this.notifiedFailures.has(key)) return;
+    this.notifiedFailures.add(key);
+    this.observe(() =>
+      this.deps.notifyFailed?.(channel, entry.version ?? ""),
+    );
+  }
+
+  /** Observers (notifications) never break recovery. */
+  private observe(callback: () => void): void {
+    try {
+      callback();
+    } catch (error) {
+      this.deps.onError?.(error);
+    }
   }
 }
