@@ -305,6 +305,49 @@ test("a pending start that resolves after the plugin was disabled is stopped onc
   assert.equal(manager.isEnabled("Gone"), false);
 });
 
+test("a start interrupted by shutdown that settles while shutdown is still running never starts again", async () => {
+  const clock = fakeTimers();
+  const settings = new SettingsStore();
+  const inner = createSettingsEnabledStateStorage(settings);
+  let saves = 0;
+  const storage = {
+    loadEnabledStates: () => inner.loadEnabledStates(),
+    saveEnabledStates: (states: Readonly<Record<string, boolean>>) => { saves++; inner.saveEnabledStates(states); },
+  };
+  const patcher = new Patcher();
+  const manager = new PluginManager(storage, recordingLogger().logger, patcher, { timers: clock.timers });
+  const target = { value: () => 1 };
+  const x = slowPatchingPlugin("X", patcher, target);
+  manager.register({ ...x.definition, enabledByDefault: true });
+  let releaseY!: () => void;
+  manager.register({ ...fixture, name: "Y", enabledByDefault: true, start() {}, stop: () => new Promise<void>((resolve) => { releaseY = resolve; }) });
+  const booting = manager.startEnabled();
+  await clock.advance(PLUGIN_START_TIMEOUT_MS);
+  await booting;
+  assert.equal(manager.isStarted("X"), false, "X timed out during boot");
+  assert.equal(manager.isStarted("Y"), true);
+  const down = manager.shutdown();
+  await clock.drain();
+  await clock.drain();
+  // Shutdown has passed X (interrupting its pending start) and awaits Y's async stop.
+  const savesBeforeSettle = saves;
+  x.finishers[0]!();
+  await clock.drain();
+  await clock.drain();
+  assert.equal(x.counts.starts, 1, "no fresh start once shutdown was requested");
+  assert.equal(saves, savesBeforeSettle, "nothing is persisted while shutdown is running");
+  releaseY();
+  await down;
+  const savesAfterShutdown = saves;
+  await clock.advance(PLUGIN_START_TIMEOUT_MS);
+  assert.equal(x.counts.starts, 1);
+  assert.equal(x.counts.stops, 1, "the late start is undone");
+  assert.equal(manager.isStarted("X"), false);
+  assert.equal(target.value(), 1, "no patches are left behind");
+  assert.equal(saves, savesAfterShutdown, "nothing is persisted after shutdown");
+  assert.equal(settings.getEnabled("X"), true, "flags are kept for the next launch");
+});
+
 test("toggles made during boot are never overridden by the boot", async () => {
   const { clock, manager, settings } = setup();
   let releaseA!: () => void;
@@ -536,7 +579,8 @@ test("runtime start mounts the overlay before any plugin starts", async () => {
       },
     });
     await act(async () => { await runtime.start(); });
-    await probeRan.promise;
+    const tick = (): Promise<void> => new Promise<void>((resolve) => setImmediate(resolve));
+    assert.equal(await settles(probeRan.promise, tick, 200), true, "the probe plugin started");
     assert.equal(overlayAtStart, true);
   } finally {
     await act(async () => { await runtime.stop(); await runtime.Plugins.disable("MountOrderProbe"); runtime.Toasts.clear(); });

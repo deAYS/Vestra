@@ -168,8 +168,12 @@ export class PluginManager {
   private readonly timers: PluginManagerTimers;
   /** The boot currently running in `startEnabled()`, if any. */
   private boot: BootRun | undefined;
-  /** Set by `shutdown()`; late starts never restart and nothing persists. */
-  private isShutDown = false;
+  /**
+   * Set as soon as stop is requested (`abortBoot()`/`shutdown()`), cleared by
+   * the next boot. While set, an interrupted late start is only undone, never
+   * restarted, so nothing starts or persists behind a running shutdown.
+   */
+  private stopRequested = false;
   /** Built-in definitions by name; other plugins may not take these names. */
   private readonly reserved = new Map<string, PluginDefinition>();
 
@@ -362,7 +366,7 @@ export class PluginManager {
   }
 
   private canRestart(state: MutablePluginState): boolean {
-    return state.enabled && !this.isShutDown;
+    return state.enabled && !this.stopRequested;
   }
 
   /** Undo whatever a settled start left behind. Never changes `enabled` or persists. */
@@ -450,6 +454,7 @@ export class PluginManager {
 
   /** Stop the running boot after the start in flight; no further plugin starts. */
   abortBoot(): void {
+    this.stopRequested = true;
     if (this.boot !== undefined) this.boot.aborted = true;
   }
 
@@ -476,7 +481,6 @@ export class PluginManager {
       });
     }
     this.persist();
-    this.isShutDown = true;
   }
 
   /**
@@ -485,7 +489,7 @@ export class PluginManager {
    * `abortBoot()`/`shutdown()` stops the loop after the start in flight.
    */
   async startEnabled(): Promise<void> {
-    this.isShutDown = false;
+    this.stopRequested = false;
     const boot: BootRun = { aborted: false };
     this.boot = boot;
     try {
