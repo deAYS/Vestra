@@ -480,3 +480,67 @@ test("late results of older writes never override the banner or a clean flush", 
   await clock.advance(0);
   assert.ok(settings.getPersistenceStatus().error, "the newest result wins");
 });
+
+test("an out-of-range appearance value resets only that field and keeps the theme and its CSS", async () => {
+  const css = "/** @name Saved */\n:root{--text-link:#abc}";
+  const saved = {
+    plugins: {},
+    customCss: { enabled: false, css: "" },
+    themes: [
+      {
+        id: "saved-theme",
+        name: "Saved",
+        author: "Fixture",
+        css,
+        enabled: true,
+        customization: { opacity: 61, blur: 480, radius: "round", glowColor: "#aabbee", unknownField: 1 },
+      },
+      { id: "plain-theme", name: "Plain", author: "Fixture", css: "a{}", enabled: false, customization: "broken" },
+      { id: "bad id!", name: "Dropped", css: "a{}", enabled: false },
+    ],
+  };
+  let disk: string | undefined = JSON.stringify(saved);
+  const warnings: unknown[][] = [];
+  const logger = {
+    scope: "Settings",
+    debug() {},
+    log() {},
+    info() {},
+    warn(...args: readonly unknown[]) {
+      warnings.push([...args]);
+    },
+    error() {},
+    captureError() {},
+  };
+  const settings = new SettingsStore(logger);
+  await settings.connectStorage({
+    async readSettingsFile() {
+      return disk;
+    },
+    async writeSettingsFile(text: string) {
+      disk = text;
+    },
+  });
+  const themes = settings.getThemes();
+  assert.deepEqual(themes.map((theme) => theme.id), ["saved-theme", "plain-theme"]);
+  const repaired = themes[0]!;
+  assert.equal(repaired.css, css);
+  assert.equal(repaired.enabled, true);
+  assert.equal(repaired.customization?.blur, 26, "blur falls back to its default");
+  assert.equal(repaired.customization?.radius, 22, "radius falls back to its default");
+  assert.equal(repaired.customization?.opacity, 61, "valid fields are kept");
+  assert.equal(repaired.customization?.glowColor, "#aabbee");
+  assert.equal(themes[1]?.customization, undefined, "an unreadable appearance is dropped");
+  assert.equal(themes[1]?.css, "a{}");
+  const themeWarnings = warnings.filter((args) => String(args[0]).includes("appearance"));
+  assert.equal(themeWarnings.filter((args) => String(args[0]).includes("Saved")).length, 1, "one warning per theme");
+  assert.match(String(themeWarnings[0]![0]), /blur/);
+  assert.ok(!String(themeWarnings[0]![0]).includes("480"), "values are not logged");
+  // The repair is saved, so the next launch loads cleanly without warnings.
+  assert.equal(JSON.parse(disk!).themes[0].customization.blur, 26);
+  warnings.length = 0;
+  const next = new SettingsStore(logger);
+  await next.connectStorage({ async readSettingsFile() { return disk; }, async writeSettingsFile(text: string) { disk = text; } });
+  assert.equal(next.getThemes()[0]?.customization?.blur, 26);
+  assert.equal(warnings.filter((args) => String(args[0]).includes("appearance")).length, 0);
+});

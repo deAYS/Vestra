@@ -224,6 +224,49 @@ interface LoadResult {
   migrated: boolean;
 }
 
+/**
+ * Validate one saved appearance field by field: invalid values fall back to
+ * their defaults. A value that is not an object at all is dropped.
+ */
+function repairCustomization(raw: unknown): {
+  customization: ThemeCustomization | undefined;
+  invalid: string[];
+} {
+  if (!isRecord(raw)) return { customization: undefined, invalid: ["appearance"] };
+  const fields: Record<string, unknown> = {};
+  const invalid: string[] = [];
+  for (const [key, schema] of Object.entries(ThemeCustomizationSchema.shape)) {
+    const checked = schema.safeParse(raw[key]);
+    if (checked.success) fields[key] = checked.data;
+    else invalid.push(key);
+  }
+  return { customization: ThemeCustomizationSchema.parse(fields), invalid };
+}
+
+/** A theme whose only problem is its appearance keeps its CSS; one warning per theme. */
+function loadTheme(
+  raw: unknown,
+  logger: ScopedLogger,
+): { theme?: Theme; repaired: boolean } {
+  const checked = ThemeSchema.safeParse(raw);
+  if (checked.success) return { theme: checked.data, repaired: false };
+  if (!isRecord(raw) || raw["customization"] === undefined)
+    return { repaired: false };
+  const { customization: rawCustomization, ...rest } = raw;
+  const base = ThemeSchema.safeParse(rest);
+  if (!base.success) return { repaired: false };
+  const { customization, invalid } = repairCustomization(rawCustomization);
+  logger.warn(
+    `Settings: theme "${base.data.name}" had invalid appearance values (${invalid.join(", ")}); ${
+      customization ? "reset them to defaults" : "removed its appearance"
+    }.`,
+  );
+  return {
+    theme: customization ? { ...base.data, customization } : base.data,
+    repaired: true,
+  };
+}
+
 /** Normalize parsed JSON into settings, salvaging valid fields and migrating legacy shapes. */
 function normalizeParsed(parsed: unknown, logger: ScopedLogger): LoadResult {
   let migrated = false;
@@ -337,10 +380,11 @@ function normalizeParsed(parsed: unknown, logger: ScopedLogger): LoadResult {
   const ids = new Set<string>();
   if (Array.isArray(parsed["themes"])) {
     for (const raw of parsed["themes"].slice(0, 32)) {
-      const checked = ThemeSchema.safeParse(raw);
-      if (checked.success && !ids.has(checked.data.id)) {
-        ids.add(checked.data.id);
-        themes.push(checked.data);
+      const loaded = loadTheme(raw, logger);
+      if (loaded.repaired) migrated = true;
+      if (loaded.theme && !ids.has(loaded.theme.id)) {
+        ids.add(loaded.theme.id);
+        themes.push(loaded.theme);
       }
     }
   }

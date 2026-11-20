@@ -15,31 +15,72 @@ const readableSurfaces = glassCss.slice(
   glassCss.indexOf("/* Readable glass surfaces */"),
 );
 
-/** Only the backdrop is filtered; text, avatars and shared images keep their colors. */
-export function themeCustomizationCss(
-  theme: Pick<Theme, "css" | "customization">,
-): string {
-  if (!theme.customization) return "";
-  const c = ThemeCustomizationSchema.parse(theme.customization);
-  const authoredColor = (token: string, fallback: string): string =>
-    theme.css.match(
+type ThemeInput = Pick<Theme, "css" | "customization">;
+
+/** Small insertion-ordered cache; the oldest entry goes first when full. */
+function boundedCache<V>(capacity: number) {
+  const entries = new Map<string, V>();
+  return {
+    get(key: string): V | undefined {
+      const value = entries.get(key);
+      if (value !== undefined) {
+        entries.delete(key);
+        entries.set(key, value);
+      }
+      return value;
+    },
+    set(key: string, value: V): void {
+      entries.delete(key);
+      if (entries.size >= capacity)
+        entries.delete(entries.keys().next().value as string);
+      entries.set(key, value);
+    },
+  };
+}
+
+interface AuthoredFacts {
+  /** `background-tertiary`, else `background-primary`, else undefined. */
+  base: string | undefined;
+  paneRgb: string;
+  popupRgb: string;
+  wallpaper: string | undefined;
+}
+
+/** The regex pass over the theme's own CSS depends on the CSS alone. */
+const authoredFactsCache = boundedCache<AuthoredFacts>(8);
+
+function authoredFacts(css: string): AuthoredFacts {
+  const cached = authoredFactsCache.get(css);
+  if (cached) return cached;
+  const authoredColor = (token: string): string | undefined =>
+    css.match(
       new RegExp(`--${token}:\\s*(#[\\da-f]{6})(?:[\\da-f]{2})?\\b`, "i"),
-    )?.[1] ?? fallback;
+    )?.[1];
   const rgbColor = (hex: string): string =>
     [1, 3, 5]
       .map((index) => parseInt(hex.slice(index, index + 2), 16))
       .join(" ");
-  const base =
-    c.backgroundColor ||
-    authoredColor(
-      "background-tertiary",
-      authoredColor("background-primary", "#262132"),
-    );
-  const paneRgb = rgbColor(authoredColor("background-primary", "#16121e"));
-  const popupRgb = rgbColor(authoredColor("background-floating", "#181520"));
-  const originalWallpaper =
-    theme.css.match(/#app-mount\s*\{\s*background:([^;]+)!important;/)?.[1] ||
-    base;
+  const primary = authoredColor("background-primary");
+  const facts: AuthoredFacts = {
+    base: authoredColor("background-tertiary") ?? primary,
+    paneRgb: rgbColor(primary ?? "#16121e"),
+    popupRgb: rgbColor(authoredColor("background-floating") ?? "#181520"),
+    wallpaper:
+      css.match(/#app-mount\s*\{\s*background:([^;]+)!important;/)?.[1] ||
+      undefined,
+  };
+  authoredFactsCache.set(css, facts);
+  return facts;
+}
+
+/** Only the backdrop is filtered; text, avatars and shared images keep their colors. */
+export function themeCustomizationCss(theme: ThemeInput): string {
+  if (!theme.customization) return "";
+  const c = ThemeCustomizationSchema.parse(theme.customization);
+  const authored = authoredFacts(theme.css);
+  const base = c.backgroundColor || (authored.base ?? "#262132");
+  const { paneRgb, popupRgb } = authored;
+  const originalWallpaper = authored.wallpaper || base;
   const wallpaper = c.backgroundImage
     ? `url(${JSON.stringify(c.backgroundImage)}) center/cover no-repeat,${base}`
     : c.backgroundColor
@@ -84,8 +125,42 @@ ${typography}
 `;
 }
 
-export function customizedThemeCss(
-  theme: Pick<Theme, "css" | "customization">,
-): string {
-  return theme.css + themeCustomizationCss(theme);
+/** Same customization values; snapshots are copies, so compare fields, not identity. */
+function sameCustomization(
+  a: ThemeCustomization | undefined,
+  b: ThemeCustomization | undefined,
+): boolean {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  const keys = Object.keys(a) as (keyof ThemeCustomization)[];
+  if (keys.length !== Object.keys(b).length) return false;
+  return keys.every((key) => a[key] === b[key]);
 }
+
+/**
+ * Memoise a theme CSS generator on its inputs (theme CSS + customization
+ * values). Entries hold large strings, so only a few distinct themes are kept.
+ */
+export function memoizeThemeCss(
+  generate: (theme: ThemeInput) => string,
+  capacity = 8,
+): (theme: ThemeInput) => string {
+  const cache = boundedCache<{
+    customization: ThemeCustomization | undefined;
+    output: string;
+  }>(capacity);
+  return (theme) => {
+    const hit = cache.get(theme.css);
+    if (hit && sameCustomization(hit.customization, theme.customization))
+      return hit.output;
+    const output = generate(theme);
+    cache.set(theme.css, {
+      customization: theme.customization && { ...theme.customization },
+      output,
+    });
+    return output;
+  };
+}
+
+export const customizedThemeCss: (theme: ThemeInput) => string =
+  memoizeThemeCss((theme) => theme.css + themeCustomizationCss(theme));

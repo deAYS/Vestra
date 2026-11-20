@@ -3,6 +3,7 @@ import {
   applyThemePreset,
   importTheme,
   refreshLocalThemes,
+  removeTheme,
   THEME_LIBRARY,
 } from "../themes.js";
 import { Native } from "../api/native.js";
@@ -88,10 +89,7 @@ export function ThemesPage({ settings }: PageProps): JSX.Element {
   const remove = async (theme: Theme): Promise<void> => {
     setPending(true);
     try {
-      if (theme.sourceFile) await Native.removeThemeFile(theme.sourceFile);
-      settings.setThemes(
-        settings.getThemes().filter((entry) => entry.id !== theme.id),
-      );
+      await removeTheme(settings, theme);
       setError("");
     } catch (problem) {
       setError(problem instanceof Error ? problem.message : String(problem));

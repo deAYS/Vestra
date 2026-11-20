@@ -1,4 +1,9 @@
-import { Settings, type SettingsStore, type Theme } from "./api/settings.js";
+import {
+  Settings,
+  type SettingsStore,
+  type Theme,
+  type VestraSettings,
+} from "./api/settings.js";
 import { Styles, type StylesManager } from "./api/styles.js";
 import { Native, type NativeBridge } from "./api/native.js";
 import glassCss from "../../../themes/liquid-glass.theme.css";
@@ -377,6 +382,8 @@ function parseTheme(css: string, filename: string): Theme {
   return theme;
 }
 
+const MAX_THEMES = 32;
+
 export async function refreshLocalThemes(
   store: SettingsStore = Settings,
   native: Pick<NativeBridge, "readThemeFiles"> = Native,
@@ -390,6 +397,8 @@ export async function refreshLocalThemes(
       ? { sourceMissing: !names.has(theme.sourceFile) }
       : {}),
   }));
+  // The cap only refuses new files; themes already in the library keep refreshing.
+  let refused = false;
   for (const file of files) {
     const existing = next.find((theme) => theme.sourceFile === file.filename);
     if (!file.source.trim()) {
@@ -407,6 +416,8 @@ export async function refreshLocalThemes(
           sourceMissing: false,
         });
       }
+    } else if (next.length >= MAX_THEMES) {
+      refused = true;
     } else {
       next.push({
         ...parseTheme(file.source, file.filename),
@@ -415,12 +426,88 @@ export async function refreshLocalThemes(
       });
     }
   }
-  if (next.length > 32)
+  if (JSON.stringify(next) !== JSON.stringify(current)) store.setThemes(next);
+  upgradeBuiltinThemes(store);
+  if (refused)
     throw new Error(
       "Your library is full (32 themes). Remove a theme before importing more files.",
     );
-  if (JSON.stringify(next) !== JSON.stringify(current)) store.setThemes(next);
-  upgradeBuiltinThemes(store);
+}
+
+/** Errors crossing the IPC bridge keep only their message, not `code`. */
+function isMissingFileError(error: unknown): boolean {
+  const code = (error as { code?: unknown } | null)?.code;
+  return (
+    code === "ENOENT" ||
+    /\bENOENT\b/.test(error instanceof Error ? error.message : String(error))
+  );
+}
+
+/** Remove a theme and its local file; a file that is already gone counts as removed. */
+export async function removeTheme(
+  store: SettingsStore,
+  theme: Pick<Theme, "id" | "sourceFile">,
+  native: Pick<NativeBridge, "removeThemeFile"> = Native,
+): Promise<void> {
+  if (theme.sourceFile) {
+    try {
+      await native.removeThemeFile(theme.sourceFile);
+    } catch (error) {
+      if (!isMissingFileError(error)) throw error;
+    }
+  }
+  store.setThemes(store.getThemes().filter((entry) => entry.id !== theme.id));
+}
+
+/**
+ * Content tokens for large strings: equal text gets the same token, changed
+ * text a new one. Only strings seen by the previous key stay referenced, and
+ * an unchanged string is the same object, so lookups stay cheap.
+ */
+let keyTokens = new Map<string, number>();
+let nextKeyToken = 0;
+
+/**
+ * Everything the theme styles are built from: enabled theme ids, their CSS and
+ * customization values, and the QuickCSS state the theme nodes are ordered
+ * against. Equal keys mean equal inputs; unrelated settings never change it.
+ */
+export function themeSyncKey(
+  state: Pick<VestraSettings, "themes" | "customCss">,
+): string {
+  const seen = new Map<string, number>();
+  const token = (text: string): string => {
+    let value = seen.get(text) ?? keyTokens.get(text);
+    if (value === undefined) value = ++nextKeyToken;
+    seen.set(text, value);
+    return `${text.length}#${value}`;
+  };
+  const key = JSON.stringify({
+    themes: state.themes
+      .filter((theme) => theme.enabled)
+      .map((theme) => [
+        theme.id,
+        token(theme.css),
+        theme.customization
+          ? {
+              ...theme.customization,
+              backgroundImage: token(theme.customization.backgroundImage),
+            }
+          : null,
+      ]),
+    quickCss: [state.customCss.enabled, state.customCss.css.length],
+  });
+  keyTokens = seen;
+  return key;
+}
+
+function isStylesheet(node: Element): boolean {
+  const tag = node.tagName.toLowerCase();
+  return (
+    tag === "style" ||
+    (tag === "link" &&
+      (node.getAttribute("rel") ?? "").toLowerCase().split(/\s+/).includes("stylesheet"))
+  );
 }
 
 /** Reconcile ordered theme styles; QuickCSS always wins at equal specificity. */
@@ -431,8 +518,47 @@ export function startThemes(
   const doc = typeof document !== "undefined" ? document : undefined;
   upgradeBuiltinThemes(store);
   const owned = new Set<string>();
-  const sync = (): void => {
-    const active = store.getThemes().filter((theme) => theme.enabled);
+  let activeIds: string[] = [];
+  let lastKey: string | undefined;
+  const styleNode = (id: string): Element | null =>
+    doc?.querySelector(`style[data-vestra-style="${id}"]`) ?? null;
+  /**
+   * Theme styles, then QuickCSS, must follow every other stylesheet in
+   * <head> (Discord's and other Vestra styles alike, as before). Move them in
+   * one append only when that order is broken; never touch their text.
+   */
+  const ensureOrder = (): void => {
+    const head = doc?.head;
+    if (!head) return;
+    const ordered = activeIds
+      .map((id) => styleNode(`theme-${id}`))
+      .filter((node): node is Element => node !== null);
+    const quick = styleNode("quickcss");
+    if (quick) ordered.push(quick);
+    if (!ordered.length) return;
+    const wanted = new Set<Element>(ordered);
+    let position = 0;
+    let inOrder = true;
+    for (const child of head.children) {
+      if (wanted.has(child)) {
+        if (child !== ordered[position]) {
+          inOrder = false;
+          break;
+        }
+        position++;
+      } else if (position > 0 && isStylesheet(child)) {
+        inOrder = false;
+        break;
+      }
+    }
+    if (inOrder && position === ordered.length) return;
+    const batch = doc!.createDocumentFragment();
+    for (const node of ordered) batch.appendChild(node);
+    head.appendChild(batch);
+  };
+  const apply = (themes: readonly Theme[]): void => {
+    const active = themes.filter((theme) => theme.enabled);
+    activeIds = active.map((theme) => theme.id);
     const desired = new Set(active.map((theme) => `theme-${theme.id}`));
     if (active.length) desired.add("theme-profile-surfaces");
     if (active.length) desired.add("theme-autocomplete-states");
@@ -456,21 +582,23 @@ export function startThemes(
       );
       owned.add("theme-profile-surfaces");
     }
-    if (doc) {
-      const quick = doc.querySelector('[data-vestra-style="quickcss"]');
-      if (quick && quick.parentNode && quick !== quick.parentNode.lastChild)
-        quick.parentNode.appendChild(quick);
-      for (const theme of active) {
-        const el = doc.querySelector(`[data-vestra-style="theme-${theme.id}"]`);
-        if (quick && el && quick.parentNode && el.nextSibling !== quick)
-          quick.parentNode.insertBefore(el, quick);
-        else if (!quick && el?.parentNode && el !== el.parentNode.lastChild)
-          el.parentNode.appendChild(el);
-      }
-    }
+    ensureOrder();
+  };
+  /** Settings path: rebuild styles only when the theme inputs changed. */
+  const sync = (
+    state: Pick<VestraSettings, "themes" | "customCss"> = {
+      themes: store.getThemes(),
+      customCss: store.getCustomCss(),
+    },
+    force = false,
+  ): void => {
+    const key = themeSyncKey(state);
+    if (!force && key === lastKey) return;
+    lastKey = key;
+    apply(state.themes);
   };
   sync();
-  const unsubscribe = store.subscribe(sync);
+  const unsubscribe = store.subscribe((snapshot) => sync(snapshot));
   let active = true;
   let scheduled = false;
   let headObserver: MutationObserver | undefined;
@@ -478,23 +606,25 @@ export function startThemes(
   const Observer =
     doc?.defaultView?.MutationObserver ?? globalThis.MutationObserver;
   if (doc && typeof Observer !== "undefined") {
+    /** DOM path: re-attach removed nodes, otherwise only check the order. */
+    const check = (): void => {
+      if ([...owned].some((id) => !styleNode(id)?.isConnected))
+        sync(undefined, true);
+      else ensureOrder();
+    };
     const schedule = (): void => {
       if (scheduled || !active) return;
       scheduled = true;
       queueMicrotask(() => {
         scheduled = false;
-        if (active) sync();
+        if (active) check();
       });
     };
     const observeHead = (): void => {
       headObserver?.disconnect();
       if (doc.head) {
         headObserver = new Observer(schedule);
-        headObserver.observe(doc.head, {
-          childList: true,
-          subtree: true,
-          characterData: true,
-        });
+        headObserver.observe(doc.head, { childList: true });
       }
       schedule();
     };

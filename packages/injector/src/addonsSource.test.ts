@@ -151,3 +151,14 @@ test("theme imports preserve existing files and reject paths, invalid content an
     await f.cleanup();
   }
 });
+
+test("removing a theme file that is already gone counts as removed", async () => {
+  const f = await fixture();
+  try {
+    await f.api.addonFolder("themes");
+    assert.equal(await f.api.removeThemeFile("missing.css"), true);
+    await assert.rejects(() => f.api.removeThemeFile("../missing.css"), /Invalid/);
+  } finally {
+    await f.cleanup();
+  }
+});
