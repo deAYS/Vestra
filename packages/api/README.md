@@ -73,11 +73,23 @@ export default definePlugin({
 ```
 
 Settings changes do not restart a plugin. Read them when handling an action or
-subscribe in `start()` and unsubscribe in `stop()`. Validate values before use;
+subscribe in `start()` and unsubscribe in `stop()`. Plugin settings must be
+JSON data (strings, numbers, booleans, null, arrays and plain objects). The host
+saves settings shortly after changes stop, so do not write them in a tight loop.
+Validate values before use;
 preferences can also be edited outside the panel. Keybind fields store a combo
 string; the plugin implements its action. The host handles the common plugin
 toggle shortcut. `Settings.activateTheme(id)` selects a single theme; `null`
 returns to Discord's appearance.
+
+`start()` is limited to 15 seconds. If it has not finished by then, the plugin
+stays enabled, the error shows on its card and the start is retried at the next
+launch. Plugins start in the background, after Vestra's own interface. A plugin
+named like a built-in plugin is skipped with a console warning.
+
+`Webpack.waitFor` wakes when Discord registers a module, with a fallback check
+every 250 ms; `intervalMs` is still accepted but no longer changes timing. The
+`Patcher` also supports class components.
 
 Use the exact plugin name as the patch owner. Stop must undo every timer, event
 listener, style and subscription created by start. The host removes owned patches
