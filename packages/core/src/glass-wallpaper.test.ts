@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { Window } from "happy-dom";
 import { createGlassRenderer, type GlassInputs } from "./glassWallpaper.js";
+import { DEFAULT_THEME_CUSTOMIZATION, glassInputs } from "./themeCustomization.js";
 
 const IMAGE = "data:image/png;base64,aGVsbG8=";
 const VARIABLE = "--vestra-glass-image";
@@ -548,4 +549,34 @@ test("the late-pane watcher gives up after a while and stops with the renderer",
   await settle();
   again.renderer.stop();
   assert.equal(again.activeObservers().length, 0, "stop disconnects it");
+});
+
+test("an undrawable non-flat wallpaper uses the blurred layer, never tints", async () => {
+  const h = harness();
+  h.renderer.update(inputs({ image: null, css: null, forceLayer: true }));
+  await settle();
+  assert.equal(h.mode(), "layer");
+  assert.equal(h.loads.length, 0, "nothing is drawn");
+  assert.equal(h.listeners(), 0, "the layer does not follow window size");
+  assert.deepEqual(h.lines, ["[Vestra] glass mode: layer (undrawable)"]);
+  h.renderer.update(inputs({ image: null, css: null, forceLayer: true, blur: 0 }));
+  await settle();
+  assert.equal(h.mode(), "tint", "without blur there is nothing to blur");
+});
+
+test("customized themes with an image wallpaper end in image or layer mode", async () => {
+  const custom = { ...DEFAULT_THEME_CUSTOMIZATION, blur: 18 };
+  const cases: Array<[string, boolean, string]> = [
+    ["#app-mount{background:url(\"data:image/png;base64,QQ==\") center/cover no-repeat,#101010!important;}", false, "image"],
+    [":root{--vestra-wallpaper:url(https://example.com/a.png) center/cover}", true, "layer"],
+    [":root{--vestra-wallpaper:var(--my-wallpaper)}", false, "layer"],
+  ];
+  for (const [css, failLoad, mode] of cases) {
+    const h = harness({ failLoad });
+    const wallpaper = glassInputs({ css, customization: custom });
+    assert.ok(wallpaper, css);
+    h.renderer.update(wallpaper);
+    await settle();
+    assert.equal(h.mode(), mode, css);
+  }
 });

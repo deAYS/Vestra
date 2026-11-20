@@ -204,8 +204,10 @@ re-rendered after a resize or zoom settles. Gaps between panes keep the sharp
 wallpaper; small popouts and menus keep live blur.
 
 Fallbacks, in order: one fixed blurred layer when the image cannot be read
-(a cross-origin image without CORS) or when a pane ancestor is transformed; a
-plain tint when there is nothing to blur. The renderer logs
+(a cross-origin image without CORS), cannot be drawn at all (a wallpaper built
+from CSS variables, or an image laid out other than `center/cover`), or when a
+pane ancestor is transformed; a plain tint when there is nothing to blur (a flat
+colour, or no blur). The renderer logs
 `[Vestra] glass mode: <image|layer|tint> (<reason>)`. Liquid Glass 2.2.0 upgrades
 automatically and customizations are kept. These are fixture checks, not a
 logged-in Discord validation.

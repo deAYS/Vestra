@@ -15,16 +15,22 @@
  * Modes, on `<html data-vestra-glass>`:
  * - `image`: the blurred image is in `--vestra-glass-image`;
  * - `layer`: the wallpaper cannot be read into a canvas (cross-origin without
- *   CORS, decode error), or a pane has a transformed ancestor (a fixed
- *   background would then scroll with it); CSS blurs the one fixed wallpaper
- *   layer instead;
- * - `tint`: no wallpaper (or no blur); panes use their tints only.
+ *   CORS, decode error), cannot be drawn at all (`forceLayer`: e.g. a `var()`
+ *   chain or an image layout other than `center/cover`), or a pane has a
+ *   transformed ancestor (a fixed background would then scroll with it); CSS
+ *   blurs the one fixed wallpaper layer instead;
+ * - `tint`: a flat wallpaper colour (or no blur); panes use their tints only.
  */
 
 export interface GlassInputs {
   image: string | null;
   /** CSS background value of a wallpaper without an image (used when `image` is null). */
   css?: string | null;
+  /**
+   * The wallpaper is not a flat colour but neither `image` nor `css` can draw
+   * it (used when both are null): CSS blurs the wallpaper layer itself.
+   */
+  forceLayer?: boolean;
   blur: number;
   saturation: number;
   brightness: number;
@@ -81,6 +87,7 @@ function sameInputs(a: GlassInputs | undefined, b: GlassInputs): boolean {
     !!a &&
     a.image === b.image &&
     (a.css ?? null) === (b.css ?? null) &&
+    !!a.forceLayer === !!b.forceLayer &&
     a.blur === b.blur &&
     a.saturation === b.saturation &&
     a.brightness === b.brightness
@@ -455,7 +462,8 @@ export function createGlassRenderer(deps: {
         listen(false);
         decoded = undefined;
         clearImage();
-        setMode("tint", "no-wallpaper");
+        if (inputs.forceLayer && inputs.blur > 0) setMode("layer", "undrawable");
+        else setMode("tint", "no-wallpaper");
         return;
       }
       listen(true);

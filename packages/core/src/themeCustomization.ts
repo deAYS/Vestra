@@ -60,6 +60,40 @@ export const themeCssCounters = { generated: 0, authoredScans: 0 };
  */
 const authoredFactsCache = boundedCache<AuthoredFacts>(33);
 
+/**
+ * The value of the declaration starting at `from`: up to the first `;` or `}`
+ * outside quotes and parentheses, so `url("data:image/png;base64,…")` stays whole.
+ */
+function declarationValue(css: string, from: number): string {
+  let depth = 0;
+  let quote = "";
+  for (let index = from; index < css.length; index++) {
+    const char = css[index]!;
+    if (quote) {
+      if (char === "\\") index++;
+      else if (char === quote) quote = "";
+    } else if (char === '"' || char === "'") quote = char;
+    else if (char === "(") depth++;
+    else if (char === ")") depth = Math.max(0, depth - 1);
+    else if ((char === ";" || char === "}") && depth === 0)
+      return css.slice(from, index);
+  }
+  return css.slice(from);
+}
+
+/** The first `pattern` declaration's value, `!important` removed. */
+function authoredValue(
+  css: string,
+  pattern: RegExp,
+  important = false,
+): string | undefined {
+  const match = pattern.exec(css);
+  if (!match) return undefined;
+  const value = declarationValue(css, match.index + match[0].length);
+  if (important && !/!important\s*$/.test(value)) return undefined;
+  return value.replace(/!important\s*$/, "").trim() || undefined;
+}
+
 function authoredFacts(css: string): AuthoredFacts {
   const cached = authoredFactsCache.get(css);
   if (cached) return cached;
@@ -77,14 +111,8 @@ function authoredFacts(css: string): AuthoredFacts {
     base: authoredColor("background-tertiary") ?? primary,
     paneRgb: rgbColor(primary ?? "#16121e"),
     popupRgb: rgbColor(authoredColor("background-floating") ?? "#181520"),
-    wallpaper:
-      css.match(/#app-mount\s*\{\s*background:([^;]+)!important;/)?.[1] ||
-      undefined,
-    cssWallpaper:
-      css
-        .match(/--vestra-wallpaper:([^;}]+)/)?.[1]
-        ?.replace(/!important\s*$/, "")
-        .trim() || undefined,
+    wallpaper: authoredValue(css, /#app-mount\s*\{\s*background:/, true),
+    cssWallpaper: authoredValue(css, /--vestra-wallpaper:/),
     glass: undefined,
   };
   const blur = css.match(/--glass-blur:\s*(\d+(?:\.\d+)?)px/)?.[1];
@@ -121,25 +149,98 @@ function drawableCss(css: string | undefined): string | null {
   return css.trim();
 }
 
-/** The customized wallpaper: its CSS value, and the CSS the renderer can draw. */
+/** How the renderer handles a wallpaper; all fields empty means a flat colour. */
+interface WallpaperSource {
+  /** One image the renderer draws like `center/cover`. */
+  image: string | null;
+  /** A gradient wallpaper the renderer rasterizes. */
+  css: string | null;
+  /** Not a flat colour, but not drawable either: CSS blurs the wallpaper layer. */
+  forceLayer: boolean;
+}
+
+const NON_FLAT = /(?:gradient|url|var|image-set|cross-fade|element|paint)\(/i;
+const IMAGE_LAYER =
+  /^url\(\s*(?:"([^"\\]*)"|'([^'\\]*)'|([^)"'\s\\]*))\s*\)(.*)$/is;
+/** Layer keywords that still look like the renderer's `center/cover` drawing. */
+const COVER_KEYWORDS = new Set(["center", "cover", "no-repeat", "repeat", "fixed", "scroll"]);
+
+/** Background layers: the value split at commas outside quotes and parentheses. */
+function backgroundLayers(value: string): string[] {
+  const layers: string[] = [];
+  let depth = 0;
+  let quote = "";
+  let start = 0;
+  for (let index = 0; index < value.length; index++) {
+    const char = value[index]!;
+    if (quote) {
+      if (char === "\\") index++;
+      else if (char === quote) quote = "";
+    } else if (char === '"' || char === "'") quote = char;
+    else if (char === "(") depth++;
+    else if (char === ")") depth = Math.max(0, depth - 1);
+    else if (char === "," && depth === 0) {
+      layers.push(value.slice(start, index).trim());
+      start = index + 1;
+    }
+  }
+  layers.push(value.slice(start).trim());
+  return layers;
+}
+
+/**
+ * Classify a wallpaper value. A single `url()` of a data: or https: image
+ * laid out as `center/cover` (optionally over a flat colour) is drawn by the
+ * renderer, which falls back to the layer when it cannot read the image.
+ * Gradients are rasterized. Anything else that is not a flat colour (other
+ * URLs, image layouts or layers, unresolvable `var()` chains) uses the layer.
+ */
+function classifyWallpaper(value: string | undefined): WallpaperSource {
+  const none: WallpaperSource = { image: null, css: null, forceLayer: false };
+  if (!value || !NON_FLAT.test(value)) return none;
+  if (/url\(/i.test(value)) {
+    const [first = "", color, ...rest] = backgroundLayers(value.trim());
+    const layer = IMAGE_LAYER.exec(first);
+    const url = (layer?.[1] ?? layer?.[2] ?? layer?.[3] ?? "").trim();
+    const keywords = (layer?.[4] ?? "")
+      .toLowerCase()
+      .replace(/\//g, " ")
+      .split(/\s+/)
+      .filter(Boolean);
+    const drawable =
+      !!layer &&
+      /^(?:data:image\/|https:)/i.test(url) &&
+      keywords.includes("cover") &&
+      keywords.every((keyword) => COVER_KEYWORDS.has(keyword)) &&
+      !rest.length &&
+      !(color !== undefined && NON_FLAT.test(color));
+    return drawable ? { ...none, image: url } : { ...none, forceLayer: true };
+  }
+  const css = drawableCss(value);
+  return css ? { ...none, css } : { ...none, forceLayer: true };
+}
+
+/** The customized wallpaper: its CSS value, and how the renderer handles it. */
 function customWallpaper(
   c: ThemeCustomization,
   authored: AuthoredFacts,
-): { value: string; css: string | null } {
+): WallpaperSource & { value: string } {
   const base = c.backgroundColor || (authored.base ?? "#262132");
   if (c.backgroundImage)
     return {
       value: `url(${JSON.stringify(c.backgroundImage)}) center/cover no-repeat,${base}`,
+      image: c.backgroundImage,
       css: null,
+      forceLayer: false,
     };
   if (c.backgroundColor) {
     const value = `radial-gradient(ellipse at 85% 10%,#ffffff16,transparent 65%),${base}`;
-    return { value, css: value };
+    return { value, image: null, css: value, forceLayer: false };
   }
   const original = authored.wallpaper || base;
   return {
     value: `var(--vestra-wallpaper,${original})`,
-    css: drawableCss(authored.cssWallpaper ?? original),
+    ...classifyWallpaper(authored.cssWallpaper ?? original),
   };
 }
 
@@ -153,14 +254,17 @@ export function glassInputs(theme: ThemeInput): GlassInputs | null {
   const c = theme.customization
     ? ThemeCustomizationSchema.parse(theme.customization)
     : undefined;
-  if (c?.surfaceOverrides)
+  if (c?.surfaceOverrides) {
+    const wallpaper = customWallpaper(c, authored);
     return {
-      image: c.backgroundImage || null,
-      css: customWallpaper(c, authored).css,
+      image: wallpaper.image,
+      css: wallpaper.css,
+      ...(wallpaper.forceLayer ? { forceLayer: true } : {}),
       blur: c.blur,
       saturation: c.saturation,
       brightness: c.brightness,
     };
+  }
   const css = drawableCss(authored.cssWallpaper);
   if (!authored.glass || !css) return null;
   return {
@@ -182,7 +286,9 @@ export function themeCustomizationCss(theme: ThemeInput): string {
   const wallpaper = custom.value;
   // Previews have no renderer; they blur the panes wherever the app does.
   const previewFilter =
-    (c.backgroundImage || custom.css) && c.blur > 0 ? `blur(${c.blur}px)` : "none";
+    (custom.image || custom.css || custom.forceLayer) && c.blur > 0
+      ? `blur(${c.blur}px)`
+      : "none";
   const pane = `rgb(${paneRgb} / ${c.opacity / 100})`;
   const colorTokens = c.textColor
     ? [

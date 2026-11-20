@@ -448,3 +448,45 @@ test("Liquid Glass 2.3.0 falls back to one fixed blurred layer when the image ca
   const customized = customizedThemeCss({ css: glass.css, customization: { ...DEFAULT_THEME_CUSTOMIZATION, blur: 12, saturation: 80, brightness: 95 } });
   assert.ok(customized.lastIndexOf("filter:blur(12px) saturate(80%) brightness(95%)") > customized.indexOf("filter:blur(26px) saturate(125%)"));
 });
+
+test("a customized theme's own image wallpaper is drawn as an image or blurred as a layer, never tinted", () => {
+  const custom = { ...DEFAULT_THEME_CUSTOMIZATION, blur: 18 };
+  const inputsFor = (css: string) => glassInputs({ css, customization: custom });
+  const data = "data:image/png;base64,QQ==";
+  assert.deepEqual(
+    inputsFor(`#app-mount{background:url("${data}") center/cover no-repeat,#101010!important;}`),
+    { image: data, css: null, blur: 18, saturation: 125, brightness: 100 },
+    "an #app-mount data: image (with ';' inside the URL) is drawn",
+  );
+  assert.equal(inputsFor(`:root{--vestra-wallpaper:url(${data}) center/cover}`)?.image, data, "--vestra-wallpaper data: image");
+  assert.equal(
+    inputsFor(":root{--vestra-wallpaper:url('https://example.com/a.png') center / cover fixed!important}")?.image,
+    "https://example.com/a.png",
+    "an https image is tried; the renderer falls back to the layer without CORS",
+  );
+  for (const [css, label] of [
+    [":root{--vestra-wallpaper:var(--my-wallpaper)}", "an unresolvable var() chain"],
+    [`:root{--vestra-wallpaper:linear-gradient(#0008,#0008),url(${data}) center/cover}`, "a gradient over an image"],
+    [":root{--vestra-wallpaper:url(http://example.com/a.png) center/cover}", "an http image"],
+    [":root{--vestra-wallpaper:url(wall.png) center/cover}", "a relative image"],
+    [`:root{--vestra-wallpaper:url(${data}) top left repeat}`, "a tiled image the renderer cannot reproduce"],
+  ] as const) {
+    const inputs = inputsFor(css);
+    assert.equal(inputs?.forceLayer, true, label);
+    assert.equal(inputs?.image, null, label);
+    assert.equal(inputs?.css, null, label);
+  }
+  assert.equal(inputsFor("#app-mount{background:#202020!important;}")?.forceLayer, undefined, "a flat colour still uses tints");
+  assert.ok(
+    customizedThemeCss({ css: `:root{--vestra-wallpaper:url(${data}) center/cover}`, customization: custom }).includes(
+      "--vestra-glass-preview-filter:blur(18px);",
+    ),
+    "previews blur an image wallpaper like the app",
+  );
+  assert.ok(
+    customizedThemeCss({ css: ":root{--vestra-wallpaper:var(--my-wallpaper)}", customization: custom }).includes(
+      "--vestra-glass-preview-filter:blur(18px);",
+    ),
+    "previews blur an undrawable wallpaper like the app's layer",
+  );
+});
