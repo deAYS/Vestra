@@ -67,14 +67,20 @@ function toGuild(value: unknown): DiscordGuild | undefined {
   return guild;
 }
 
-/** A remembered miss is retried after this long even if no module arrived. */
+/** A remembered miss is retried after this long even if no module arrived... */
 const MISS_RETRY_MS = 1_000;
+/** ...doubling while the miss persists with no new module, up to this. */
+const MISS_RETRY_MAX_MS = 30_000;
+/** Within the retry window the module count is checked at most this often. */
+const MISS_COUNT_CHECK_MS = 100;
 
 /**
  * Generic lazy wrapper. A successful `resolve` is kept until `reset()`; a miss
  * (undefined or a throw) is not settled: it is retried once the finder's
- * module count changes or after 1 s, so a permanent miss does not cost a full
- * module scan on every access. Never throws.
+ * module count changes (checked at most every 100 ms) or after a delay that
+ * starts at 1 s and doubles up to 30 s while nothing new arrives, so a
+ * permanent miss does not cost a full module scan on every access. A count
+ * change or `reset()` restarts the delay at 1 s. Never throws.
  */
 export function defineWrapper<T>(name: string, options: DefineWrapperOptions<T>): DiscordWrapper<T> {
   if (name === "") throw new Error("defineWrapper() requires a non-empty name.");
@@ -85,9 +91,11 @@ export function defineWrapper<T>(name: string, options: DefineWrapperOptions<T>)
   const finder = options.finder ?? Webpack;
   let cached: T | undefined;
   let settled = false;
-  /** Module count and time of the last miss (undefined: no miss remembered). */
+  /** Module count at the last miss (undefined: no miss remembered; -1: unknown). */
   let missCount: number | undefined;
   let missAt = 0;
+  let missRetryMs = MISS_RETRY_MS;
+  let countCheckedAt = 0;
   const moduleCount = (): number => {
     try {
       return typeof finder.getModuleCacheSize === "function" ? finder.getModuleCacheSize() : -1;
@@ -99,8 +107,11 @@ export function defineWrapper<T>(name: string, options: DefineWrapperOptions<T>)
     name,
     get(): T | undefined {
       if (settled) return cached;
-      if (missCount !== undefined && Date.now() - missAt < MISS_RETRY_MS && moduleCount() === missCount) {
-        return undefined;
+      const now = Date.now();
+      if (missCount !== undefined && now - missAt < missRetryMs) {
+        if (now - countCheckedAt < MISS_COUNT_CHECK_MS) return undefined;
+        countCheckedAt = now;
+        if (moduleCount() === missCount) return undefined;
       }
       try {
         cached = options.resolve(finder) ?? undefined;
@@ -111,9 +122,17 @@ export function defineWrapper<T>(name: string, options: DefineWrapperOptions<T>)
       settled = cached !== undefined;
       if (settled) {
         missCount = undefined;
+        missRetryMs = MISS_RETRY_MS;
       } else {
-        missCount = moduleCount();
-        missAt = Date.now();
+        const count = moduleCount();
+        // The same miss with no new module (and a known count) waits longer.
+        missRetryMs =
+          missCount !== undefined && count === missCount && count !== -1
+            ? Math.min(missRetryMs * 2, MISS_RETRY_MAX_MS)
+            : MISS_RETRY_MS;
+        missCount = count;
+        missAt = now;
+        countCheckedAt = now;
       }
       return cached;
     },
@@ -124,6 +143,7 @@ export function defineWrapper<T>(name: string, options: DefineWrapperOptions<T>)
       cached = undefined;
       settled = false;
       missCount = undefined;
+      missRetryMs = MISS_RETRY_MS;
     },
   };
 }

@@ -4,6 +4,7 @@ import { createWebpackFinder } from "./webpack/finder.js";
 import { getWebpackRequire, onModulesRegistered, resetModuleRegistration } from "./webpack/raw.js";
 import { waitForModule } from "./webpack/waitFor.js";
 import { defineWrapper } from "./discord/wrappers.js";
+import type { WebpackFinder } from "./webpack/index.js";
 
 type Cache = Record<string, unknown>;
 
@@ -23,6 +24,26 @@ function fakeRequire(): { req: (() => void) & { c: Cache }; c: Cache; scans: () 
   };
   const req = Object.assign(() => {}, { c });
   return { req, c, scans: () => scans };
+}
+
+/** Replace Date.now with a manual clock starting at a fixed base. */
+function fakeNow() {
+  const realNow = Date.now;
+  const base = realNow();
+  let offset = 0;
+  Date.now = () => base + offset;
+  return {
+    advance(ms: number) {
+      offset += ms;
+    },
+    /** Set the offset from the time the miss sequence started. */
+    set(ms: number) {
+      offset = ms;
+    },
+    restore() {
+      Date.now = realNow;
+    },
+  };
 }
 
 const STASH = "__VESTRA_WEBPACK_REQUIRE__";
@@ -383,10 +404,16 @@ test("a wrapper miss is not cached: the next access resolves the registered modu
       return f.findByProps("probe");
     },
   });
-  assert.equal(wrapper.get(), undefined);
-  assert.equal(wrapper.isAvailable(), false);
-  c["8"] = { exports: { probe: true } };
-  assert.deepEqual(wrapper.get(), { probe: true });
+  const clock = fakeNow();
+  try {
+    assert.equal(wrapper.get(), undefined);
+    assert.equal(wrapper.isAvailable(), false);
+    c["8"] = { exports: { probe: true } };
+    clock.advance(100);
+    assert.deepEqual(wrapper.get(), { probe: true }, "picked up at the next module count check");
+  } finally {
+    clock.restore();
+  }
   const count = resolves;
   wrapper.get();
   assert.equal(resolves, count, "a hit is settled");
@@ -406,30 +433,120 @@ test("a permanent wrapper miss costs at most one scan until modules change or a 
       return f.findByProps("neverThere");
     },
   });
-  for (let i = 0; i < 100; i++) assert.equal(wrapper.get(), undefined);
-  for (let i = 0; i < 100; i++) assert.equal(wrapper.isAvailable(), false);
-  assert.ok(scans() <= 1, `100 misses cost ${scans()} scans`);
-  assert.equal(resolves, 1);
-
-  c["9"] = { exports: { unrelated: true } };
-  wrapper.get();
-  assert.equal(resolves, 2, "a module count change re-resolves");
-  wrapper.get();
-  assert.equal(resolves, 2);
-
-  const realNow = Date.now;
-  const base = realNow();
-  Date.now = () => base + 1_000;
+  const clock = fakeNow();
   try {
+    for (let i = 0; i < 100; i++) assert.equal(wrapper.get(), undefined);
+    for (let i = 0; i < 100; i++) assert.equal(wrapper.isAvailable(), false);
+    assert.ok(scans() <= 1, `100 misses cost ${scans()} scans`);
+    assert.equal(resolves, 1);
+
+    c["9"] = { exports: { unrelated: true } };
+    clock.advance(100);
+    wrapper.get();
+    assert.equal(resolves, 2, "a module count change re-resolves");
+    wrapper.get();
+    assert.equal(resolves, 2);
+
+    clock.advance(1_000);
     wrapper.get();
     assert.equal(resolves, 3, "a miss older than 1 s re-resolves");
-  } finally {
-    Date.now = realNow;
-  }
 
-  wrapper.reset();
-  wrapper.get();
-  assert.equal(resolves, 4, "reset clears the miss memo");
+    wrapper.reset();
+    wrapper.get();
+    assert.equal(resolves, 4, "reset clears the miss memo");
+  } finally {
+    clock.restore();
+  }
+});
+
+test("a wrapper miss checks the module count at most every 100 ms and backs off to 30 s", () => {
+  let size = 10;
+  let sizeChecks = 0;
+  let resolves = 0;
+  const finder = {
+    getModuleCacheSize: () => {
+      sizeChecks += 1;
+      return size;
+    },
+  } as unknown as WebpackFinder;
+  const wrapper = defineWrapper("Backoff", {
+    finder,
+    resolve: () => {
+      resolves += 1;
+      return undefined;
+    },
+  });
+  const clock = fakeNow();
+  try {
+    wrapper.get();
+    const checks = sizeChecks;
+    for (let i = 0; i < 50; i++) wrapper.get();
+    clock.advance(99);
+    wrapper.get();
+    assert.equal(sizeChecks, checks, "no count check within 100 ms of the last one");
+    clock.advance(1);
+    wrapper.get();
+    assert.equal(sizeChecks, checks + 1, "one count check after 100 ms");
+    assert.equal(resolves, 1);
+
+    // Time-based retries of the unchanged miss: 1 s, 2 s, 4 s, 8 s, 16 s, then 30 s.
+    clock.set(0);
+    const retries: number[] = [];
+    for (let at = 0; at <= 100_000; at += 100) {
+      clock.set(at);
+      const before = resolves;
+      wrapper.get();
+      if (resolves > before) retries.push(at);
+    }
+    assert.deepEqual(retries.slice(0, 7), [1_000, 3_000, 7_000, 15_000, 31_000, 61_000, 91_000]);
+
+    // A module count change retries at once and restarts the delay at 1 s.
+    size += 1;
+    clock.advance(100);
+    const before = resolves;
+    wrapper.get();
+    assert.equal(resolves, before + 1, "a count change re-resolves");
+    clock.advance(999);
+    wrapper.get();
+    assert.equal(resolves, before + 1);
+    clock.advance(1);
+    wrapper.get();
+    assert.equal(resolves, before + 2, "the delay is 1 s again");
+
+    // reset() restarts it too.
+    clock.advance(2_000);
+    wrapper.get();
+    wrapper.reset();
+    wrapper.get();
+    const afterReset = resolves;
+    clock.advance(1_000);
+    wrapper.get();
+    assert.equal(resolves, afterReset + 1, "reset restarts the delay at 1 s");
+  } finally {
+    clock.restore();
+  }
+});
+
+test("a finder without a module count keeps the 1 s retry", () => {
+  let resolves = 0;
+  const wrapper = defineWrapper("NoCount", {
+    finder: {} as unknown as WebpackFinder,
+    resolve: () => {
+      resolves += 1;
+      return undefined;
+    },
+  });
+  const clock = fakeNow();
+  try {
+    wrapper.get();
+    for (let i = 1; i <= 5; i++) {
+      clock.advance(1_000);
+      wrapper.get();
+      assert.equal(resolves, i + 1, `retry ${i} after 1 s`);
+    }
+  } finally {
+    clock.restore();
+  }
 });
 
 test("a cached hit is not lost to a throwing default getter", () => {
