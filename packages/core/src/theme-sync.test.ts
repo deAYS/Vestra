@@ -9,10 +9,46 @@ import { DEFAULT_THEME_CUSTOMIZATION } from "./themeCustomization.js";
 
 const THEME_CSS = "/** @name Fixture */\n:root{--text-link:#abcdef}";
 
-/** MutationObserver records arrive on a later task in happy-dom. */
+/** Let queued microtasks (the observer's scheduled check) run. */
 async function settle(): Promise<void> {
-  for (let i = 0; i < 3; i++)
-    await new Promise((resolve) => setTimeout(resolve, 0));
+  for (let i = 0; i < 3; i++) await Promise.resolve();
+}
+
+/**
+ * happy-dom holds MutationObserver callbacks through a WeakRef, so under GC
+ * pressure (the full suite) its observers stop firing. The fixture installs a
+ * deterministic observer instead; `notify()` delivers one mutation batch.
+ */
+function installObserver(win: Window): { notify: (target: unknown) => Promise<void> } {
+  const live: Array<{ callback: () => void; target: unknown; active: boolean }> = [];
+  class FixtureObserver {
+    private entries: Array<{ active: boolean }> = [];
+    constructor(private readonly callback: () => void) {}
+    observe(target: unknown): void {
+      const entry = { callback: this.callback, target, active: true };
+      this.entries.push(entry);
+      live.push(entry);
+    }
+    disconnect(): void {
+      for (const entry of this.entries) entry.active = false;
+      this.entries = [];
+    }
+    takeRecords(): [] {
+      return [];
+    }
+  }
+  Object.defineProperty(win, "MutationObserver", {
+    value: FixtureObserver,
+    configurable: true,
+    writable: true,
+  });
+  return {
+    async notify(target) {
+      for (const entry of [...live])
+        if (entry.active && entry.target === target) entry.callback();
+      await settle();
+    },
+  };
 }
 
 interface Fixture {
@@ -24,6 +60,8 @@ interface Fixture {
   moves: () => number;
   textReads: () => number;
   textWrites: () => number;
+  /** Deliver one mutation batch for <head> to the observers. */
+  mutated: () => Promise<void>;
   /** Discord-side insertion that bypasses the move counter. */
   discordAppend: (node: Node) => void;
   discordInsertFirst: (node: Node) => void;
@@ -35,6 +73,7 @@ interface Fixture {
 
 async function fixture(): Promise<Fixture> {
   const win = new Window();
+  const observer = installObserver(win);
   const keys = ["window", "document"] as const;
   const old = keys.map((key) => Object.getOwnPropertyDescriptor(globalThis, key));
   const values = [win, win.document];
@@ -62,7 +101,7 @@ async function fixture(): Promise<Fixture> {
   settings.setCustomCss({ enabled: true, css: "body{color:blue}" });
   const stopQuick = startQuickCss({ settings, styles });
   const stopThemes = startThemes(settings, styles);
-  await settle();
+  await observer.notify(head);
 
   const rawAppend = head.appendChild.bind(head);
   const rawInsert = head.insertBefore.bind(head);
@@ -117,6 +156,7 @@ async function fixture(): Promise<Fixture> {
     settings,
     themeId: theme.id,
     moves: () => moves,
+    mutated: () => observer.notify(head),
     textReads: () => reads,
     textWrites: () => writes,
     discordAppend: (node) => {
@@ -151,7 +191,7 @@ test("settings changes unrelated to themes never touch a style node", async () =
     f.settings.setEnabled("FixturePlugin", true);
     f.settings.setPluginSetting("FixturePlugin", "value", 1);
     f.settings.setEnabled("FixturePlugin", false);
-    await settle();
+    await f.mutated();
     assert.equal(f.textReads(), 0, "no textContent reads");
     assert.equal(f.textWrites(), 0, "no textContent writes");
     assert.equal(f.moves(), 0, "no style node moves");
@@ -165,16 +205,16 @@ test("Discord stylesheet batches cause one reorder only when Vestra styles are n
   try {
     // One batch of 10 appended stylesheets: one reorder, and our own move does not loop.
     for (let i = 0; i < 10; i++) f.discordAppend(f.discordStyle());
-    await settle();
+    await f.mutated();
     assert.equal(f.moves(), 1);
     assert.deepEqual(f.vestraOrder(), [`theme-${f.themeId}`, "quickcss"]);
-    await settle();
+    await f.mutated();
     assert.equal(f.moves(), 1, "the reorder's own mutation does not reorder again");
 
     // Ten separate batches: exactly one reorder each.
     for (let i = 0; i < 10; i++) {
       f.discordAppend(f.discordStyle());
-      await settle();
+      await f.mutated();
       assert.equal(f.moves(), 2 + i);
     }
 
@@ -183,7 +223,7 @@ test("Discord stylesheet batches cause one reorder only when Vestra styles are n
     for (let i = 0; i < 10; i++) {
       f.discordInsertFirst(f.discordStyle());
       f.discordAppend(f.win.document.createElement("meta") as unknown as Node);
-      await settle();
+      await f.mutated();
     }
     assert.equal(f.moves(), before, "already last: nothing moves");
     assert.deepEqual(f.vestraOrder(), [`theme-${f.themeId}`, "quickcss"]);
@@ -199,7 +239,7 @@ test("a style node Discord removes is restored and same-length CSS edits still a
   try {
     const selector = `style[data-vestra-style="theme-${f.themeId}"]`;
     f.head.querySelector(selector)!.remove();
-    await settle();
+    await f.mutated();
     const restored = f.head.querySelector(selector);
     assert.ok(restored, "the theme style is re-attached");
     assert.equal(restored.textContent, THEME_CSS);
