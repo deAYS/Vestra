@@ -4,7 +4,12 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import type { DiscordInstallation, InstallerService } from "@vestra/installer";
-import { RecoveryMonitor } from "../src/main/recovery/monitor.js";
+import {
+  RecoveryMonitor,
+  isInUse,
+  reasonCode,
+  repairFailure,
+} from "../src/main/recovery/monitor.js";
 import {
   readRecoveryState,
   writeRecoveryState,
@@ -75,6 +80,7 @@ async function harness(options: Options = {}) {
     gate: undefined as Promise<void> | undefined,
     onWait: undefined as ((ms: number) => Promise<void> | void) | undefined,
     patchError: undefined as (() => Error) | undefined,
+    onPatch: undefined as (() => Promise<void>) | undefined,
     attemptsSeen: [] as number[],
     calls: { discover: 0, check: 0, patch: 0, processes: 0, lifecycle: 0 },
     notified: [] as string[],
@@ -118,6 +124,7 @@ async function harness(options: Options = {}) {
       async patch() {
         h.calls.patch++;
         h.attemptsSeen.push((await readRecoveryState(home)).stable?.attempts ?? 0);
+        await h.onPatch?.();
         if (h.patchError) throw h.patchError();
         h.healthy = true;
       },
@@ -278,6 +285,56 @@ test("other failures back off 1 min then 5 min and stop after three attempts", a
   } finally {
     await cleanup();
   }
+});
+
+test("a failed repair that rewrites the archive still stops after three attempts", async () => {
+  const { h, monitor, cleanup } = await harness();
+  try {
+    let restores = 0;
+    h.patchError = () => new Error("boom");
+    // The installer restores the backup on failure: new size and mtime each time.
+    h.onPatch = async () => {
+      restores++;
+      await fs.writeFile(h.target.asarPath, "restored".repeat(restores));
+    };
+    await monitor.evaluate(enabled, "staged");
+    await monitor.settled();
+    await monitor.evaluate(enabled, "sweep");
+    await monitor.settled();
+    assert.equal(h.calls.patch, 3);
+    assert.equal((await readRecoveryState(h.home)).stable?.phase, "failed");
+  } finally {
+    await cleanup();
+  }
+});
+
+test("failed repair summaries keep the errno code and drop paths", () => {
+  const summary = (detail: string) => ({
+    ok: false,
+    results: [
+      { asarPath: "x", channel: "stable" as const, ok: false, action: "failed" as const, detail },
+    ],
+  });
+  const busy = repairFailure(
+    summary(
+      "Inject failed for C:\\Fixture\\Discord\\app-1.0.9\\resources\\app.asar: EBUSY: resource busy or locked, rename 'C:\\Fixture\\a' -> 'C:\\Fixture\\b'",
+    ),
+  );
+  assert.equal((busy as { code?: string }).code, "EBUSY");
+  assert.ok(isInUse(busy));
+  assert.doesNotMatch(busy.message, /Fixture/);
+  const denied = repairFailure(
+    summary("Inject failed for C:\\Fixture\\app.asar: EPERM: operation not permitted, rename"),
+  );
+  assert.ok(isInUse(denied));
+  const used = repairFailure(
+    summary("The process cannot access the file because it is being used by another process."),
+  );
+  assert.ok(isInUse(used));
+  const other = repairFailure(summary("Inject failed for C:\\Fixture\\app.asar: invalid asar header"));
+  assert.equal(isInUse(other), false);
+  assert.equal(reasonCode(other), "invalid-asar");
+  assert.doesNotMatch(other.message, /Fixture/);
 });
 
 test("a folder Discord is still installing is left alone", async () => {

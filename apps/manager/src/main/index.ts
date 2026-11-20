@@ -1,10 +1,6 @@
 import { app, BrowserWindow, Notification } from "electron";
 import * as fs from "node:fs";
-import {
-  createInstallerService,
-  toErrorCode,
-  withInstallLock,
-} from "@vestra/installer";
+import { createInstallerService, withInstallLock } from "@vestra/installer";
 import { registerManagerIpc } from "./installerBridge.js";
 import { createServiceContext } from "./serviceContext.js";
 import { createManagerWindow } from "./window.js";
@@ -19,6 +15,7 @@ import { MaintenanceController, readMaintenance } from "./maintenance.js";
 import {
   RecoveryMonitor,
   reasonCode,
+  repairFailure,
   type RecoveryTrigger,
 } from "./recovery/monitor.js";
 import { watchRoots, type WatchKind } from "./recovery/watch.js";
@@ -60,22 +57,15 @@ const TRIGGER_RANK: Record<RecoveryTrigger, number> = {
   sweep: 2,
 };
 
-/** Recovery log lines carry a reason code and a message without paths or URLs. */
+/** Recovery log lines carry only a reason code: messages can embed paths. */
 function logRecovery(error: unknown): void {
   const message = error instanceof Error ? error.message : String(error);
   if (message.includes("Another installation operation")) return;
-  const clean = message
-    .replace(/https?:\/\/\S+/gi, "<url>")
-    .replace(/(?:[A-Za-z]:|\\\\)[\\/][^\s'"]*/g, "<path>")
-    .slice(0, 300);
   const log = path.join(service.context.homeDir, "recovery.log");
   try {
     if (fs.existsSync(log) && fs.statSync(log).size > 65536)
       fs.writeFileSync(log, "");
-    fs.appendFileSync(
-      log,
-      `${new Date().toISOString()} ${reasonCode(error)} ${clean}\n`,
-    );
+    fs.appendFileSync(log, `${new Date().toISOString()} ${reasonCode(error)}\n`);
   } catch {
     /* logging must never stop recovery */
   }
@@ -101,15 +91,7 @@ async function patchWithoutRestart(channel: DiscordChannel): Promise<void> {
         code: "ECANCELED",
       });
     const result = await service.repair({ channels: [channel] });
-    if (result.ok) return;
-    const detail = result.results.find((item) => !item.ok)?.detail ?? "";
-    const code = /being used by another process/i.test(detail)
-      ? "EBUSY"
-      : /\b(E[A-Z]{2,15}):/.exec(detail)?.[1];
-    throw Object.assign(
-      new Error(`Automatic repair failed (${code ?? toErrorCode(detail)}).`),
-      code === undefined ? {} : { code },
-    );
+    if (!result.ok) throw repairFailure(result);
   });
 }
 

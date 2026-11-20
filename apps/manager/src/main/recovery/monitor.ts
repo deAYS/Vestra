@@ -6,6 +6,7 @@ import {
   toErrorCode,
   type DiscordInstallation,
   type InstallerService,
+  type OperationSummary,
 } from "@vestra/installer";
 import type { DiscordChannel } from "../../shared/channels.js";
 import { DiscordLifecycle } from "../discordLifecycle.js";
@@ -77,8 +78,28 @@ function isDeferred(error: unknown): boolean {
 /** Short code for the state file; messages can carry paths. */
 export function reasonCode(error: unknown): string {
   const code = errorCode(error);
-  if (typeof code === "string" && /^E[A-Z0-9]{2,15}$/.test(code)) return code;
+  // Errno codes (EBUSY) and installer codes (invalid-asar) are both path-free.
+  if (
+    typeof code === "string" &&
+    /^(?:E[A-Z0-9]{2,15}|[a-z]+(?:-[a-z]+){0,3})$/.test(code)
+  )
+    return code;
   return toErrorCode(errorMessage(error));
+}
+
+/**
+ * Turns a failed repair summary into an error the monitor can classify. The
+ * installer reports `Inject failed for <path>: EBUSY: …`; the errno code is
+ * kept and the path is dropped.
+ */
+export function repairFailure(summary: OperationSummary): Error {
+  const detail = summary.results.find((item) => !item.ok)?.detail ?? "";
+  const code = /being used by another process/i.test(detail)
+    ? "EBUSY"
+    : (/\b(E[A-Z0-9]{2,15}):/.exec(detail)?.[1] ?? toErrorCode(detail));
+  return Object.assign(new Error(`Automatic repair failed (${code}).`), {
+    code,
+  });
 }
 
 function versionOf(target: DiscordInstallation): string {
@@ -259,6 +280,9 @@ export class RecoveryMonitor {
       await this.deps.patch(channel);
     } catch (error) {
       if (isDeferred(error)) return;
+      // A failed repair can still rewrite the archive (restoring its backup);
+      // the attempts stay with what is on disk now, or the cap would reset.
+      const current = (await this.signature(target)) ?? signature;
       if (isInUse(error)) {
         await this.record(channel, {
           phase: "waiting-for-exit",
@@ -266,12 +290,12 @@ export class RecoveryMonitor {
           at: this.deps.now(),
           attempts,
           detail: "in-use",
-          signature,
+          signature: current,
         });
         // One fresh look; with nothing to wait for, the next event or sweep retries.
         const pids = await this.deps.processesFor(target);
         if (pids.length > 0)
-          await this.waitForExit(target, version, signature, attempts, pids);
+          await this.waitForExit(target, version, current, attempts, pids);
         return;
       }
       const next = attempts + 1;
@@ -282,7 +306,7 @@ export class RecoveryMonitor {
         at: this.deps.now(),
         attempts: next,
         detail: reasonCode(error),
-        signature,
+        signature: current,
       });
       if (!failed)
         this.schedule(channel, "retry", () =>
