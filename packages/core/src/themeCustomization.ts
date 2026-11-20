@@ -4,6 +4,7 @@ import {
   type ThemeCustomization,
 } from "./api/settings.js";
 import glassCss from "../../../themes/liquid-glass.theme.css";
+import type { GlassInputs } from "./glassWallpaper.js";
 
 export const DEFAULT_THEME_CUSTOMIZATION: ThemeCustomization =
   ThemeCustomizationSchema.parse({});
@@ -80,6 +81,25 @@ function authoredFacts(css: string): AuthoredFacts {
   return facts;
 }
 
+/**
+ * Large panes paint the pre-blurred wallpaper (see glassWallpaper.ts) fixed to
+ * the window, like the sharp wallpaper, instead of a live backdrop blur.
+ */
+const GLASS_PANE_IMAGE = "var(--vestra-glass-image,none) center/cover fixed";
+
+/** What the wallpaper renderer needs from a customized theme, if anything. */
+export function glassInputs(theme: ThemeInput): GlassInputs | null {
+  if (!theme.customization) return null;
+  const c = ThemeCustomizationSchema.parse(theme.customization);
+  if (!c.surfaceOverrides) return null;
+  return {
+    image: c.backgroundImage || null,
+    blur: c.blur,
+    saturation: c.saturation,
+    brightness: c.brightness,
+  };
+}
+
 /** Only the backdrop is filtered; text, avatars and shared images keep their colors. */
 export function themeCustomizationCss(theme: ThemeInput): string {
   if (!theme.customization) return "";
@@ -117,12 +137,13 @@ export function themeCustomizationCss(theme: ThemeInput): string {
 #app-mount :is(pre,code,[class*="timestamp_"],[class*="badge_"]){text-shadow:none;}`;
   if (!c.surfaceOverrides) return typography;
   return `
-${scope}{--vestra-custom-wallpaper:${wallpaper};--glass-home-rgb:${paneRgb};--glass-popup-rgb:${popupRgb};--glass-settings-rgb:${paneRgb};--glass-home-opacity:${c.homeOpacity / 100};--glass-popup-opacity:${c.popupOpacity / 100};--glass-settings-opacity:${c.settingsOpacity / 100};--glass-edge:#ffffff2d;--glass-pane:linear-gradient(135deg,#ffffff1c,#ffffff06 38%,#ffffff0c);--glass-shadow:inset 0 1px 0 #ffffff40,0 10px 38px #00000020;--glass-opacity:${c.opacity / 100};--glass-blur:${c.blur}px;--glass-saturation:${c.saturation}%;--glass-radius:${c.radius}px;
+${scope}{--vestra-custom-wallpaper:${wallpaper};--glass-home-rgb:${paneRgb};--glass-popup-rgb:${popupRgb};--glass-settings-rgb:${paneRgb};--glass-home-opacity:${c.homeOpacity / 100};--glass-popup-opacity:${c.popupOpacity / 100};--glass-settings-opacity:${c.settingsOpacity / 100};--glass-edge:#ffffff2d;--glass-pane:linear-gradient(135deg,#ffffff1c,#ffffff06 38%,#ffffff0c);--glass-shadow:inset 0 1px 0 #ffffff40,0 10px 38px #00000020;--glass-opacity:${c.opacity / 100};--glass-blur:${c.blur}px;--glass-saturation:${c.saturation}%;--glass-radius:${c.radius}px;--vestra-glass-preview-filter:${c.backgroundImage && c.blur > 0 ? `blur(${c.blur}px)` : "none"};
 --app-frame-background:transparent!important;--background-primary:transparent!important;--background-secondary:transparent!important;--background-secondary-alt:transparent!important;--background-tertiary:transparent!important;--background-base-lowest:transparent!important;--background-base-lower:transparent!important;--background-base-low:transparent!important;--bg-base-primary:transparent!important;--bg-base-secondary:transparent!important;--bg-base-tertiary:transparent!important;--chat-background:transparent!important;--chat-background-default:transparent!important;--home-background:transparent!important;--custom-channel-members-bg:transparent!important;--vestra-theme-base:transparent!important;--vestra-theme-chat:transparent!important;--vestra-theme-side:transparent!important;--background-gradient-app-frame:initial!important;--background-gradient-chat:initial!important;--background-gradient-low:initial!important;--background-gradient-lower:initial!important;--background-gradient-lowest:initial!important;}
 #app-mount{background:var(--vestra-custom-wallpaper)!important;position:relative;isolation:isolate;}
 #app-mount::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:-1;background:var(--vestra-custom-wallpaper);filter:saturate(${c.saturation}%) brightness(${c.brightness}%);}
 #app-mount :is([class*="app_"],[class*="appMount_"],[class*="bg_"],[class*="layers_"],[class*="layer_"],[class*="base_"],[class*="sidebar_"],[class*="sidebarList_"],[class*="chat_"],[class*="chatContent_"],[class*="content_"],[class*="page_"])${exclude}{background:transparent!important;}
-#app-mount :is([class*="guilds_"],[class*="sidebarList_"],[class*="privateChannels_"],[class*="chat_"],[class*="membersWrap_"],[class*="panels_"],[class*="channelTextArea_"])${exclude}{background:var(--glass-pane),${pane}!important;backdrop-filter:blur(${c.blur}px)!important;border:1px solid var(--glass-edge)!important;border-radius:${c.radius}px!important;box-shadow:var(--glass-shadow)!important;}
+#app-mount :is([class*="guilds_"],[class*="sidebarList_"],[class*="privateChannels_"],[class*="chat_"],[class*="membersWrap_"],[class*="panels_"],[class*="channelTextArea_"])${exclude}{background:var(--glass-pane),linear-gradient(${pane},${pane}),${GLASS_PANE_IMAGE}!important;border:1px solid var(--glass-edge)!important;border-radius:${c.radius}px!important;box-shadow:var(--glass-shadow)!important;}
+:root[data-vestra-glass="layer"] #app-mount::before{inset:-${Math.ceil(c.blur * 2)}px;filter:blur(${c.blur}px) saturate(${c.saturation}%) brightness(${c.brightness}%);}
 #app-mount [class*="guilds_"]${exclude}{--vestra-rail-inset:max(12px,${c.radius}px);box-sizing:border-box!important;padding-top:var(--vestra-rail-inset)!important;}
 #app-mount [class*="guilds_"]${exclude}:has([class*="scroller_"]){padding-top:0!important;}
 #app-mount [class*="guilds_"]${exclude} [class*="scroller_"]:not([class*="scroller_"] [class*="scroller_"]){box-sizing:border-box!important;padding-top:var(--vestra-rail-inset)!important;scroll-padding-top:var(--vestra-rail-inset);}

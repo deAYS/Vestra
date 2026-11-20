@@ -218,6 +218,12 @@ app
         presets.find((preset) => preset.name === "Vestra Liquid Glass"),
         wallpaper,
       );
+      // Before the pre-blurred wallpaper (Liquid Glass 2.2.0) there is no
+      // mode to wait for; afterwards the image must be ready before capture.
+      await waitFor(
+        "document.documentElement.dataset.vestraGlass === 'image' || !document.querySelector('style[data-vestra-style=theme-glass]')?.textContent.includes('--vestra-glass-image')",
+        "the glass wallpaper is ready for capture",
+      );
       await pause(500);
       const shot = await win.webContents.capturePage();
       fs.writeFileSync(path.join(dir, `${label}-glass.png`), shot.toPNG());
@@ -711,16 +717,16 @@ app
         presets.find((preset) => preset.name === "Vestra Liquid Glass"),
       );
       const glassSurface = await evaluate(
-        `(() => {const style=getComputedStyle(document.getElementById('fixture-chat'));return {color:style.backgroundColor,blur:style.backdropFilter,wallpaper:getComputedStyle(document.getElementById('app-mount')).backgroundImage}})()`,
-      );
-      assert.equal(
-        glassSurface.color,
-        "rgba(22, 18, 30, 0.2)",
-        "Glass main surfaces are translucent, not a solid navy palette",
+        `(() => {const style=getComputedStyle(document.getElementById('fixture-chat'));return {image:style.backgroundImage,blur:style.backdropFilter,wallpaper:getComputedStyle(document.getElementById('app-mount')).backgroundImage}})()`,
       );
       assert.ok(
-        glassSurface.blur.includes("26px"),
-        "Glass uses actual backdrop blur",
+        glassSurface.image.includes("linear-gradient(rgba(22, 18, 30, 0.2), rgba(22, 18, 30, 0.2))"),
+        `Glass main surfaces are translucent tints, not a solid navy palette: ${glassSurface.image}`,
+      );
+      assert.equal(
+        glassSurface.blur,
+        "none",
+        "large Glass panes have no live backdrop blur",
       );
       assert.ok(
         glassSurface.wallpaper.includes("radial-gradient"),
@@ -750,13 +756,16 @@ app
       ]) {
         assert.equal(
           await page(
-            (selector) =>
-              getComputedStyle(document.querySelector(selector))
-                .backgroundColor,
+            (selector) => {
+              const style = getComputedStyle(document.querySelector(selector));
+              return style.backgroundImage.includes("rgba(22, 18, 30, 0.55)")
+                ? style.backdropFilter
+                : style.backgroundImage;
+            },
             selector,
           ),
-          "rgba(22, 18, 30, 0.55)",
-          "Home routes get a separate backing panel",
+          "none",
+          "Home routes get a separate backing panel without a live blur",
         );
       }
       assert.equal(
@@ -946,11 +955,12 @@ app
         );
       }
       win.setBounds(appearanceBounds);
-      assert.equal(
-        await evaluate(
-          "getComputedStyle(document.getElementById('fixture-chat')).backgroundColor",
-        ),
-        "rgba(22, 18, 30, 0.2)",
+      assert.ok(
+        (
+          await evaluate(
+            "getComputedStyle(document.getElementById('fixture-chat')).backgroundImage",
+          )
+        ).includes("rgba(22, 18, 30, 0.2)"),
         "dragging stays a preview until Apply",
       );
       await evaluate(
@@ -964,20 +974,25 @@ app
         "document.querySelector('.vs-theme-customizer footer')?.textContent.includes('Appearance saved')",
         "saved feedback waits for disk confirmation",
       );
-      assert.equal(
-        await evaluate(
-          "getComputedStyle(document.getElementById('fixture-chat')).backgroundColor",
-        ),
-        "rgba(22, 18, 30, 0.68)",
+      await waitFor(
+        "document.documentElement.dataset.vestraGlass === 'image'",
+        "the chosen backdrop is blurred once into an image",
+      );
+      const customizedPane = await evaluate(
+        "(() => {const style=getComputedStyle(document.getElementById('fixture-chat'));return {image:style.backgroundImage,attachment:style.backgroundAttachment,blur:style.backdropFilter,popout:getComputedStyle(document.getElementById('plain-profile')).backdropFilter,preview:getComputedStyle(document.querySelector('.vs-appearance-preview iframe').contentDocument.querySelector('.chat_preview')).backdropFilter}})()",
+      );
+      assert.ok(
+        customizedPane.image.includes("rgba(22, 18, 30, 0.68)"),
         "opacity changes the actual main surface",
       );
-      assert.equal(
-        await evaluate(
-          "getComputedStyle(document.getElementById('fixture-chat')).backdropFilter",
-        ),
-        "blur(14px)",
-        "blur changes the actual main surface",
+      assert.ok(
+        /url\("data:image\/(webp|jpeg);base64,/.test(customizedPane.image) &&
+          customizedPane.attachment.split(", ").at(-1) === "fixed",
+        `the main surface shows the pre-blurred backdrop fixed to the window: ${customizedPane.attachment}`,
       );
+      assert.equal(customizedPane.blur, "none", "no live blur on the main surface");
+      assert.equal(customizedPane.popout, "blur(14px)", "blur still applies to popouts");
+      assert.equal(customizedPane.preview, "blur(14px)", "the appearance preview shows the blur");
       assert.equal(
         await evaluate(
           "getComputedStyle(document.getElementById('fixture-chat')).borderRadius",
@@ -1123,11 +1138,16 @@ app
         [1, 2],
         "settings changed right before a reload survive it",
       );
-      assert.equal(
-        await evaluate(
-          "getComputedStyle(document.getElementById('fixture-chat')).backgroundColor",
-        ),
-        "rgba(22, 18, 30, 0.68)",
+      await waitFor(
+        "document.documentElement.dataset.vestraGlass === 'image'",
+        "the blurred backdrop is rendered again after a restart",
+      );
+      assert.ok(
+        (
+          await evaluate(
+            "getComputedStyle(document.getElementById('fixture-chat')).backgroundImage",
+          )
+        ).includes("rgba(22, 18, 30, 0.68)"),
         "appearance survives a renderer restart",
       );
       assert.ok(
@@ -1141,12 +1161,20 @@ app
       await evaluate(
         "window.Vestra.Settings.setThemeCustomization('glass',undefined)",
       );
-      assert.equal(
-        await evaluate(
-          "getComputedStyle(document.getElementById('fixture-chat')).backgroundColor",
-        ),
-        "rgba(22, 18, 30, 0.2)",
+      assert.ok(
+        (
+          await evaluate(
+            "getComputedStyle(document.getElementById('fixture-chat')).backgroundImage",
+          )
+        ).includes("rgba(22, 18, 30, 0.2)"),
         "Restore original returns to the authored Glass theme",
+      );
+      assert.deepEqual(
+        await evaluate(
+          "[document.documentElement.dataset.vestraGlass ?? null, document.documentElement.style.getPropertyValue('--vestra-glass-image')]",
+        ),
+        [null, ""],
+        "restoring the theme removes the blurred backdrop",
       );
       await evaluate("window.Vestra.Settings.setThemes([])");
 
@@ -1173,14 +1201,14 @@ app
           preset,
         );
         const nativeColor = await evaluate(
-          "getComputedStyle(document.getElementById('fixture-chat')).backgroundColor",
+          "(s=>s.backgroundColor+' '+s.backgroundImage)(getComputedStyle(document.getElementById('fixture-chat')))",
         );
         await evaluate(
           "window.Vestra.Settings.setThemeCustomization('review',{surfaceOverrides:false,textColor:'#e8e3ff',glowStrength:35})",
         );
         assert.equal(
           await evaluate(
-            "getComputedStyle(document.getElementById('fixture-chat')).backgroundColor",
+            "(s=>s.backgroundColor+' '+s.backgroundImage)(getComputedStyle(document.getElementById('fixture-chat')))",
           ),
           nativeColor,
           `${preset.name} keeps its palette when only text effects change`,

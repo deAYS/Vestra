@@ -9,9 +9,11 @@ import { Native, type NativeBridge } from "./api/native.js";
 import glassCss from "../../../themes/liquid-glass.theme.css";
 import releasedGlassCss from "../../../themes/history/liquid-glass-2.0.1.theme.css";
 import readabilityGlassCss from "../../../themes/history/liquid-glass-2.1.0.theme.css";
+import lastGlassCss from "../../../themes/history/liquid-glass-2.2.0.theme.css";
 import afterglowCss from "../../../themes/afterglow.theme.css";
 import releasedAfterglowCss from "../../../themes/history/afterglow-1.0.0.theme.css";
-import { customizedThemeCss } from "./themeCustomization.js";
+import { customizedThemeCss, glassInputs } from "./themeCustomization.js";
+import { createGlassRenderer, type GlassRenderer } from "./glassWallpaper.js";
 import { AUTOCOMPLETE_STATES_CSS } from "./themeInteractions.js";
 
 const LEGACY_MIDNIGHT_THEME = `/**
@@ -312,7 +314,7 @@ export function upgradeBuiltinThemes(store: SettingsStore): void {
     if (
       theme.name === "Vestra Liquid Glass" &&
       theme.author === "Vestra" &&
-      [previousGlass, releasedGlassCss, readabilityGlassCss].includes(
+      [previousGlass, releasedGlassCss, readabilityGlassCss, lastGlassCss].includes(
         theme.css.replace(/\r\n/g, "\n"),
       )
     ) {
@@ -516,8 +518,14 @@ function isStylesheet(node: Element): boolean {
 export function startThemes(
   store: SettingsStore = Settings,
   styles: StylesManager = Styles,
+  options: { glass?: GlassRenderer } = {},
 ): () => void {
   const doc = typeof document !== "undefined" ? document : undefined;
+  const view = doc?.defaultView;
+  /** Pre-blurred wallpaper for the active customized theme's glass panes. */
+  const glass =
+    options.glass ??
+    (doc && view ? createGlassRenderer({ document: doc, window: view }) : undefined);
   upgradeBuiltinThemes(store);
   const owned = new Set<string>();
   let activeIds: string[] = [];
@@ -585,6 +593,10 @@ export function startThemes(
       );
       owned.add("theme-profile-surfaces");
     }
+    // The renderer ignores repeated identical inputs (forced re-syncs).
+    const wallpaper = active.map(glassInputs).find((inputs) => inputs) ?? null;
+    if (wallpaper) glass?.update(wallpaper);
+    else glass?.stop();
     ensureOrder();
   };
   /** Settings path: rebuild styles only when the theme inputs changed. */
@@ -642,5 +654,6 @@ export function startThemes(
     unsubscribe();
     for (const id of owned) styles.remove(id);
     owned.clear();
+    glass?.stop();
   };
 }

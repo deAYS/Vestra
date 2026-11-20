@@ -6,6 +6,7 @@ import { StylesManager } from "./api/styles.js";
 import { startQuickCss } from "./quickCss.js";
 import { createThemeSyncKey, importTheme, startThemes } from "./themes.js";
 import { DEFAULT_THEME_CUSTOMIZATION } from "./themeCustomization.js";
+import type { GlassInputs } from "./glassWallpaper.js";
 
 const THEME_CSS = "/** @name Fixture */\n:root{--text-link:#abcdef}";
 
@@ -300,4 +301,30 @@ test("each theme sync key keeps its own content tokens", () => {
   // Another instance seeing other CSS must not disturb this one's tokens.
   second({ ...state(), themes: state().themes.map((entry) => ({ ...entry, css: entry.css + "/* other */" })) });
   assert.equal(first(state()), firstKey, "unchanged inputs keep the same key");
+});
+
+test("the glass wallpaper follows the active customized theme and ignores unrelated settings", () => {
+  const settings = new SettingsStore();
+  const doc = new Window().document;
+  const styles = new StylesManager({ getDocument: () => doc as never });
+  const calls: Array<GlassInputs | "stop"> = [];
+  const glass = {
+    update: (inputs: GlassInputs) => calls.push({ ...inputs }),
+    stop: () => calls.push("stop"),
+  };
+  const theme = importTheme(settings, THEME_CSS, "fixture.css");
+  settings.activateTheme(theme.id);
+  const stop = startThemes(settings, styles, { glass });
+  assert.deepEqual(calls, ["stop"], "an uncustomized theme needs no wallpaper");
+  const image = "data:image/png;base64,QQ==";
+  settings.setThemeCustomization(theme.id, { ...DEFAULT_THEME_CUSTOMIZATION, blur: 14, saturation: 75, brightness: 90, backgroundImage: image });
+  assert.deepEqual(calls.at(-1), { image, blur: 14, saturation: 75, brightness: 90 });
+  const count = calls.length;
+  settings.setEnabled("FixturePlugin", true);
+  settings.setPluginSetting("FixturePlugin", "value", 3);
+  assert.equal(calls.length, count, "unrelated settings never reach the renderer");
+  settings.setThemes(settings.getThemes().map((entry) => ({ ...entry, enabled: false })));
+  assert.equal(calls.at(-1), "stop", "no active theme stops the wallpaper");
+  stop();
+  assert.equal(calls.at(-1), "stop");
 });

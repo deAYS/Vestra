@@ -4,6 +4,7 @@ import { Window } from "happy-dom";
 import { SettingsStore, ThemeCustomizationSchema } from "./api/settings.js";
 import releasedGlassCss from "../../../themes/history/liquid-glass-2.0.1.theme.css";
 import readabilityGlassCss from "../../../themes/history/liquid-glass-2.1.0.theme.css";
+import lastGlassCss from "../../../themes/history/liquid-glass-2.2.0.theme.css";
 import releasedAfterglowCss from "../../../themes/history/afterglow-1.0.0.theme.css";
 import {
   THEME_LIBRARY,
@@ -23,12 +24,13 @@ import { launcherBounds, readLauncherPosition } from "./ui/launcherPosition.js";
 
 const legacyRose = `/** @name Vestra Rose\n * @author Vestra\n */\n:root,.theme-dark{--background-primary:#241622;--background-secondary:#1c111b;--background-secondary-alt:#180e16;--background-tertiary:#160d14;--background-floating:#30202e;--channeltextarea-background:#332131;--brand-500:#c985a9;--brand-560:#b47296;--brand-600:#a46388;--text-link:#efb3d0}`;
 
-for (const version of ["2.0.0", "2.0.1", "2.1.0"]) test(`Glass ${version} upgrade preserves selection and appearance without replacing edited CSS`, () => {
+for (const version of ["2.0.0", "2.0.1", "2.1.0", "2.2.0"]) test(`Glass ${version} upgrade preserves selection and appearance without replacing edited CSS`, () => {
   const preset = THEME_LIBRARY.find(theme => theme.name === "Vestra Liquid Glass")!;
-  const previous = version === "2.1.0" ? readabilityGlassCss : version === "2.0.1" ? releasedGlassCss : releasedGlassCss.replace("@version 2.0.1", "@version 2.0.0").replace("padding-top:12px!important;box-sizing:border-box;", "");
+  const previous = version === "2.2.0" ? lastGlassCss : version === "2.1.0" ? readabilityGlassCss : version === "2.0.1" ? releasedGlassCss : releasedGlassCss.replace("@version 2.0.1", "@version 2.0.0").replace("padding-top:12px!important;box-sizing:border-box;", "");
   const settings = new SettingsStore();
+  const customization = ThemeCustomizationSchema.parse({ opacity: 42, blur: 20, saturation: 90, brightness: 100, radius: 22, backgroundColor: "", backgroundImage: "data:image/png;base64,aGVsbG8=" });
   settings.setThemes([
-    { id: "glass", name: preset.name, author: "Vestra", css: previous, enabled: true, customization: ThemeCustomizationSchema.parse({ opacity: 42, blur: 20, saturation: 90, brightness: 100, radius: 22, backgroundColor: "", backgroundImage: "" }) },
+    { id: "glass", name: preset.name, author: "Vestra", css: previous, enabled: true, customization },
     { id: "edited", name: preset.name, author: "Vestra", css: previous + "\nbody{color:red}", enabled: false },
   ]);
   upgradeBuiltinThemes(settings);
