@@ -132,7 +132,7 @@ summary:focus-visible {
   align-items: flex-start;
   justify-content: space-between;
   gap: 16px;
-  margin-bottom: 28px;
+  margin-bottom: 24px;
 }
 
 .vs-title {
@@ -148,18 +148,11 @@ summary:focus-visible {
   font-size: 14px;
 }
 
-.vs-section-title {
-  font-size: 14px;
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--vs-muted);
-  margin: 0 0 16px;
-}
-
+/* Discord rows: name · version, then one status line; actions on the right. */
 .vs-list {
-  display: grid;
-  gap: 16px;
+  background: var(--vs-surface);
+  border: 1px solid var(--vs-border);
+  border-radius: 12px;
 }
 
 .vs-empty {
@@ -171,91 +164,221 @@ summary:focus-visible {
   border-radius: 12px;
 }
 
-.vs-card {
-  background: var(--vs-surface);
-  border: 1px solid var(--vs-border);
-  border-radius: 12px;
-  padding: 20px;
-  cursor: pointer;
-  transition: border-color 0.15s ease;
-}
-
-.vs-card--selected {
-  border-color: var(--vs-primary-hover);
-}
-
-.vs-card__header {
-  display: flex;
+.vs-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 232px;
   align-items: center;
-  justify-content: space-between;
-  gap: 12px;
+  gap: 20px;
+  min-height: 78px;
+  padding: 16px 20px;
 }
 
-.vs-card__header h3 {
+.vs-row + .vs-row {
+  border-top: 1px solid var(--vs-border);
+}
+
+.vs-row__main {
+  min-width: 0;
+}
+
+.vs-row__title {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+
+.vs-row__title h3 {
   margin: 0;
-  font-size: 18px;
+  font-size: 15px;
+  font-weight: 600;
+  white-space: nowrap;
 }
 
-.vs-card__badge {
-  font-size: 12px;
+.vs-row__sep,
+.vs-row__version {
+  color: var(--vs-muted);
+  font-size: 13px;
+}
+
+.vs-row__version {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.vs-row__badge {
+  align-self: center;
+  margin-left: 4px;
+  font-size: 11px;
   color: var(--vs-muted);
   border: 1px solid var(--vs-border);
   background: var(--vs-surface-2);
   border-radius: 999px;
-  padding: 3px 10px;
+  padding: 2px 8px;
   white-space: nowrap;
 }
 
-.vs-card__version {
-  margin-top: 4px;
-  font-size: 13px;
-  color: var(--vs-muted);
-  font-variant-numeric: tabular-nums;
-}
-
-.vs-badge {
-  margin-top: 12px;
-  font-size: 14px;
-}
-
-.vs-badge--healthy {
-  color: #7ee2a8;
-}
-
-.vs-badge--needs-repair {
-  color: #f0b35c;
-}
-
-.vs-badge--check-failed {
-  color: #ef7d7d;
-}
-
-.vs-card__checking {
-  margin-top: 6px;
-  font-size: 13px;
-  color: var(--vs-muted);
-}
-
-.vs-card__muted {
-  font-size: 13px;
-  color: var(--vs-muted);
-}
-
-.vs-card__actions {
+.vs-row__status {
   display: flex;
-  gap: 10px;
-  margin-top: 16px;
+  align-items: center;
+  gap: 9px;
+  margin: 7px 0 0;
+  font-size: 13px;
+  line-height: 18px;
+  color: var(--vs-text);
+  min-width: 0;
+}
+
+.vs-row__status[data-state="not-installed"],
+.vs-row__status[data-state="checking"],
+.vs-row__status[data-state="not-started"],
+.vs-row__status[data-state="awaiting-login"] {
+  color: var(--vs-muted);
+}
+
+/* Status dot: one tone per state, reusing the palette's status hues. */
+.vs-dot {
+  width: 8px;
+  height: 8px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--vs-muted);
+}
+.vs-dot--ok {
+  background: #7ee2a8;
+  box-shadow: 0 0 0 3px #7ee2a81f;
+}
+.vs-dot--warn {
+  background: #f0b35c;
+  box-shadow: 0 0 0 3px #f0b35c1f;
+}
+.vs-dot--error {
+  background: #ef7d7d;
+  box-shadow: 0 0 0 3px #ef7d7d1f;
+}
+.vs-dot--info {
+  background: var(--vs-primary);
+  box-shadow: 0 0 0 3px #c5baf81f;
+}
+.vs-dot--neutral {
+  background: var(--vs-muted);
+}
+.vs-dot--pending {
+  background: var(--vs-muted);
+  animation: vs-pulse 1.2s ease-in-out infinite;
+}
+.vs-dot--off {
+  background: transparent;
+  box-shadow: inset 0 0 0 1.5px var(--vs-muted);
+}
+@keyframes vs-pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+
+/* Fixed-size action cell: progress replaces the buttons without shifting the row. */
+.vs-row__actions {
+  display: flex;
+  align-items: center;
   justify-content: flex-end;
-  flex-wrap: wrap;
+  gap: 8px;
+  height: 36px;
+  min-width: 0;
+}
+
+.vs-menu-slot {
+  width: 36px;
+  height: 36px;
+  flex: none;
+}
+
+.vs-icon-btn {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  flex: none;
+  padding: 0;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  color: var(--vs-muted);
+  cursor: pointer;
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease;
+}
+.vs-icon-btn svg {
+  width: 16px;
+  height: 16px;
+  fill: currentColor;
+}
+.vs-icon-btn:hover:not(:disabled),
+.vs-icon-btn[aria-expanded="true"] {
+  background: var(--vs-surface-2);
+  border-color: var(--vs-border);
+  color: var(--vs-text);
+}
+.vs-icon-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.vs-menu {
+  position: relative;
+  flex: none;
+}
+
+.vs-menu__list {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  min-width: 168px;
+  padding: 4px;
+  background: var(--vs-surface-2);
+  border: 1px solid var(--vs-border);
+  border-radius: 10px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+}
+
+.vs-menu__item {
+  padding: 8px 12px;
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  color: var(--vs-text);
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+.vs-menu__item:hover,
+.vs-menu__item:focus {
+  background: var(--vs-border);
+}
+.vs-menu__item:focus-visible {
+  outline-offset: -2px;
+}
+.vs-menu__item--danger {
+  color: #ef9d9d;
 }
 
 .vs-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 36px;
   border: 1px solid var(--vs-border);
   background: var(--vs-surface-2);
   color: var(--vs-text);
   border-radius: 8px;
-  padding: 9px 16px;
+  padding: 0 16px;
   font-size: 14px;
+  white-space: nowrap;
   cursor: pointer;
   transition: background 0.15s ease;
 }
@@ -290,15 +413,25 @@ summary:focus-visible {
 .vs-progress {
   display: flex;
   align-items: center;
+  justify-content: flex-end;
   gap: 10px;
-  margin-top: 14px;
+  width: 100%;
+  height: 36px;
+  min-width: 0;
   font-size: 13px;
   color: var(--vs-muted);
+}
+
+.vs-progress span:last-child {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 .vs-spinner {
   width: 14px;
   height: 14px;
+  flex: none;
   border-radius: 50%;
   border: 2px solid var(--vs-border);
   border-top-color: var(--vs-primary-hover);
@@ -466,48 +599,52 @@ summary:focus-visible {
   gap: 10px;
 }
 
-.vs-operation-hint,
-.vs-recovery__description,
-.vs-recovery small {
-  color: var(--vs-muted);
-  font-size: 13px;
-  line-height: 1.6;
-}
-.vs-operation-hint {
-  margin: -8px 0 22px;
-  max-width: 620px;
-}
+/* Footer toggle: Keep Vestra installed after Discord updates. */
 .vs-recovery {
-  padding: 20px;
-  margin-top: 24px;
-  border: 1px solid var(--vs-border);
-  border-radius: 12px;
-  background: var(--vs-surface);
+  margin-top: 28px;
+  padding-top: 20px;
+  border-top: 1px solid var(--vs-border);
 }
 .vs-recovery__label {
   display: flex;
-  align-items: center;
-  gap: 24px;
-  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
   cursor: pointer;
 }
-.vs-recovery__description {
-  display: block;
-  margin-top: 6px;
-  max-width: 560px;
-}
 .vs-recovery input {
-  width: 20px;
-  height: 20px;
-  flex: 0 0 auto;
-  accent-color: #c5baf8;
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  flex: none;
+  accent-color: var(--vs-primary);
 }
+.vs-recovery__text {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.vs-recovery__title {
+  font-size: 14px;
+  line-height: 18px;
+}
+.vs-recovery__sub {
+  font-size: 12px;
+  color: var(--vs-muted);
+  font-variant-numeric: tabular-nums;
+}
+.vs-recovery__error {
+  margin: 10px 0 0 30px;
+  font-size: 13px;
+  color: #ef9d9d;
+}
+
+/* Update banner: only when there is an update to act on or a handoff error. */
 .vs-update-card {
-  margin-top: 20px;
-  padding: 24px;
-  border: 1px solid var(--vs-border, #363044);
-  border-radius: 16px;
-  background: rgba(27, 24, 34, 0.78);
+  margin-bottom: 20px;
+  padding: 16px 20px;
+  border: 1px solid #c5baf833;
+  border-radius: 12px;
+  background: var(--vs-surface);
 }
 .vs-update-heading {
   display: flex;
@@ -516,25 +653,29 @@ summary:focus-visible {
   gap: 16px;
 }
 .vs-update-heading h2 {
-  font-size: 16px;
-  margin: 0 0 6px;
+  font-size: 15px;
+  margin: 0 0 4px;
 }
 .vs-update-card p {
   font-size: 13px;
   line-height: 1.6;
-  color: #bbb1cd;
-  margin: 8px 0 16px;
+  color: var(--vs-muted);
+  margin: 8px 0 12px;
 }
 .vs-update-heading p {
   margin: 0;
   font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.vs-update-heading + .vs-update-actions {
+  margin-top: 12px;
 }
 .vs-update-badge {
   font-size: 11px;
-  color: #cbbcf5;
-  border: 1px solid #cbbcf529;
+  color: var(--vs-primary);
+  border: 1px solid #c5baf829;
   border-radius: 20px;
-  padding: 5px 10px;
+  padding: 4px 10px;
   white-space: nowrap;
 }
 .vs-update-actions {
@@ -542,19 +683,37 @@ summary:focus-visible {
   flex-wrap: wrap;
   gap: 10px;
 }
+.vs-update-actions:empty {
+  display: none;
+}
+.vs-update-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  font-size: 13px;
+  color: #ef9d9d;
+}
+.vs-update-heading + .vs-update-error,
+.vs-update-card p + .vs-update-error {
+  margin-top: 12px;
+}
+.vs-update-error + .vs-update-actions {
+  margin-top: 12px;
+}
 .vs-update-card progress {
   display: block;
   width: 100%;
   height: 6px;
-  accent-color: #c5baf8;
-  margin-bottom: 18px;
+  accent-color: var(--vs-primary);
+  margin-bottom: 14px;
 }
 .vs-update-confirm {
-  margin-top: 20px;
-  padding: 20px;
+  margin-top: 16px;
+  padding: 16px;
   border: 1px solid #c5baf84a;
-  border-radius: 12px;
-  background: #17131fe6;
+  border-radius: 10px;
+  background: var(--vs-background);
 }
 .vs-update-confirm strong {
   font-size: 15px;

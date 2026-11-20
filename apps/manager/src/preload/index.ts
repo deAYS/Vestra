@@ -8,6 +8,7 @@ import type {
   OperationSummary,
   StatusSummary,
   MaintenanceStatus,
+  RunStatusMap,
 } from "../shared/types.js";
 import type {
   DiscordChannel,
@@ -32,6 +33,9 @@ export interface VestraManagerApi {
   install(args: { channels: DiscordChannel[] }): Promise<OperationSummary>;
   repair(args: { channels: DiscordChannel[] }): Promise<OperationSummary>;
   uninstall(args: { channels: DiscordChannel[] }): Promise<OperationSummary>;
+  restartDiscord(args: { channels: DiscordChannel[] }): Promise<OperationSummary>;
+  discordRunning(args: { channels: DiscordChannel[] }): Promise<boolean>;
+  runStatus(): Promise<RunStatusMap>;
   onProgress(listener: (event: InstallerProgressEvent) => void): () => void;
   isDevelopmentBuild(): boolean;
   maintenanceStatus(): Promise<MaintenanceStatus>;
@@ -65,6 +69,9 @@ const api: VestraManagerApi = {
   install: (args) => ipcRenderer.invoke(MANAGER_IPC.install, args),
   repair: (args) => ipcRenderer.invoke(MANAGER_IPC.repair, args),
   uninstall: (args) => ipcRenderer.invoke(MANAGER_IPC.uninstall, args),
+  restartDiscord: (args) => ipcRenderer.invoke(MANAGER_IPC.restartDiscord, args),
+  discordRunning: (args) => ipcRenderer.invoke(MANAGER_IPC.discordRunning, args),
+  runStatus: () => ipcRenderer.invoke(MANAGER_IPC.runStatus),
   maintenanceStatus: () => ipcRenderer.invoke(MANAGER_IPC.maintenanceStatus),
   setMaintenance: (enabled) =>
     ipcRenderer.invoke(MANAGER_IPC.maintenanceSet, enabled),

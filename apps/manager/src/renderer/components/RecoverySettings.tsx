@@ -1,8 +1,18 @@
 import { useEffect, useState } from "react";
 import { managerApi } from "../types.js";
+import type { DiscordChannel } from "../../shared/channels.js";
 import type { MaintenanceStatus } from "../../shared/types.js";
+import { lastReinstall, recoverySubline } from "../../shared/statusModel.js";
+import type { ChannelRecovery } from "../../main/recovery/state.js";
 
-export function RecoverySettings({ busy }: { busy: boolean }): JSX.Element {
+const LABEL = "Keep Vestra installed after Discord updates";
+
+interface Props {
+  busy: boolean;
+  recovery: Partial<Record<DiscordChannel, ChannelRecovery>>;
+}
+
+export function RecoverySettings({ busy, recovery }: Props): JSX.Element {
   const [status, setStatus] = useState<MaintenanceStatus | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -32,37 +42,41 @@ export function RecoverySettings({ busy }: { busy: boolean }): JSX.Element {
       setSaving(false);
     }
   };
+  const last = lastReinstall(recovery);
+  const subline =
+    status && !status.available
+      ? "Available in the Windows Setup and Portable builds."
+      : status?.available && status.channels.length === 0
+        ? "Turns on when you install Vestra."
+        : last !== undefined
+          ? recoverySubline(last, new Date())
+          : null;
   return (
-    <section className="vs-recovery" aria-label="Automatic recovery">
+    <footer className="vs-recovery" aria-label="Automatic recovery">
       <label className="vs-recovery__label">
-        <span>
-          <strong>Keep Vestra installed</strong>
-          <span className="vs-recovery__description">
-            Recover after Discord updates, including after a PC restart. Runs
-            quietly at Windows sign-in and restarts Discord after restoring
-            Vestra.
-          </span>
-        </span>
         <input
           type="checkbox"
-          aria-label="Keep Vestra installed"
+          aria-label={LABEL}
           checked={status?.enabled ?? false}
           disabled={
             busy || saving || !status?.available || status.channels.length === 0
           }
           onChange={(event) => void update(event.currentTarget.checked)}
         />
+        <span className="vs-recovery__text">
+          <span className="vs-recovery__title">{LABEL}</span>
+          {subline !== null ? (
+            <span className="vs-recovery__sub" data-testid="recovery-subline">
+              {subline}
+            </span>
+          ) : null}
+        </span>
       </label>
-      {status && !status.available ? (
-        <small>Available in the Windows Setup and Portable builds.</small>
+      {error ? (
+        <p className="vs-recovery__error" role="alert">
+          {error}
+        </p>
       ) : null}
-      {status?.available && status.channels.length === 0 ? (
-        <small>
-          Enabled automatically when you install Vestra. You can turn it off
-          here.
-        </small>
-      ) : null}
-      {error ? <p role="alert">{error}</p> : null}
-    </section>
+    </footer>
   );
 }

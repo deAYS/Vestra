@@ -177,3 +177,12 @@ test("a relaunch failure keeps the operation successful with a warning", async (
   assert.equal(result.ok, true);
   assert.equal(result.warning, "Discord didn't reopen. Open it manually.");
 });
+test("isRunning sees only this channel's Discord and never stops it", async () => {
+  const h = harness();
+  assert.equal(await h.lifecycle.isRunning("stable"), true);
+  await h.system.stop({ pid: 1, executable: target.appDir + "\\Discord.exe" });
+  h.calls.length = 0;
+  // The Canary fixture process (another root) does not count for Stable.
+  assert.equal(await h.lifecycle.isRunning("stable"), false);
+  assert.deepEqual(h.calls, [], "a query never stops, launches or patches");
+});

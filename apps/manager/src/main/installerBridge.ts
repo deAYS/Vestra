@@ -7,6 +7,7 @@ import { DiscordLifecycle } from "./discordLifecycle.js";
 import { MaintenanceController, trackAfterOperation } from "./maintenance.js";
 import { withInstallLock, type InstallerService } from "@vestra/installer";
 import { MANAGER_IPC } from "../shared/channels.js";
+import { readRunStatus } from "./runStatus.js";
 import type { InstallerProgressEvent } from "../shared/types.js";
 
 const CHANNELS: readonly string[] = ["stable", "ptb", "canary"];
@@ -104,6 +105,17 @@ export function registerManagerIpc(
   handle(MANAGER_IPC.repair, (event, raw) => mutate("repair", event, raw));
   handle(MANAGER_IPC.uninstall, (event, raw) =>
     mutate("uninstall", event, raw),
+  );
+  // Recovery's Restart Discord, from the Manager row: the same locked repair
+  // the notification runs. Only ever invoked by a user click in the renderer.
+  handle(MANAGER_IPC.restartDiscord, (event, raw) =>
+    mutate("repair", event, raw),
+  );
+  handle(MANAGER_IPC.discordRunning, (_event, raw) =>
+    lifecycle.isRunning(singleChannel(raw)[0]!),
+  );
+  handle(MANAGER_IPC.runStatus, async () =>
+    readRunStatus(service.context.homeDir, await service.discover()),
   );
   handle(MANAGER_IPC.maintenanceStatus, () => maintenance.status());
   handle(MANAGER_IPC.maintenanceSet, (_event, raw) => {

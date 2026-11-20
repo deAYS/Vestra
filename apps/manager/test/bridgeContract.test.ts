@@ -135,6 +135,25 @@ describe("security boundary", () => {
     assert.match(lifecycle, /purge:\s*false/);
   });
 
+  test("run status, running check and Restart Discord are sender-checked handlers", () => {
+    const bridge = codeOnly(read(path.join("main", "installerBridge.ts")));
+    assert.equal(
+      (bridge.match(/ipcMain\.handle\(/g) ?? []).length,
+      1,
+      "every handler goes through the sender-checked handle()",
+    );
+    for (const name of ["runStatus", "discordRunning", "restartDiscord"])
+      assert.match(bridge, new RegExp(`handle\\(MANAGER_IPC\\.${name},`), name);
+    // Restart Discord is the locked lifecycle repair, never a bare process call.
+    assert.match(
+      bridge,
+      /handle\(MANAGER_IPC\.restartDiscord,[^;]*mutate\("repair"/,
+    );
+    const preload = codeOnly(read(path.join("preload", "index.ts")));
+    for (const name of ["runStatus", "discordRunning", "restartDiscord"])
+      assert.ok(preload.includes(`MANAGER_IPC.${name}`), `preload missing ${name}`);
+  });
+
   test("manager uses the shared service; process control stays in the main process", () => {
     const all = listFiles(SRC).filter((f) => /\.(ts|tsx|mjs)$/.test(f));
     for (const file of all) {

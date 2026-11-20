@@ -132,6 +132,18 @@ export class DiscordLifecycle {
     );
   }
 
+  /** Whether this channel's Discord is open, by the same filter `run` stops. Read-only. */
+  async isRunning(channel: DiscordChannel): Promise<boolean> {
+    const target = (await this.service.discover({ channels: [channel] }))[0];
+    if (!target) return false;
+    const image = imageNames[channel].toLowerCase();
+    return (await this.system.processes()).some(
+      (proc) =>
+        belongsToRoot(proc.executable, target.rootDir) &&
+        path.win32.basename(proc.executable).toLowerCase() === image,
+    );
+  }
+
   async run(
     kind: "install" | "repair" | "uninstall",
     channel: DiscordChannel,

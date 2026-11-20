@@ -1,44 +1,43 @@
 import type { DiscordChannel } from "../../shared/channels.js";
-import type { CardModel } from "../../shared/statusModel.js";
-import type { OperationKind } from "../hooks/useManager.js";
-import { DiscordInstallCard } from "./DiscordInstallCard.js";
+import type { RowModel } from "../../shared/statusModel.js";
+import { DiscordInstallCard, type RowActions } from "./DiscordInstallCard.js";
 
-interface Props {
-  cards: CardModel[];
+interface Props extends RowActions {
+  rows: RowModel[];
   devMode: boolean;
-  selected: DiscordChannel | undefined;
   busy: boolean;
-  activeOp: { channel: DiscordChannel; kind: OperationKind } | null;
+  workingChannel: DiscordChannel | null;
   progressText: string | null;
-  onSelect(channel: DiscordChannel): void;
-  onInstall(channel: DiscordChannel): void;
-  onRepair(channel: DiscordChannel): void;
-  onUninstall(channel: DiscordChannel): void;
 }
 
-export function DiscordInstallList(props: Props): JSX.Element {
-  if (props.cards.length === 0) {
+export function DiscordInstallList({
+  rows,
+  devMode,
+  busy,
+  workingChannel,
+  progressText,
+  ...actions
+}: Props): JSX.Element {
+  if (rows.length === 0) {
     return (
       <div className="vs-empty" data-testid="install-list-empty">
         No Discord installations detected.
       </div>
     );
   }
+  const now = new Date();
   return (
     <div className="vs-list" data-testid="install-list">
-      {props.cards.map((card) => (
+      {rows.map((row) => (
         <DiscordInstallCard
-          key={card.channel}
-          card={card}
-          devMode={props.devMode}
-          selected={props.selected === card.channel}
-          busy={props.busy}
-          activeOp={props.activeOp}
-          progressText={props.progressText}
-          onSelect={props.onSelect}
-          onInstall={props.onInstall}
-          onRepair={props.onRepair}
-          onUninstall={props.onUninstall}
+          key={row.channel}
+          row={row}
+          devMode={devMode}
+          busy={busy}
+          working={workingChannel === row.channel}
+          progressText={progressText}
+          now={now}
+          {...actions}
         />
       ))}
     </div>

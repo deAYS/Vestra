@@ -47,6 +47,9 @@ for (const [name, result] of Object.entries({
       },
     ],
   },
+  "run-status": { stable: { run: { kind: "active", at: Date.now() } } },
+  // A closed fixture Discord: Repair runs without the restart warning.
+  "discord-running": false,
 }))
   ipcMain.handle("vestra-manager:" + name, () => result);
 
@@ -138,9 +141,23 @@ app
       await wait(
         () =>
           evaluate(
-            "Boolean(document.querySelector('[data-testid=repair-stable]'))",
+            "document.querySelector('[data-testid=row-status-stable]')?.textContent.startsWith('Vestra active · started ')",
           ).catch(() => false),
         "Manager UI ready",
+      );
+      assert.equal(
+        await evaluate(
+          "Boolean(document.querySelector('[data-testid=repair-stable]'))",
+        ),
+        false,
+        "an active row has no primary button; Repair waits in the menu",
+      );
+      assert.equal(
+        await evaluate(
+          "document.querySelector('[data-testid=install-card-stable] .vs-row__actions').getBoundingClientRect().height",
+        ),
+        36,
+        "the action cell has a fixed height",
       );
       assert.equal(win.getNormalBounds().width, 960);
       await wait(
@@ -332,12 +349,49 @@ app
         "a matching URL in an untrusted frame cannot close the window",
       );
       await evaluate(
+        "document.querySelector('[data-testid=row-menu-stable]').click()",
+      );
+      await wait(
+        () =>
+          evaluate(
+            "document.querySelector('[data-testid=row-menu-stable]').getAttribute('aria-expanded')==='true'&&document.activeElement===document.querySelector('[data-testid=repair-stable]')",
+          ),
+        "overflow menu opens with Repair focused",
+      );
+      await evaluate(
+        "document.activeElement.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}))",
+      );
+      await wait(
+        () =>
+          evaluate(
+            "!document.querySelector('[role=menu]')&&document.activeElement===document.querySelector('[data-testid=row-menu-stable]')",
+          ),
+        "Escape closes the menu and returns focus",
+      );
+      await evaluate(
+        "document.querySelector('[data-testid=row-menu-stable]').click()",
+      );
+      await wait(
+        () =>
+          evaluate(
+            "Boolean(document.querySelector('[data-testid=repair-stable]'))",
+          ),
+        "menu reopens",
+      );
+      await evaluate(
         "document.querySelector('[data-testid=repair-stable]').click()",
       );
       await wait(
         () =>
           evaluate("Boolean(document.querySelector('[data-testid=notice]'))"),
         "fixture repair result",
+      );
+      assert.equal(
+        await evaluate(
+          "Boolean(document.querySelector('[data-testid=confirm-dialog]'))",
+        ),
+        false,
+        "a closed Discord is repaired without the restart warning",
       );
       assert.ok(
         await evaluate(
@@ -354,9 +408,9 @@ app
         await wait(
           () =>
             evaluate(
-              "Boolean(document.querySelector('[data-testid=repair-stable]'))",
+              "Boolean(document.querySelector('[data-testid=row-status-stable]'))",
             ),
-          "refreshed fixture card",
+          "refreshed fixture row",
         );
         await evaluate(
           "Promise.all(document.getAnimations().map(a=>a.finished.catch(()=>{}))).then(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(()=>resolve(true)))))",

@@ -18,6 +18,9 @@ export const MANAGER_IPC = {
   updateInstall: "vestra-manager:update-install",
   updateDismissError: "vestra-manager:update-dismiss-error",
   updateState: "vestra-manager:update-state",
+  runStatus: "vestra-manager:run-status",
+  restartDiscord: "vestra-manager:restart-discord",
+  discordRunning: "vestra-manager:discord-running",
 } as const;
 
 export type ManagerWindowAction = "minimize" | "toggle-maximize" | "close";
