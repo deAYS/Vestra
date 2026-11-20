@@ -9,6 +9,7 @@ import type {
   OperationSummary,
 } from "@vestra/installer";
 import type { DiscordChannel } from "../shared/channels.js";
+import { systemTool } from "./systemTools.js";
 
 const execute = promisify(execFile);
 const imageNames = {
@@ -45,7 +46,7 @@ export const windowsDiscordSystem: DiscordSystem = {
       "$ErrorActionPreference='Stop'; @(Get-CimInstance Win32_Process -Filter \"Name='Discord.exe' OR Name='DiscordPTB.exe' OR Name='DiscordCanary.exe' OR Name='Update.exe'\" | Select-Object ProcessId,ExecutablePath) | ConvertTo-Json -Compress";
     const encoded = Buffer.from(script, "utf16le").toString("base64");
     const { stdout } = await execute(
-      "powershell.exe",
+      systemTool("powershell"),
       ["-NoProfile", "-NonInteractive", "-EncodedCommand", encoded],
       { windowsHide: true, timeout: 15000 },
     );
@@ -66,7 +67,7 @@ export const windowsDiscordSystem: DiscordSystem = {
   },
   async stop(process) {
     try {
-      await execute("taskkill.exe", ["/PID", String(process.pid), "/T", "/F"], {
+      await execute(systemTool("taskkill"), ["/PID", String(process.pid), "/T", "/F"], {
         windowsHide: true,
         timeout: 15000,
       });

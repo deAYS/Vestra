@@ -11,6 +11,7 @@ import {
   type InstallerService,
 } from "@vestra/installer";
 import { DiscordLifecycle } from "./discordLifecycle.js";
+import { systemTool } from "./systemTools.js";
 import { isDiscordChannel, type DiscordChannel } from "../shared/channels.js";
 import type { MaintenanceStatus } from "../shared/types.js";
 
@@ -118,7 +119,7 @@ export class MaintenanceController {
     if (!config.enabled || config.channels.length === 0) {
       // Deleting an absent named value is harmless; registry access failures are not.
       const query = await execute(
-        "reg.exe",
+        systemTool("reg"),
         ["query", RUN_KEY, "/v", "VestraMaintenance"],
         { windowsHide: true },
       ).then(
@@ -130,7 +131,7 @@ export class MaintenanceController {
       );
       if (query)
         await execute(
-          "reg.exe",
+          systemTool("reg"),
           ["delete", RUN_KEY, "/v", "VestraMaintenance", "/f"],
           { windowsHide: true },
         );
@@ -141,7 +142,7 @@ export class MaintenanceController {
     config.runtime = runtime;
     await saveConfig(this.home, config);
     await execute(
-      "reg.exe",
+      systemTool("reg"),
       [
         "add",
         RUN_KEY,

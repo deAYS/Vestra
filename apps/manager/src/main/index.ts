@@ -109,7 +109,7 @@ async function boot(): Promise<void> {
   }
   createManagerWindow();
   await updates.finish();
-  if (updates.snapshot().phase !== "error") void updates.check();
+  void updates.check();
   const updateTimer = setInterval(
     () => void updates.check(),
     6 * 60 * 60 * 1000,

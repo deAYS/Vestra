@@ -13,7 +13,8 @@ import {
   verifyPackage,
   type ReleasePackage,
 } from "../src/main/githubUpdates.js";
-import { handoffScript } from "../src/main/updateHandoff.js";
+import { handoffScript, literal } from "../src/main/updateHandoff.js";
+import { systemTool } from "../src/main/systemTools.js";
 
 const bytes = Buffer.from("disposable test package");
 const digest = createHash("sha256").update(bytes).digest("hex");
@@ -195,7 +196,7 @@ test(
           script,
       );
       await promisify(execFile)(
-        "powershell.exe",
+        systemTool("powershell"),
         [
           "-NoProfile",
           "-NonInteractive",
@@ -221,7 +222,7 @@ test(
       );
       await fs.writeFile(packageFile, "corrupt download");
       await promisify(execFile)(
-        "powershell.exe",
+        systemTool("powershell"),
         [
           "-NoProfile",
           "-NonInteractive",
@@ -244,6 +245,50 @@ test(
         path.basename(directory).startsWith("vestra-update-fixture-")
       )
         await fs.rm(directory, { recursive: true, force: true });
+    }
+  },
+);
+
+test("literal doubles every PowerShell single-quote character", () => {
+  assert.equal(
+    literal("Bob’s ‘x’ ‚y‛ it's"),
+    "'Bob’’s ‘‘x’’ ‚‚y‛‛ it''s'",
+  );
+});
+test(
+  "handoff script parses when paths contain every quote character",
+  { timeout: 30_000, skip: process.platform !== "win32" },
+  async () => {
+    const directory = await fs.mkdtemp(
+      path.join(os.tmpdir(), "vestra-update-fixture-"),
+    );
+    try {
+      const odd = "a'b‘c’d‚e‛f";
+      for (const portable of [true, false]) {
+        const script = handoffScript({
+          pid: 1,
+          target: path.join(directory, odd, "t.exe"),
+          packageFile: path.join(directory, odd, "p.exe"),
+          errorFile: path.join(directory, odd, "e.txt"),
+          portable,
+          release,
+          token: odd,
+        });
+        const filename = path.join(directory, `parse-${portable}.ps1`);
+        await fs.writeFile(filename, "﻿" + script, "utf8");
+        await promisify(execFile)(
+          systemTool("powershell"),
+          [
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            `[ScriptBlock]::Create((Get-Content -Raw -LiteralPath '${filename.replace(/'/g, "''")}')) | Out-Null`,
+          ],
+          { windowsHide: true, timeout: 20_000 },
+        );
+      }
+    } finally {
+      await fs.rm(directory, { recursive: true, force: true });
     }
   },
 );

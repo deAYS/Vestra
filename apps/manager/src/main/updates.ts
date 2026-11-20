@@ -51,6 +51,14 @@ export class ManagerUpdates {
   private get pendingFile(): string {
     return path.join(this.directory, "pending.json");
   }
+  private get errorFile(): string {
+    return path.join(this.directory, "handoff-error.txt");
+  }
+  /** Handoff leftovers are shown once at most; they must not outlive that. */
+  private async clearHandoff(): Promise<void> {
+    await fs.rm(this.pendingFile, { force: true }).catch(() => {});
+    await fs.rm(this.errorFile, { force: true }).catch(() => {});
+  }
   constructor(
     private service: InstallerService,
     private maintenance: MaintenanceController,
@@ -243,7 +251,7 @@ export class ManagerUpdates {
             ...distribution,
             release: this.release,
             token: pending.token,
-            errorFile: path.join(this.directory, "handoff-error.txt"),
+            errorFile: this.errorFile,
           },
           this.directory,
         );
@@ -256,12 +264,14 @@ export class ManagerUpdates {
     try {
       pending = JSON.parse(await fs.readFile(this.pendingFile, "utf8"));
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "ENOENT")
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
         await this.publish({
           phase: "error",
           message:
             "Update handoff could not be read. Use Repair to finish updating Discord.",
         });
+        await this.clearHandoff();
+      }
       return;
     }
     if (
@@ -275,6 +285,7 @@ export class ManagerUpdates {
         message:
           "The update handoff is invalid. Use Repair to finish updating Discord.",
       });
+      await this.clearHandoff();
       return;
     }
     const argument = process.argv.find((value) =>
@@ -300,10 +311,7 @@ export class ManagerUpdates {
       }
       let failure = "";
       try {
-        failure = await fs.readFile(
-          path.join(this.directory, "handoff-error.txt"),
-          "utf8",
-        );
+        failure = await fs.readFile(this.errorFile, "utf8");
       } catch {}
       await this.publish({
         phase: "error",
@@ -311,6 +319,7 @@ export class ManagerUpdates {
           failure ||
           "An update was interrupted. Check for updates to retry, or use Repair to finish updating Discord.",
       });
+      await this.clearHandoff();
       return;
     }
     if (
@@ -323,6 +332,7 @@ export class ManagerUpdates {
         message:
           "The update handoff is expired or does not match this Manager. No Discord files were changed.",
       });
+      if (!valid) await this.clearHandoff();
       return;
     }
     this.resumePending = true;
@@ -344,11 +354,8 @@ export class ManagerUpdates {
           await this.maintenance.track(channel, true);
         }
       });
-      await fs.rm(this.pendingFile, { force: true });
       this.resumePending = false;
-      await fs.rm(path.join(this.directory, "handoff-error.txt"), {
-        force: true,
-      });
+      await this.clearHandoff();
       await this.publish({
         phase: "current",
         checkedAt: Date.now(),
