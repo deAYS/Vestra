@@ -95,7 +95,12 @@ async function runRecovery(): Promise<void> {
       if (!Notification.isSupported()) return null;
       return new Notification(content);
     },
-    (channel) => void monitor.restartAndRepair(channel).catch(logRecovery),
+    {
+      restart: (channel) => monitor.restartAndRepair(channel),
+      // The Manager offers Repair for a failed re-install; never a restart here.
+      openManager: () => windowsDiscordSystem.launch(process.execPath, []),
+      onError: logRecovery,
+    },
   );
   const monitor: RecoveryMonitor = new RecoveryMonitor(
     {

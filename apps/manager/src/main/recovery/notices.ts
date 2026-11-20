@@ -12,15 +12,38 @@ export interface NoticeContent {
 export const NOTICE_CONTENT: Record<NoticeKind, NoticeContent> = {
   "waiting-for-exit": {
     title: "Discord updated",
-    body: "Restart Discord to bring Vestra back.",
+    body: "Click to restart Discord and bring Vestra back.",
     actions: [{ type: "button", text: "Restart Discord" }],
   },
   failed: {
     title: "Vestra couldn't re-install",
-    body: "Restart Discord to try again, or open Vestra Manager to repair.",
-    actions: [{ type: "button", text: "Restart Discord" }],
+    body: "Vestra couldn't re-install after Discord updated. Click to open Vestra Manager.",
+    actions: [{ type: "button", text: "Open Vestra Manager" }],
   },
 };
+
+/** Follow-up when a Restart Discord click found another operation running. */
+export const BUSY_CONTENT: NoticeContent = {
+  title: "Vestra is busy",
+  body: "Another Vestra operation is running. Try again in a moment.",
+  actions: [],
+};
+
+/** Another operation owns the install lock or the Discord lifecycle. */
+export function isOperationBusy(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return /Another (?:installation|Discord) operation/i.test(message);
+}
+
+/** What a click does, by notice kind. */
+export interface NoticeActions {
+  /** Waiting for exit: the user's Restart Discord. */
+  restart(channel: DiscordChannel): Promise<void>;
+  /** Failed: open the Manager, where Repair is offered. */
+  openManager(): Promise<void>;
+  /** Failures of a click, which has no caller to throw to. */
+  onError(error: unknown): void;
+}
 
 /** The parts of Electron's Notification this module uses. */
 export interface NoticeHandle {
@@ -47,7 +70,7 @@ export class RecoveryNotices {
 
   constructor(
     private readonly create: (content: NoticeContent) => NoticeHandle | null,
-    private readonly onClick: (channel: DiscordChannel) => void,
+    private readonly actions: NoticeActions,
   ) {}
 
   get size(): number {
@@ -64,13 +87,36 @@ export class RecoveryNotices {
       if (clicked) return;
       clicked = true;
       this.open.delete(key);
-      this.onClick(channel);
+      this.run(channel, kind);
     };
     // Windows (Electron 34) has no action buttons: the body click is the path.
     handle.on("click", click);
     handle.on("action", click);
     this.open.set(key, { channel, kind, id, handle });
     handle.show();
+  }
+
+  private run(channel: DiscordChannel, kind: NoticeKind): void {
+    const action =
+      kind === "failed"
+        ? this.actions.openManager()
+        : this.actions.restart(channel);
+    void action.catch((error: unknown) => {
+      if (kind === "waiting-for-exit" && isOperationBusy(error)) {
+        this.busy();
+        return;
+      }
+      this.actions.onError(error);
+    });
+  }
+
+  /** An informational follow-up; nothing to click, nothing to withdraw. */
+  private busy(): void {
+    try {
+      this.create(BUSY_CONTENT)?.show();
+    } catch (error) {
+      this.actions.onError(error);
+    }
   }
 
   /**

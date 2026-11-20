@@ -92,6 +92,9 @@ async function harness(options: Options = {}) {
     /** Per-call answers for processesFor; falls back to `pids` when empty. */
     pidsSequence: [] as number[][],
     healAfterPatch: true,
+    processesError: undefined as (() => Error) | undefined,
+    /** Throws from the health check that follows a patch. */
+    checkErrorAfterPatch: undefined as (() => Error) | undefined,
     lifecycleResult: { ok: true, results: [] } as {
       ok: boolean;
       results: Array<{ ok: boolean; detail?: string }>;
@@ -109,6 +112,7 @@ async function harness(options: Options = {}) {
     },
     async check() {
       h.calls.check++;
+      if (h.calls.patch > 0 && h.checkErrorAfterPatch) throw h.checkErrorAfterPatch();
       return {
         statuses: [
           {
@@ -134,6 +138,7 @@ async function harness(options: Options = {}) {
       service,
       async processesFor() {
         h.calls.processes++;
+        if (h.processesError) throw h.processesError();
         return [...(h.pidsSequence.shift() ?? h.pids)];
       },
       isAlive: (pid) => h.alive.has(pid),
@@ -305,6 +310,62 @@ test("an in-use failure with no Discord running is blocked and capped", async ()
     await monitor.evaluate(enabled, "sweep");
     await monitor.settled();
     assert.equal(h.calls.patch, 3);
+  } finally {
+    await cleanup();
+  }
+});
+
+test("a failing process check is recorded as a capped failed attempt", async () => {
+  const { h, monitor, cleanup } = await harness();
+  try {
+    h.processesError = () => new Error("CIM query failed for C:\Fixture");
+    await monitor.evaluate(enabled, "staged");
+    let state = await readRecoveryState(h.home);
+    assert.equal(state.stable?.phase, "idle");
+    assert.equal(state.stable?.detail, "process-check-failed");
+    assert.equal(state.stable?.attempts, 1);
+    await monitor.settled();
+    state = await readRecoveryState(h.home);
+    assert.equal(state.stable?.phase, "failed");
+    assert.equal(state.stable?.detail, "process-check-failed");
+    assert.equal(state.stable?.attempts, 3);
+    assert.equal(h.calls.processes, 3);
+    assert.equal(h.calls.patch, 0, "never patches without knowing Discord is closed");
+    assert.deepEqual(h.failures, [`stable:${VERSION}`]);
+    await monitor.evaluate(enabled, "sweep");
+    await monitor.settled();
+    assert.equal(h.calls.processes, 3, "capped: no more checks for this archive");
+  } finally {
+    await cleanup();
+  }
+});
+
+test("an in-use failure whose process check fails is a failed attempt, not a throw", async () => {
+  const { h, monitor, cleanup } = await harness();
+  try {
+    h.pidsSequence = [[]];
+    h.patchError = () => Object.assign(new Error("busy"), { code: "EBUSY" });
+    h.onPatch = async () => {
+      h.processesError = () => new Error("CIM query failed");
+    };
+    await monitor.evaluate(enabled, "staged");
+    const state = await readRecoveryState(h.home);
+    assert.equal(state.stable?.detail, "process-check-failed");
+    assert.equal(state.stable?.attempts, 1);
+  } finally {
+    await cleanup();
+  }
+});
+
+test("a throwing health check after a patch is a failed attempt", async () => {
+  const { h, monitor, cleanup } = await harness();
+  try {
+    h.checkErrorAfterPatch = () => new Error("check backend down");
+    await monitor.evaluate(enabled, "staged");
+    const state = await readRecoveryState(h.home);
+    assert.equal(state.stable?.phase, "idle");
+    assert.equal(state.stable?.detail, "process-check-failed");
+    assert.equal(state.stable?.attempts, 1);
   } finally {
     await cleanup();
   }
@@ -626,6 +687,37 @@ test("Restart Discord runs under the install lock", async () => {
   }
 });
 
+test("a Restart Discord click refused by a busy lock keeps the waiter", async () => {
+  const { h, monitor, cleanup } = await harness();
+  const gate = deferred();
+  try {
+    h.pids = [31];
+    h.alive = new Set([31]);
+    const poll = deferred();
+    h.onWait = (ms) => (ms === 5000 ? poll.promise : undefined);
+    await monitor.evaluate(enabled, "staged");
+    const holder = withInstallLock(h.home, () => gate.promise);
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    await assert.rejects(
+      () => monitor.restartAndRepair("stable"),
+      /Another installation operation/,
+    );
+    gate.release();
+    await holder;
+    // Discord closes later: the surviving waiter patches it.
+    h.alive.clear();
+    h.pids = [];
+    h.onWait = undefined;
+    poll.release();
+    await monitor.settled();
+    assert.equal(h.calls.patch, 1);
+    assert.equal((await readRecoveryState(h.home)).stable?.phase, "patched");
+  } finally {
+    gate.release();
+    await cleanup();
+  }
+});
+
 test("a failed Restart Discord keeps the archive's attempt budget", async () => {
   const { h, monitor, cleanup } = await harness();
   try {
@@ -653,13 +745,16 @@ test("a failed Restart Discord keeps the archive's attempt budget", async () => 
   }
 });
 
-function fakeNotices() {
+function fakeNotices(
+  options: { restartError?: () => Error; openError?: () => Error } = {},
+) {
   const shown: Array<{
     content: NoticeContent;
     listeners: Map<string, () => void>;
     closed: boolean;
   }> = [];
   const clicks: string[] = [];
+  const errors: string[] = [];
   const notices = new RecoveryNotices(
     (content) => {
       const entry = { content, listeners: new Map<string, () => void>(), closed: false };
@@ -675,10 +770,22 @@ function fakeNotices() {
         },
       };
     },
-    (channel) => clicks.push(channel),
+    {
+      async restart(channel) {
+        clicks.push(`restart:${channel}`);
+        if (options.restartError) throw options.restartError();
+      },
+      async openManager() {
+        clicks.push("open-manager");
+        if (options.openError) throw options.openError();
+      },
+      onError: (error) => errors.push(reasonCode(error)),
+    },
   );
-  return { notices, shown, clicks };
+  return { notices, shown, clicks, errors };
 }
+
+const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 test("notifications stay clickable after Windows closes the toast, until clicked", () => {
   const { notices, shown, clicks } = fakeNotices();
@@ -686,14 +793,14 @@ test("notifications stay clickable after Windows closes the toast, until clicked
   notices.show("stable", "waiting-for-exit", VERSION);
   assert.equal(shown.length, 1, "one notice per channel and version");
   assert.equal(shown[0]!.content.title, "Discord updated");
-  assert.equal(shown[0]!.content.body, "Restart Discord to bring Vestra back.");
+  assert.equal(shown[0]!.content.body, "Click to restart Discord and bring Vestra back.");
   assert.equal(shown[0]!.listeners.has("close"), false, "close does not release");
   assert.equal(notices.size, 1);
   notices.phase("stable", "waiting-for-exit", VERSION);
   assert.equal(notices.size, 1, "still waiting: kept");
   shown[0]!.listeners.get("click")!();
   shown[0]!.listeners.get("action")!();
-  assert.deepEqual(clicks, ["stable"], "one restart per notice");
+  assert.deepEqual(clicks, ["restart:stable"], "one restart per notice");
   assert.equal(notices.size, 0);
 });
 
@@ -713,6 +820,51 @@ test("notifications are withdrawn when the channel leaves their phase or version
   notices.phase("stable", "idle", "1");
   assert.equal(notices.size, 0);
   assert.deepEqual(clicks, []);
+});
+
+test("clicking the failure notice opens the Manager and never restarts Discord", async () => {
+  const { notices, shown, clicks, errors } = fakeNotices();
+  notices.show("stable", "failed", VERSION);
+  assert.equal(shown[0]!.content.title, "Vestra couldn't re-install");
+  assert.equal(
+    shown[0]!.content.body,
+    "Vestra couldn't re-install after Discord updated. Click to open Vestra Manager.",
+  );
+  assert.deepEqual(shown[0]!.content.actions, [{ type: "button", text: "Open Vestra Manager" }]);
+  shown[0]!.listeners.get("click")!();
+  await flush();
+  assert.deepEqual(clicks, ["open-manager"]);
+  assert.deepEqual(errors, []);
+});
+
+test("a restart click while another operation holds the lock shows a follow-up", async () => {
+  const { notices, shown, clicks, errors } = fakeNotices({
+    restartError: () => new Error("Another installation operation is already running."),
+  });
+  notices.show("stable", "waiting-for-exit", VERSION);
+  shown[0]!.listeners.get("click")!();
+  await flush();
+  assert.deepEqual(clicks, ["restart:stable"]);
+  assert.equal(shown.length, 2, "the click is not swallowed silently");
+  assert.equal(
+    shown[1]!.content.body,
+    "Another Vestra operation is running. Try again in a moment.",
+  );
+  assert.deepEqual(errors, [], "a busy lock is not a failure");
+});
+
+test("other click failures are reported without a follow-up", async () => {
+  const { notices, shown, errors } = fakeNotices({
+    restartError: () => Object.assign(new Error("spawn failed"), { code: "ENOENT" }),
+    openError: () => Object.assign(new Error("spawn failed"), { code: "EACCES" }),
+  });
+  notices.show("stable", "waiting-for-exit", VERSION);
+  notices.show("stable", "failed", VERSION);
+  shown[0]!.listeners.get("click")!();
+  shown[1]!.listeners.get("click")!();
+  await flush();
+  assert.equal(shown.length, 2);
+  assert.deepEqual(errors, ["ENOENT", "EACCES"]);
 });
 
 type LoopConfig = { enabled: boolean; channels: DiscordChannel[]; runtime?: string };

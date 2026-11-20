@@ -28,6 +28,8 @@ export const STABLE_MS = 3000;
 export const POLL_MS = 5000;
 export const BACKOFF_MS = [60_000, 300_000, 1_800_000] as const;
 export const MAX_ATTEMPTS = 3;
+/** Recorded when the process lookup or the post-patch check itself failed. */
+export const PROCESS_CHECK_FAILED = "process-check-failed";
 
 export interface RecoveryDeps {
   service: InstallerService;
@@ -181,13 +183,14 @@ export class RecoveryMonitor {
 
   /** The user's click: stop Discord, repair, verify, reopen if it was open. */
   async restartAndRepair(channel: DiscordChannel): Promise<void> {
-    const task = this.tasks.get(channel);
-    if (task) {
-      task.cancelled = true;
-      this.tasks.delete(channel);
-    }
     await this.exclusive(() =>
       withInstallLock(this.home, async () => {
+        // Only once the lock is ours: a refused click keeps the waiter.
+        const task = this.tasks.get(channel);
+        if (task) {
+          task.cancelled = true;
+          this.tasks.delete(channel);
+        }
         const previous = (await readRecoveryState(this.home))[channel];
         const target = (
           await this.deps.service.discover({ channels: [channel] })
@@ -280,12 +283,26 @@ export class RecoveryMonitor {
         return;
       }
     }
-    const pids = await this.deps.processesFor(target);
+    const pids = await this.processes(target);
+    if (pids === null) {
+      await this.failedAttempt(target, version, signature, attempts, PROCESS_CHECK_FAILED);
+      return;
+    }
     if (pids.length > 0) {
       await this.waitForExit(target, version, signature, attempts, pids);
       return;
     }
     await this.patch(target, version, signature, attempts);
+  }
+
+  /** Running PIDs, or null when the lookup failed (reported, then counted). */
+  private async processes(target: DiscordInstallation): Promise<number[] | null> {
+    try {
+      return await this.deps.processesFor(target);
+    } catch (error) {
+      this.deps.onError?.(error);
+      return null;
+    }
   }
 
   private async patch(
@@ -304,7 +321,11 @@ export class RecoveryMonitor {
       const current = (await this.signature(target)) ?? signature;
       if (isInUse(error)) {
         // Discord started meanwhile: wait for it, without spending an attempt.
-        const pids = await this.deps.processesFor(target);
+        const pids = await this.processes(target);
+        if (pids === null) {
+          await this.failedAttempt(target, version, current, attempts, PROCESS_CHECK_FAILED);
+          return;
+        }
         if (pids.length > 0) {
           await this.waitForExit(target, version, current, attempts, pids);
           return;
@@ -323,7 +344,16 @@ export class RecoveryMonitor {
       return;
     }
     // A repair that reports success must also verify; otherwise it counts.
-    if (!(await this.healthy(target))) {
+    let verified: boolean;
+    try {
+      verified = await this.healthy(target);
+    } catch (error) {
+      this.deps.onError?.(error);
+      const current = (await this.signature(target)) ?? signature;
+      await this.failedAttempt(target, version, current, attempts, PROCESS_CHECK_FAILED);
+      return;
+    }
+    if (!verified) {
       const current = (await this.signature(target)) ?? signature;
       await this.failedAttempt(
         target,
