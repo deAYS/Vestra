@@ -1,17 +1,26 @@
-import { app, BrowserWindow } from "electron";
+import { app, BrowserWindow, Notification } from "electron";
 import * as fs from "node:fs";
-import { createInstallerService } from "@vestra/installer";
+import { createInstallerService, withInstallLock } from "@vestra/installer";
 import { registerManagerIpc } from "./installerBridge.js";
 import { createServiceContext } from "./serviceContext.js";
 import { createManagerWindow } from "./window.js";
 import { ManagerUpdates } from "./updates.js";
 import * as path from "node:path";
-import { DiscordLifecycle, windowsDiscordSystem } from "./discordLifecycle.js";
 import {
-  MaintenanceController,
+  DiscordLifecycle,
+  processesUnder,
+  windowsDiscordSystem,
+} from "./discordLifecycle.js";
+import { MaintenanceController, readMaintenance } from "./maintenance.js";
+import { createRecoveryLoop } from "./recovery/loop.js";
+import {
   RecoveryMonitor,
-  readMaintenance,
-} from "./maintenance.js";
+  reasonCode,
+  repairFailure,
+} from "./recovery/monitor.js";
+import { RecoveryNotices } from "./recovery/notices.js";
+import { watchRoots } from "./recovery/watch.js";
+import type { DiscordChannel } from "../shared/channels.js";
 
 const service = createInstallerService(createServiceContext());
 const lifecycle = new DiscordLifecycle(service);
@@ -23,7 +32,8 @@ const maintenance = new MaintenanceController(service, {
 const background = process.argv.includes("--maintain");
 if (background) {
   app.setName("Vestra Recovery");
-  app.setAppUserModelId("dev.vestra.recovery");
+  // Same id as the Setup Start Menu shortcut, so Windows shows our notifications.
+  app.setAppUserModelId("dev.vestra.manager");
   app.setPath(
     "userData",
     path.join(service.context.homeDir, "recovery-session"),
@@ -40,37 +50,98 @@ registerManagerIpc(service, lifecycle, maintenance);
 const updates = new ManagerUpdates(service, maintenance);
 updates.register();
 
-async function runRecovery(): Promise<void> {
-  const monitor = new RecoveryMonitor(service, lifecycle);
+/** Recovery log lines carry only a reason code: messages can embed paths. */
+function logRecovery(error: unknown): void {
+  const message = error instanceof Error ? error.message : String(error);
+  if (message.includes("Another installation operation")) return;
   const log = path.join(service.context.homeDir, "recovery.log");
-  const tick = async (): Promise<void> => {
-    try {
-      const config = await readMaintenance(service.context.homeDir);
-      if (!config.enabled || config.channels.length === 0) {
-        app.quit();
-        return;
-      }
-      if (
-        config.runtime &&
-        path.resolve(config.runtime) !== path.resolve(process.execPath)
-      ) {
-        app.releaseSingleInstanceLock();
-        await windowsDiscordSystem.launch(config.runtime, ["--maintain"]);
-        app.quit();
-        return;
-      }
-      await monitor.tick(config);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      if (!message.includes("Another installation operation")) {
-        if (fs.existsSync(log) && fs.statSync(log).size > 65536)
-          fs.writeFileSync(log, "");
-        fs.appendFileSync(log, `${new Date().toISOString()} ${message}\n`);
-      }
-    }
-    setTimeout(() => void tick(), 15000);
-  };
-  await tick();
+  try {
+    if (fs.existsSync(log) && fs.statSync(log).size > 65536)
+      fs.writeFileSync(log, "");
+    fs.appendFileSync(log, `${new Date().toISOString()} ${reasonCode(error)}\n`);
+  } catch {
+    /* logging must never stop recovery */
+  }
+}
+
+function isAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    // EPERM: the process exists but may not be signalled by us.
+    return (error as NodeJS.ErrnoException).code === "EPERM";
+  }
+}
+
+/** Repair without touching Discord's processes; in-use failures keep their code. */
+async function patchWithoutRestart(channel: DiscordChannel): Promise<void> {
+  const home = service.context.homeDir;
+  await withInstallLock(home, async () => {
+    const config = await readMaintenance(home);
+    if (!config.enabled || !config.channels.includes(channel))
+      throw Object.assign(new Error("Automatic recovery is turned off."), {
+        code: "ECANCELED",
+      });
+    const result = await service.repair({ channels: [channel] });
+    if (!result.ok) throw repairFailure(result);
+  });
+}
+
+async function runRecovery(): Promise<void> {
+  const home = service.context.homeDir;
+  const notices = new RecoveryNotices(
+    (content) => {
+      if (!Notification.isSupported()) return null;
+      return new Notification(content);
+    },
+    {
+      restart: (channel) => monitor.restartAndRepair(channel),
+      // The Manager offers Repair for a failed re-install; never a restart here.
+      openManager: () => windowsDiscordSystem.launch(process.execPath, []),
+      onError: logRecovery,
+    },
+  );
+  const monitor: RecoveryMonitor = new RecoveryMonitor(
+    {
+      service,
+      processesFor: (target) => processesUnder(target),
+      isAlive,
+      patch: patchWithoutRestart,
+      notify: (channel, version) =>
+        notices.show(channel, "waiting-for-exit", version),
+      notifyFailed: (channel, version) =>
+        notices.show(channel, "failed", version),
+      onPhase: (channel, phase, version) =>
+        notices.phase(channel, phase, version),
+      now: () => Date.now(),
+      wait: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+      onError: logRecovery,
+    },
+    lifecycle,
+  );
+  const loop = createRecoveryLoop({
+    readConfig: () => readMaintenance(home),
+    evaluate: (config, trigger) => monitor.evaluate(config, trigger),
+    targets: (config) => monitor.targets(config),
+    watch: watchRoots,
+    isOtherRuntime: (runtime) =>
+      path.resolve(runtime) !== path.resolve(process.execPath),
+    async handoff(runtime) {
+      app.releaseSingleInstanceLock();
+      await windowsDiscordSystem.launch(runtime, ["--maintain"]);
+    },
+    reacquire: () => app.requestSingleInstanceLock(),
+    quit: () => app.quit(),
+    log: logRecovery,
+    setTimeout: (callback, ms) => setTimeout(callback, ms),
+    clearTimeout: (handle) =>
+      clearTimeout(handle as ReturnType<typeof setTimeout>),
+    setInterval: (callback, ms) => setInterval(callback, ms),
+    clearInterval: (handle) =>
+      clearInterval(handle as ReturnType<typeof setInterval>),
+  });
+  await loop.run("sweep");
 }
 
 async function boot(): Promise<void> {
@@ -109,7 +180,11 @@ async function boot(): Promise<void> {
   }
   createManagerWindow();
   await updates.finish();
-  if (updates.snapshot().phase !== "error") void updates.check();
+  // After a Manager update, move recovery onto this build's runtime. Best
+  // effort and never awaited: the window does not wait for it. After finish(),
+  // so a Discord update handoff never meets a busy install lock.
+  void maintenance.refreshRuntime().catch(logRecovery);
+  void updates.check();
   const updateTimer = setInterval(
     () => void updates.check(),
     6 * 60 * 60 * 1000,

@@ -47,6 +47,11 @@ for (const [name, result] of Object.entries({
       },
     ],
   },
+  "run-status": {
+    stable: { version: "1.0.9264", run: { kind: "active", at: Date.now() } },
+  },
+  // A closed fixture Discord: Repair runs without the restart warning.
+  "discord-running": false,
 }))
   ipcMain.handle("vestra-manager:" + name, () => result);
 
@@ -138,9 +143,23 @@ app
       await wait(
         () =>
           evaluate(
-            "Boolean(document.querySelector('[data-testid=repair-stable]'))",
+            "document.querySelector('[data-testid=row-status-stable]')?.textContent.startsWith('Vestra active · started ')",
           ).catch(() => false),
         "Manager UI ready",
+      );
+      assert.equal(
+        await evaluate(
+          "Boolean(document.querySelector('[data-testid=repair-stable]'))",
+        ),
+        false,
+        "an active row has no primary button; Repair waits in the menu",
+      );
+      assert.equal(
+        await evaluate(
+          "document.querySelector('[data-testid=install-card-stable] .vs-row__actions').getBoundingClientRect().height",
+        ),
+        36,
+        "the action cell has a fixed height",
       );
       assert.equal(win.getNormalBounds().width, 960);
       await wait(
@@ -271,7 +290,14 @@ app
         "error",
         "malformed saved state does not crash Manager or touch Discord",
       );
-      await fs.rm(path.join(updateHome, "updates/pending.json"));
+      assert.equal(
+        await fs.stat(path.join(updateHome, "updates/pending.json")).then(
+          () => true,
+          () => false,
+        ),
+        false,
+        "malformed saved state is cleared",
+      );
       assert.equal(await evaluate("typeof require"), "undefined");
       assert.equal(
         await evaluate(
@@ -297,58 +323,19 @@ app
         "initial window state",
       );
       assert.equal(await evaluate("window.__states[0]"), false);
-      const supportsMaterials = await evaluate(
-        "!document.querySelector('[aria-label=\"Window finish\"]').disabled",
+      assert.equal(
+        await evaluate("typeof window.vestraManager.setWindowMaterial"),
+        "undefined",
+        "the window material picker is gone from the bridge",
       );
-      for (const material of supportsMaterials
-        ? ["mica", "acrylic", "solid"]
-        : ["solid"]) {
-        await evaluate(
-          `window.vestraManager.setWindowMaterial(${JSON.stringify(material)})`,
-        );
-        await wait(
-          () =>
-            evaluate(
-              `document.documentElement.dataset.windowMaterial===${JSON.stringify(material)}`,
-            ),
-          "window finish " + material,
-        );
-        assert.equal(
-          JSON.parse(
-            await fs.readFile(
-              path.join(__dirname, "session/window-appearance.json"),
-              "utf8",
-            ),
-          ).material,
-          material,
-          "window finish is saved outside Discord storage",
-        );
-      }
-      await evaluate(
-        "window.vestraManager.setWindowMaterial('not-a-material')",
+      assert.equal(
+        await evaluate("document.querySelectorAll('select').length"),
+        0,
+        "the title bar renders no material select",
       );
       assert.equal(
         await evaluate("document.documentElement.dataset.windowMaterial"),
-        "solid",
-        "invalid window materials are ignored",
-      );
-      ipcMain.emit(
-        "vestra-manager:window-material",
-        {
-          sender: win.webContents,
-          senderFrame: { url: win.webContents.getURL() },
-        },
-        "acrylic",
-      );
-      assert.equal(
-        JSON.parse(
-          await fs.readFile(
-            path.join(__dirname, "session/window-appearance.json"),
-            "utf8",
-          ),
-        ).material,
-        "solid",
-        "untrusted frames cannot change material preferences",
+        undefined,
       );
       ipcMain.emit(
         channel,
@@ -364,12 +351,49 @@ app
         "a matching URL in an untrusted frame cannot close the window",
       );
       await evaluate(
+        "document.querySelector('[data-testid=row-menu-stable]').click()",
+      );
+      await wait(
+        () =>
+          evaluate(
+            "document.querySelector('[data-testid=row-menu-stable]').getAttribute('aria-expanded')==='true'&&document.activeElement===document.querySelector('[data-testid=repair-stable]')",
+          ),
+        "overflow menu opens with Repair focused",
+      );
+      await evaluate(
+        "document.activeElement.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}))",
+      );
+      await wait(
+        () =>
+          evaluate(
+            "!document.querySelector('[role=menu]')&&document.activeElement===document.querySelector('[data-testid=row-menu-stable]')",
+          ),
+        "Escape closes the menu and returns focus",
+      );
+      await evaluate(
+        "document.querySelector('[data-testid=row-menu-stable]').click()",
+      );
+      await wait(
+        () =>
+          evaluate(
+            "Boolean(document.querySelector('[data-testid=repair-stable]'))",
+          ),
+        "menu reopens",
+      );
+      await evaluate(
         "document.querySelector('[data-testid=repair-stable]').click()",
       );
       await wait(
         () =>
           evaluate("Boolean(document.querySelector('[data-testid=notice]'))"),
         "fixture repair result",
+      );
+      assert.equal(
+        await evaluate(
+          "Boolean(document.querySelector('[data-testid=confirm-dialog]'))",
+        ),
+        false,
+        "a closed Discord is repaired without the restart warning",
       );
       assert.ok(
         await evaluate(
@@ -386,9 +410,9 @@ app
         await wait(
           () =>
             evaluate(
-              "Boolean(document.querySelector('[data-testid=repair-stable]'))",
+              "Boolean(document.querySelector('[data-testid=row-status-stable]'))",
             ),
-          "refreshed fixture card",
+          "refreshed fixture row",
         );
         await evaluate(
           "Promise.all(document.getAnimations().map(a=>a.finished.catch(()=>{}))).then(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(()=>resolve(true)))))",
@@ -435,20 +459,9 @@ app
         listeners,
         "closed windows release their action listener",
       );
-      const reopened = createManagerWindow(false);
-      await wait(
-        () =>
-          reopened.webContents
-            .executeJavaScript(
-              "document.documentElement.dataset.windowMaterial==='solid'",
-            )
-            .catch(() => false),
-        "saved material restores in a new window",
-      );
-      reopened.destroy();
       clearTimeout(timer);
       console.log(
-        "PASS Manager custom chrome + trusted IPC + minimize/maximize/restore/close + native materials/persistence + result notification",
+        "PASS Manager custom chrome + trusted IPC + minimize/maximize/restore/close + result notification",
       );
       app.exit(0);
     } catch (error) {

@@ -8,12 +8,12 @@ import type {
   OperationSummary,
   StatusSummary,
   MaintenanceStatus,
+  RunStatusMap,
 } from "../shared/types.js";
 import type {
   DiscordChannel,
   ManagerWindowAction,
   ManagerWindowState,
-  ManagerWindowMaterial,
 } from "../shared/channels.js";
 
 declare const __VESTRA_MANAGER_DEV__: boolean;
@@ -23,9 +23,9 @@ export interface VestraManagerApi {
   checkUpdate(): Promise<UpdateState>;
   downloadUpdate(): Promise<UpdateState>;
   installUpdate(): Promise<UpdateState>;
+  dismissUpdateError(): Promise<UpdateState>;
   onUpdate(listener: (state: UpdateState) => void): () => void;
   windowAction(action: ManagerWindowAction): void;
-  setWindowMaterial(material: ManagerWindowMaterial): void;
   onWindowState(listener: (state: ManagerWindowState) => void): () => void;
   discover(): Promise<DiscordInstallation[]>;
   status(args?: { channels?: DiscordChannel[] }): Promise<StatusSummary>;
@@ -33,6 +33,9 @@ export interface VestraManagerApi {
   install(args: { channels: DiscordChannel[] }): Promise<OperationSummary>;
   repair(args: { channels: DiscordChannel[] }): Promise<OperationSummary>;
   uninstall(args: { channels: DiscordChannel[] }): Promise<OperationSummary>;
+  restartDiscord(args: { channels: DiscordChannel[] }): Promise<OperationSummary>;
+  discordRunning(args: { channels: DiscordChannel[] }): Promise<boolean>;
+  runStatus(): Promise<RunStatusMap>;
   onProgress(listener: (event: InstallerProgressEvent) => void): () => void;
   isDevelopmentBuild(): boolean;
   maintenanceStatus(): Promise<MaintenanceStatus>;
@@ -44,6 +47,8 @@ const api: VestraManagerApi = {
   checkUpdate: () => ipcRenderer.invoke(MANAGER_IPC.updateCheck),
   downloadUpdate: () => ipcRenderer.invoke(MANAGER_IPC.updateDownload),
   installUpdate: () => ipcRenderer.invoke(MANAGER_IPC.updateInstall),
+  dismissUpdateError: () =>
+    ipcRenderer.invoke(MANAGER_IPC.updateDismissError),
   onUpdate: (listener) => {
     const wrapped = (_event: unknown, state: UpdateState): void =>
       listener(state);
@@ -51,8 +56,6 @@ const api: VestraManagerApi = {
     return () => ipcRenderer.removeListener(MANAGER_IPC.updateState, wrapped);
   },
   windowAction: (action) => ipcRenderer.send(MANAGER_IPC.windowAction, action),
-  setWindowMaterial: (material) =>
-    ipcRenderer.send(MANAGER_IPC.windowMaterial, material),
   onWindowState: (listener) => {
     const wrapped = (_event: unknown, state: ManagerWindowState): void =>
       listener(state);
@@ -66,6 +69,9 @@ const api: VestraManagerApi = {
   install: (args) => ipcRenderer.invoke(MANAGER_IPC.install, args),
   repair: (args) => ipcRenderer.invoke(MANAGER_IPC.repair, args),
   uninstall: (args) => ipcRenderer.invoke(MANAGER_IPC.uninstall, args),
+  restartDiscord: (args) => ipcRenderer.invoke(MANAGER_IPC.restartDiscord, args),
+  discordRunning: (args) => ipcRenderer.invoke(MANAGER_IPC.discordRunning, args),
+  runStatus: () => ipcRenderer.invoke(MANAGER_IPC.runStatus),
   maintenanceStatus: () => ipcRenderer.invoke(MANAGER_IPC.maintenanceStatus),
   setMaintenance: (enabled) =>
     ipcRenderer.invoke(MANAGER_IPC.maintenanceSet, enabled),

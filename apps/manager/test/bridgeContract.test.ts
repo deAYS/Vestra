@@ -82,6 +82,18 @@ describe("security boundary", () => {
     assert.ok(!preload.includes("invokeAny"), "no arbitrary invoke");
   });
 
+  test("window material picker is gone from preload, channels and window", () => {
+    const preload = codeOnly(read(path.join("preload", "index.ts")));
+    assert.ok(!preload.includes("setWindowMaterial"));
+    const channels = codeOnly(read(path.join("shared", "channels.ts")));
+    assert.ok(!/material/i.test(channels), "channels mention material");
+    assert.match(channels, /interface ManagerWindowState\s*\{\s*maximized: boolean;\s*\}/);
+    const windowSrc = codeOnly(read(path.join("main", "window.ts")));
+    assert.ok(!/material|mica|acrylic/i.test(windowSrc), "window mentions material");
+    const chrome = codeOnly(read(path.join("renderer", "components", "WindowChrome.tsx")));
+    assert.ok(!/material|<select/i.test(chrome), "chrome has a picker");
+  });
+
   test("window enforces contextIsolation + no nodeIntegration", () => {
     const windowSrc = read(path.join("main", "window.ts"));
     assert.match(windowSrc, /contextIsolation:\s*true/);
@@ -118,9 +130,41 @@ describe("security boundary", () => {
       assert.ok(bridge.includes(channel), `bridge missing ${channel}`);
     }
 
-    assert.match(bridge, /lifecycle.run/);
+    assert.match(bridge, /runManagerOperation\(/);
+    assert.match(read(path.join("main", "operations.ts")), /lifecycle\.run\(/);
     const lifecycle = read(path.join("main", "discordLifecycle.ts"));
     assert.match(lifecycle, /purge:\s*false/);
+  });
+
+  test("run status, running check and Restart Discord are sender-checked handlers", () => {
+    const bridge = codeOnly(read(path.join("main", "installerBridge.ts")));
+    assert.equal(
+      (bridge.match(/ipcMain\.handle\(/g) ?? []).length,
+      1,
+      "every handler goes through the sender-checked handle()",
+    );
+    for (const name of ["runStatus", "discordRunning", "restartDiscord"])
+      assert.match(bridge, new RegExp(`handle\\(MANAGER_IPC\\.${name},`), name);
+    // Restart Discord is the locked lifecycle operation, never a bare process call.
+    assert.match(
+      bridge,
+      /handle\(MANAGER_IPC\.restartDiscord,[^;]*mutate\("restart"/,
+    );
+    const operations = codeOnly(read(path.join("main", "operations.ts")));
+    assert.match(operations, /withInstallLock\(home,/);
+    assert.match(operations, /lifecycle\.run\(/);
+    const preload = codeOnly(read(path.join("preload", "index.ts")));
+    for (const name of ["runStatus", "discordRunning", "restartDiscord"])
+      assert.ok(preload.includes(`MANAGER_IPC.${name}`), `preload missing ${name}`);
+  });
+
+  test("shared and renderer code never import from main", () => {
+    for (const dir of ["shared", "renderer"]) {
+      for (const file of listFiles(path.join(SRC, dir)).filter((f) => /\.(ts|tsx)$/.test(f))) {
+        const content = codeOnly(fs.readFileSync(file, "utf8"));
+        assert.ok(!/from "[^"]*\/main\//.test(content), `${path.basename(file)} imports main`);
+      }
+    }
   });
 
   test("manager uses the shared service; process control stays in the main process", () => {

@@ -1,8 +1,12 @@
+import type { DiscordChannel } from "../../shared/channels.js";
 import {
   applyDeepResult,
   cardFromShallow,
+  rowModel,
   type CardModel,
+  type RowModel,
 } from "../../shared/statusModel.js";
+import type { ChannelRecovery } from "../../shared/recovery.js";
 import type { ManagerState } from "../hooks/useManager.js";
 import { ConfirmDialog } from "../components/ConfirmDialog.js";
 import { DiscordInstallList } from "../components/DiscordInstallList.js";
@@ -10,49 +14,46 @@ import { ErrorPanel } from "../components/ErrorPanel.js";
 import { Header } from "../components/Header.js";
 import { RecoverySettings } from "../components/RecoverySettings.js";
 import { UpdateCard } from "../components/UpdateCard.js";
+import { useUpdates } from "../hooks/useUpdates.js";
+
+function cardFor(manager: ManagerState, channel: DiscordChannel, version: string | null): CardModel {
+  const shallow = manager.shallow[channel];
+  const base: CardModel =
+    shallow !== undefined
+      ? cardFromShallow(shallow)
+      : { channel, version, state: "not-installed" };
+  if (base.state === "not-installed") return base;
+  if (manager.checking.includes(channel))
+    return { ...base, state: "installed-checking" };
+  return applyDeepResult(base, manager.deep[channel]);
+}
 
 export function HomePage({ manager }: { manager: ManagerState }): JSX.Element {
-  const cards: CardModel[] = manager.installations.map((installation) => {
-    const shallow = manager.shallow[installation.channel];
-    const base: CardModel =
-      shallow !== undefined
-        ? cardFromShallow(shallow)
-        : {
-            channel: installation.channel,
-            version: installation.version,
-            state: "not-installed",
-          };
-    if (
-      manager.checking.includes(installation.channel) &&
-      base.state !== "not-installed"
-    ) {
-      return { ...base, state: "installed-checking" as const };
-    }
-    const deep = manager.deep[installation.channel];
-    if (deep !== undefined && base.state !== "not-installed") {
-      return applyDeepResult(base, deep);
-    }
-    return base;
+  const rows: RowModel[] = manager.installations.map(({ channel, version }) => {
+    const status = manager.run[channel];
+    return rowModel(cardFor(manager, channel, version), status?.run, status?.recovery);
   });
+  const recovery: Partial<Record<DiscordChannel, ChannelRecovery>> = {};
+  for (const { channel } of manager.installations) {
+    const record = manager.run[channel]?.recovery;
+    if (record !== undefined) recovery[channel] = record;
+  }
 
   const busy = manager.activeOp !== null;
+  const updates = useUpdates();
+  const update = updates.state;
 
   return (
-    <div>
+    <div className="vs-home">
       <Header
         refreshing={manager.refreshing}
         onRefresh={() => void manager.refresh()}
       />
-      <section>
-        <h2 className="vs-section-title">Discord installations</h2>
-        <p className="vs-operation-hint">
-          Install and Repair close the selected Discord, replace Vestra, verify
-          the files and reopen Discord. Active calls and streams will
-          disconnect.
-        </p>
+      <UpdateCard busy={busy} updates={updates} />
+      <section className="vs-installs" aria-label="Discord installations">
         {!manager.booted ? (
-          <div data-testid="boot-loading">
-            Discovering Discord installations...
+          <div className="vs-empty" data-testid="boot-loading">
+            Looking for Discord…
           </div>
         ) : manager.discoveryError !== null ? (
           <div className="vs-error" data-testid="discovery-error" role="alert">
@@ -74,21 +75,19 @@ export function HomePage({ manager }: { manager: ManagerState }): JSX.Element {
           </div>
         ) : (
           <DiscordInstallList
-            cards={cards}
+            rows={rows}
             devMode={manager.devMode}
-            selected={manager.selected}
             busy={busy}
-            activeOp={manager.activeOp}
+            workingChannel={manager.activeOp?.channel ?? null}
             progressText={manager.progressText}
-            onSelect={manager.select}
             onInstall={(c) => void manager.install(c)}
             onRepair={(c) => void manager.repair(c)}
+            onRetry={(c) => void manager.retry(c)}
+            onRestart={(c) => void manager.restart(c)}
             onUninstall={manager.requestUninstall}
           />
         )}
       </section>
-      <RecoverySettings busy={busy} />
-      <UpdateCard busy={busy} />
 
       {manager.notice !== null ? (
         <div className="vs-notice" data-testid="notice" role="status">
@@ -125,12 +124,35 @@ export function HomePage({ manager }: { manager: ManagerState }): JSX.Element {
         />
       ) : null}
 
-      {manager.confirmUninstall !== null ? (
+      <footer className="vs-footer">
+        <RecoverySettings busy={busy} recovery={recovery} />
+        {update?.supported && !updates.cardVisible ? (
+          <div className="vs-update-check">
+            {updates.upToDate ? (
+              <span className="vs-update-check__note" role="status">
+                Vestra is up to date
+              </span>
+            ) : null}
+            <button
+              type="button"
+              className="vs-link-btn"
+              data-testid="check-updates"
+              disabled={busy || update.phase === "checking"}
+              onClick={updates.checkNow}
+            >
+              {update.phase === "checking" ? "Checking…" : "Check for updates"}
+            </button>
+          </div>
+        ) : null}
+      </footer>
+
+      {manager.confirm !== null ? (
         <ConfirmDialog
-          channel={manager.confirmUninstall}
+          kind={manager.confirm.kind}
+          channel={manager.confirm.channel}
           busy={busy}
-          onCancel={manager.cancelUninstall}
-          onConfirm={() => void manager.confirmUninstallNow()}
+          onCancel={manager.cancelConfirm}
+          onConfirm={() => void manager.confirmNow()}
         />
       ) : null}
     </div>

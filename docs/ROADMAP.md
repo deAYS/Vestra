@@ -4,7 +4,7 @@
 
 - Windows Manager with Stable as the default, backup, installation, check, repair and uninstall.
 - A guarded sandbox-compatible renderer bootstrap and dismissible startup animation.
-- Four curated themes, CSS import, live QuickCSS and saved theme migration.
+- Six curated themes, CSS import, live QuickCSS and saved theme migration.
 - Nine built-in plugins, a draggable launcher and keyboard-accessible settings.
 - A standalone typed plugin SDK and builder.
 - Setup/Portable packaging, regression checks and a GitHub Pages website.

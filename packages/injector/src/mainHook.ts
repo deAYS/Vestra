@@ -1,9 +1,12 @@
 import {
   isDiscordRendererUrl,
+  startStatusFilename,
   VESTRA_IPC_PREFIX,
   VESTRA_NATIVE_CHANNELS,
+  VESTRA_VERSION,
 } from "@vestra/shared";
 import { buildAddonsSource } from "./addonsSource.js";
+import { senderRejection } from "./senderCheck.js";
 import { buildSettingsSource } from "./settingsSource.js";
 import { buildUpdatesSource } from "./updatesSource.js";
 
@@ -43,6 +46,31 @@ export interface FastHealthResult {
   detail?: string | undefined;
 }
 
+/**
+ * True when `p` is an existing absolute local path inside `home` after
+ * resolving links. Embedded in the hook via toString(): must stay
+ * self-contained plain ES2020 (fs and path are passed in).
+ */
+export function insideVestraHome(
+  fs: { realpathSync(p: string): string },
+  path: {
+    isAbsolute(p: string): boolean;
+    relative(from: string, to: string): string;
+  },
+  home: string,
+  p: unknown,
+): boolean {
+  try {
+    if (typeof p !== "string" || p === "" || p.indexOf("\0") !== -1) return false;
+    if (/^[\\/]{2}/.test(p)) return false;
+    if (!path.isAbsolute(p)) return false;
+    const rel = path.relative(fs.realpathSync(home), fs.realpathSync(p));
+    return !/^\.\.(?:[\\/]|$)/.test(rel) && !path.isAbsolute(rel);
+  } catch (_) {
+    return false;
+  }
+}
+
 const APP_PATH_ALLOWLIST = [
   "userData",
   "home",
@@ -52,6 +80,63 @@ const APP_PATH_ALLOWLIST = [
   "downloads",
   "exe",
 ];
+
+/**
+ * Start-status writer embedded in the hook. File names and the reason cap are
+ * baked from @vestra/shared (the hook cannot import); record field names are
+ * literals, kept honest by a test that parses the output with parseStartStatus.
+ * Every failure is swallowed: status files must never disturb Discord.
+ */
+function statusSource(): string {
+  const files = {
+    stable: startStatusFilename("stable"),
+    ptb: startStatusFilename("ptb"),
+    canary: startStatusFilename("canary"),
+  };
+  return `
+  const STATUS_FILES = ${JSON.stringify(files)};
+  const VESTRA_VERSION_LITERAL = ${JSON.stringify(VESTRA_VERSION)};
+  let statusChannel;
+  function resolveStatusChannel() {
+    if (statusChannel) return statusChannel;
+    try {
+      const resources = path.dirname(app.getAppPath());
+      const receipt = JSON.parse(fs.readFileSync(path.join(resources, "vestra-receipt.json"), "utf8"));
+      if (receipt && (receipt.channel === "stable" || receipt.channel === "ptb" || receipt.channel === "canary")) statusChannel = receipt.channel;
+    } catch (_) {}
+    if (!statusChannel) {
+      const exe = path.basename(process.execPath).toLowerCase();
+      statusChannel = exe.indexOf("discordcanary") === 0 ? "canary" : exe.indexOf("discordptb") === 0 ? "ptb" : "stable";
+    }
+    return statusChannel;
+  }
+  // kind: "launch" | "start". Keeps the other record; atomic via tmp + rename.
+  function writeStatus(kind, extra) {
+    try {
+      const file = path.join(app.getPath("appData"), "Vestra", ...STATUS_FILES[resolveStatusChannel()].split("/"));
+      let current = {};
+      try {
+        const parsed = JSON.parse(fs.readFileSync(file, "utf8"));
+        if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) current = parsed;
+      } catch (_) {}
+      let discordVersion = "";
+      try { discordVersion = String(app.getVersion()); } catch (_) {}
+      const record = Object.assign({ at: Date.now(), discordVersion: discordVersion, vestraVersion: VESTRA_VERSION_LITERAL }, extra);
+      const next = {};
+      if (current.launch) next.launch = current.launch;
+      if (current.start) next.start = current.start;
+      next[kind] = record;
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      const tmp = file + "." + process.pid + ".tmp";
+      try {
+        fs.writeFileSync(tmp, JSON.stringify(next));
+        fs.renameSync(tmp, file);
+      } catch (_) {
+        try { fs.unlinkSync(tmp); } catch (_) {}
+      }
+    } catch (_) {}
+  }`;
+}
 
 /** Build the main-hook CJS source. Throws (TypeError) on bad options. */
 export function buildMainHookSource(options: MainHookOptions): string {
@@ -99,21 +184,33 @@ export function buildMainHookSource(options: MainHookOptions): string {
   const hookSentinel = Symbol.for("vestra.mainHook");
   if (globalThis[hookSentinel]) return;
   const trustedUrl = ${isDiscordRendererUrl.toString()};
+  const senderRejection = ${senderRejection.toString()};
   function assertSender(event) {
-    const frame = event && event.senderFrame;
-    if (!frame || !event.sender || frame !== event.sender.mainFrame || !trustedUrl(frame.url)) {
-      throw new Error("[Vestra] untrusted IPC sender");
-    }
+    const reason = senderRejection(event, trustedUrl);
+    if (reason !== null) throw new Error("[Vestra] untrusted IPC sender: " + reason);
   }
 
   const PREFIX = ${JSON.stringify(prefix)};
+  ${statusSource()}
   const CAPABILITIES = ${JSON.stringify([...caps])};
   const PRELOAD_PATH = (${preloadPathExpr});
   const SETTINGS_FILE = ${JSON.stringify(settingsFile)};
   const APP_PATHS = ${JSON.stringify(APP_PATH_ALLOWLIST)};
   ${buildSettingsSource()}
-  function validPath(p) {
-    return typeof p === "string" && p !== "" && p.indexOf("\\0") === -1;
+  const insideVestraHome = ${insideVestraHome.toString()};
+  // The resolved path, checked again: the shell never follows a link itself.
+  function vestraPath(channel, p) {
+    const home = path.join(app.getPath("appData"), "Vestra");
+    const denied = channel + ": path outside Vestra folders";
+    if (!insideVestraHome(fs, path, home, p)) throw new TypeError(denied);
+    let real;
+    try {
+      real = fs.realpathSync(p);
+    } catch (_) {
+      throw new TypeError(denied);
+    }
+    if (!insideVestraHome(fs, path, home, real)) throw new TypeError(denied);
+    return real;
   }
 
   // Fast health check: read-mostly, zero filesystem writes, never throws.
@@ -194,14 +291,15 @@ export function buildMainHookSource(options: MainHookOptions): string {
       return writeSettings(text);
     },
     "shell:openPath": async (p) => {
-      if (!validPath(p)) throw new TypeError("shell:openPath needs a path");
-      const res = await shell.openPath(p);
+      const target = vestraPath("shell:openPath", p);
+      // Folders only: opening a file could hand it to Windows Script Host.
+      if (!fs.statSync(target).isDirectory()) throw new TypeError("shell:openPath: not a folder");
+      const res = await shell.openPath(target);
       if (res !== "") throw new Error(res);
       return true;
     },
     "shell:showItemInFolder": async (p) => {
-      if (!validPath(p)) throw new TypeError("shell:showItemInFolder needs a path");
-      shell.showItemInFolder(p);
+      shell.showItemInFolder(vestraPath("shell:showItemInFolder", p));
       return true;
     },
     "app:getVersion": async () => app.getVersion(),
@@ -229,7 +327,11 @@ export function buildMainHookSource(options: MainHookOptions): string {
   // Sandboxed preloads cannot require fs/path. Send only fixed bootstrap files
   // from this installed payload, never a renderer-supplied filesystem path.
   ipcMain.handle(PREFIX + "bootstrap", async (event, options) => {
-    assertSender(event);
+    const rejection = senderRejection(event, trustedUrl);
+    if (rejection !== null) {
+      writeStatus("start", { ok: false, reason: rejection });
+      throw new Error("[Vestra] untrusted IPC sender: " + rejection);
+    }
     const root = path.dirname(PRELOAD_PATH);
     const requested = options || {};
     function bootstrapFile(name, fallback) {
@@ -257,7 +359,23 @@ export function buildMainHookSource(options: MainHookOptions): string {
       for (const file of await readAddonFiles("plugins")) plugins.push({ name: file.filename.slice(0, -10), source: file.source });
       await addonFolder("themes");
     } catch (error) { console.warn("[Vestra] local addons unavailable:", error.message); }
+    writeStatus("start", { ok: true });
     return { bundle, loader, plugins };
+  });
+
+  // Internal (not a native capability): the preload reports a failed start.
+  ipcMain.handle(PREFIX + "report", async (event, args) => {
+    assertSender(event);
+    const raw = Array.isArray(args) ? args[0] : undefined;
+    const reason = typeof raw === "string" && /^[a-z-]{1,64}$/.test(raw) ? raw : "bootstrap-error";
+    writeStatus("start", { ok: false, reason });
+  });
+
+  // Internal: the preload reports a successful start that reused its cached
+  // payload (no new bootstrap call), so the status reflects this session.
+  ipcMain.handle(PREFIX + "started", async (event) => {
+    assertSender(event);
+    writeStatus("start", { ok: true });
   });
 
   // Preload chaining: Electron runs a single "preload" per window. When
@@ -319,6 +437,7 @@ export function buildMainHookSource(options: MainHookOptions): string {
       var __vestraScheduleHealth = function() {
         try {
           setImmediate(function() {
+            try { writeStatus("launch", {}); } catch (_) {}
             try {
               var r = fastHealthCheck();
               if (!r || r.healthy !== true) {

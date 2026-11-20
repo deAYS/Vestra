@@ -37,12 +37,9 @@ navigation, home and profile surfaces while retaining the four original palettes
 Afterglow 1.1 and Glass 2.2 use the same scope boundaries. Exact earlier CSS migrates
 without replacing user-edited copies or removing appearance preferences.
 
-Manager uses frameless, draggable custom chrome. Window actions and material
-changes accept only its bundled main frame. Solid/Mica/Acrylic choices are validated
-and stored atomically in the Manager's own user-data folder. Electron's native
-backdrop API requires Windows 11 22H2 or later; unsupported or failed effects fall
-back to Solid. Integration checks exercise window actions, sender rejection,
-material preferences and notification dismissal without touching real installs.
+Manager uses frameless, draggable custom chrome on a solid background. Window
+actions accept only its bundled main frame. Integration checks exercise window
+actions, sender rejection and notification dismissal without touching real installs.
 
 Archive verification now normalizes portable `/` and Windows `\` entry separators
 before reading ASAR files. A real Node-on-Windows check reproduced failed nested
@@ -167,13 +164,31 @@ backup never overwrites an updated native archive during Repair or Uninstall.
 
 Keep Vestra installed registers the named HKCU Run value VestraMaintenance. Its
 independent local runtime supports Portable builds after extraction cleanup. It
-observes only registered roots on selected channels, waits for unchanged file
-metadata across two 15-second observations, defers during updater activity and
-checks integrity before repairing. Healthy Discord instances are left running;
-a recovered instance restarts. Failed attempts back off five minutes. Foreground
-and background writes share an OS-owned named pipe lock on Windows, released
-automatically on process exit. Disable removes the startup value; Uninstall
-untracks its channel and removes the value after the final tracked channel.
+observes only registered roots on selected channels, using folder watching plus a
+ten-minute safety sweep, and patches a newly staged Discord version while the
+old one is still running. It checks integrity before repairing and waits until
+Discord's updater has finished staging the new version (its `.app-<version>.installing`
+folder is gone). It never closes Discord on its own: when Discord already runs
+the new unpatched version, it waits for Discord to close, then patches, and offers
+a Restart Discord action. Attempts are capped at three with backoff. After the
+last one, the Manager row shows "Couldn't re-install after Discord updated" with
+Repair, and a notification opens the Manager when clicked. State lives in
+`%AppData%\Vestra\recovery-state.json`. Foreground and background writes share
+an OS-owned named pipe lock on Windows, released automatically on process exit.
+Archive writes are atomic (temporary file, then rename), and a replaced archive
+reports as needing repair. Repair without a channel only touches channels Vestra
+was installed on, and a purge runs only after every uninstall succeeded.
+Disable removes the startup value; Uninstall untracks its channel and removes the
+value after the final tracked channel.
+
+Each launch writes `%AppData%\Vestra\status\<channel>.json` recording whether
+Vestra started; the start-up check accepts Discord's own main window and retries.
+The Manager reads it to distinguish "active" from "installed, but didn't start".
+
+Delta updates: Discord's quick host update verifies `app.asar` against a hash.
+A Vestra-patched archive fails that check, so Discord falls back to a full
+download about an hour later. Recovery patches the staged full version ahead of
+launch.
 
 Recovery is an enabled, visible Manager setting rather than a guarantee against
 future Discord changes. It does not stop Discord updates or download remote code.

@@ -15,6 +15,8 @@ export interface PreloadOptions {
   bundleInline?: boolean | undefined;
   storePlugins?: boolean | undefined;
   splash?: boolean | undefined;
+  /** Delays before each bootstrap retry. Defaults to [500, 1500, 3000]. */
+  retryDelaysMs?: number[] | undefined;
 }
 
 /** Sandboxed preload: only Electron is required; all file reads stay in main. */
@@ -34,6 +36,12 @@ export function buildPreloadSource(options?: PreloadOptions): string {
     if (file !== undefined && !/^[A-Za-z0-9_-]+\.(?:c?js)$/.test(file))
       throw new TypeError("Unsafe bootstrap file.");
   }
+  const retryDelays = options?.retryDelaysMs ?? [500, 1500, 3000];
+  if (
+    !Array.isArray(retryDelays) ||
+    retryDelays.some((d) => !Number.isFinite(d) || d < 0)
+  )
+    throw new TypeError("Invalid bootstrap retry delays.");
   return `"use strict";
 (function () {
   const trusted = ${isDiscordRendererUrl.toString()};
@@ -44,6 +52,7 @@ export function buildPreloadSource(options?: PreloadOptions): string {
   const { contextBridge, ipcRenderer, webFrame } = require("electron");
   const capabilities = ${JSON.stringify([...caps])};
   const prefix = ${JSON.stringify(prefix)};
+  const retryDelays = ${JSON.stringify(retryDelays)};
   function expose(name, value) {
     if (process.contextIsolated === false) window[name] = value;
     else contextBridge.exposeInMainWorld(name, value);
@@ -77,15 +86,36 @@ export function buildPreloadSource(options?: PreloadOptions): string {
     set(pct, label) { if (splash) splash.set(pct, label); },
     done() { if (splash) splash.done(); }
   });
+  async function invokeBootstrap(ticket) {
+    for (let attempt = 0; ; attempt++) {
+      try {
+        return await ipcRenderer.invoke(prefix + "bootstrap", {
+          bundleFile: ${JSON.stringify(options?.bundleFile ?? "vestra.js")},
+          loaderFile: ${JSON.stringify(options?.loaderFile ?? "vestra-loader.js")},
+          storePlugins: ${options?.storePlugins !== false}
+        });
+      } catch (err) {
+        if (attempt >= retryDelays.length || !sessionReady || generation !== ticket) throw err;
+        await new Promise(resolve => setTimeout(resolve, retryDelays[attempt]));
+        if (!sessionReady || generation !== ticket) throw err;
+      }
+    }
+  }
+  function shortReason(err) {
+    const match = /untrusted IPC sender: ([a-z-]+)/.exec(String(err && err.message ? err.message : err));
+    return match ? match[1] : "bootstrap-error";
+  }
+  async function reportFailure(err) {
+    try { await ipcRenderer.invoke(prefix + "report", [shortReason(err)]); } catch (_) {}
+    if (splash) splash.fail("Vestra couldn't start \\u2014 open Vestra Manager for details");
+  }
   async function boot(ticket) {
+    let failed = false;
     try {
       ${options?.splash === false ? "" : "mountSplash();"}
       if (splash) splash.set(12, "Loading Vestra runtime…");
-      const payload = payloadCache || await ipcRenderer.invoke(prefix + "bootstrap", {
-        bundleFile: ${JSON.stringify(options?.bundleFile ?? "vestra.js")},
-        loaderFile: ${JSON.stringify(options?.loaderFile ?? "vestra-loader.js")},
-        storePlugins: ${options?.storePlugins !== false}
-      });
+      const reused = payloadCache !== undefined;
+      const payload = payloadCache || await invokeBootstrap(ticket);
       if (!payload || typeof payload.bundle !== "string" || typeof payload.loader !== "string") throw new Error("Invalid bootstrap response");
       payloadCache = payload;
       if (!sessionReady || generation !== ticket) return;
@@ -107,10 +137,12 @@ export function buildPreloadSource(options?: PreloadOptions): string {
       if (!sessionReady || generation !== ticket) return;
       if (splash) splash.set(55, "Starting plugins and themes…");
       await webFrame.executeJavaScript(payload.loader + "\\n//# sourceURL=vestra-loader.js");
+      if (reused && sessionReady && generation === ticket) { try { await ipcRenderer.invoke(prefix + "started", []); } catch (_) {} }
     } catch (err) {
       console.error("[Vestra] bootstrap failed:", err);
+      if (sessionReady && generation === ticket) { failed = true; await reportFailure(err); }
     } finally {
-      if (splash) { if (sessionReady && generation === ticket) splash.done(); else { splash.cancel(); splash = undefined; } }
+      if (splash) { if (failed) {} else if (sessionReady && generation === ticket) splash.done(); else { splash.cancel(); splash = undefined; } }
     }
   }
   function watchSession() {

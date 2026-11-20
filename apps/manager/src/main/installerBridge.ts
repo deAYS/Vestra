@@ -4,9 +4,11 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { isManagerSender } from "./sender.js";
 import type { DiscordChannel } from "@vestra/injector";
 import { DiscordLifecycle } from "./discordLifecycle.js";
-import { MaintenanceController, withInstallLock } from "./maintenance.js";
-import type { InstallerService } from "@vestra/installer";
+import { MaintenanceController } from "./maintenance.js";
+import { runManagerOperation, type ManagerOperation } from "./operations.js";
+import { withInstallLock, type InstallerService } from "@vestra/installer";
 import { MANAGER_IPC } from "../shared/channels.js";
+import { readRunStatus } from "./runStatus.js";
 import type { InstallerProgressEvent } from "../shared/types.js";
 
 const CHANNELS: readonly string[] = ["stable", "ptb", "canary"];
@@ -86,25 +88,32 @@ export function registerManagerIpc(
   );
 
   const mutate = (
-    kind: "install" | "repair" | "uninstall",
+    operation: ManagerOperation,
     event: IpcMainInvokeEvent,
     raw: unknown,
-  ) => {
-    const channel = singleChannel(raw)[0]!;
-    return withInstallLock(service.context.homeDir, async () => {
-      const result = await lifecycle.run(
-        kind,
-        channel,
-        forwardProgress(event.sender),
-      );
-      if (result.ok) await maintenance.track(channel, kind !== "uninstall");
-      return result;
-    });
-  };
+  ) =>
+    runManagerOperation(
+      { service, lifecycle, maintenance },
+      operation,
+      singleChannel(raw)[0]!,
+      forwardProgress(event.sender),
+    );
   handle(MANAGER_IPC.install, (event, raw) => mutate("install", event, raw));
   handle(MANAGER_IPC.repair, (event, raw) => mutate("repair", event, raw));
   handle(MANAGER_IPC.uninstall, (event, raw) =>
     mutate("uninstall", event, raw),
+  );
+  // Restart Discord from the Manager row (user click only): the locked repair
+  // the recovery notification runs, then the channel's recovery record is
+  // written as patched so the row stops waiting even with recovery off.
+  handle(MANAGER_IPC.restartDiscord, (event, raw) =>
+    mutate("restart", event, raw),
+  );
+  handle(MANAGER_IPC.discordRunning, (_event, raw) =>
+    lifecycle.isRunning(singleChannel(raw)[0]!),
+  );
+  handle(MANAGER_IPC.runStatus, async () =>
+    readRunStatus(service.context.homeDir, await service.discover()),
   );
   handle(MANAGER_IPC.maintenanceStatus, () => maintenance.status());
   handle(MANAGER_IPC.maintenanceSet, (_event, raw) => {

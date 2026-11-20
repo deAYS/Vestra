@@ -87,7 +87,7 @@ for (const operation of ["install", "repair"] as const) {
       assert.equal((await service.install()).ok, false);
       assert.deepEqual(await fs.readFile(fixture.asarPath), native);
       await fs.rmdir(receipt);
-      assert.equal((await service[operation]()).ok, true);
+      assert.equal((await (operation === "repair" ? service.repair({ channels: [fixture.channel] }) : service.install())).ok, true);
       assert.equal((await service.check()).statuses[0]?.health, "healthy");
       assert.deepEqual(await fs.readFile(fixture.asarPath + BACKUP_SUFFIX), native);
       assert.equal((await service.uninstall()).ok, true);
@@ -276,6 +276,21 @@ test("Repair discovers a new app version instead of repatching its historical di
     assert.equal(repair.results[0]?.asarPath, next);
     assert.equal(repair.ok, true);
     assert.deepEqual(await fs.readFile(fixture.asarPath), oldArchive);
+    assert.equal((await service.check()).statuses[0]?.health, "healthy");
+  } finally {
+    await fixture.cleanup();
+  }
+});
+
+test("a plain Install recovers an interrupted archive from the backup", async () => {
+  const { fixture, service } = await harness();
+  try {
+    assert.equal((await service.install()).ok, true);
+    await fs.writeFile(fixture.asarPath, "interrupted archive write");
+    const result = await service.install();
+    assert.equal(result.ok, true);
+    assert.equal(result.results[0]?.action, "installed");
+    assert.match(readAsarFile(fixture.asarPath, "package.json"), /main/);
     assert.equal((await service.check()).statuses[0]?.health, "healthy");
   } finally {
     await fixture.cleanup();

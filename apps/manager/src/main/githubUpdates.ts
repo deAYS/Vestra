@@ -112,6 +112,25 @@ export async function verifyPackage(
   }
 }
 
+/** Keep only the package being installed; leave every other file alone. */
+async function pruneOldPackages(
+  directory: string,
+  keep: string,
+): Promise<void> {
+  try {
+    for (const entry of await fs.readdir(directory)) {
+      if (
+        entry !== keep &&
+        entry !== keep + ".part" &&
+        /^Vestra-[\w.+-]+-x64-(Setup|Portable)\.exe(\.part)?$/.test(entry)
+      )
+        await fs.rm(path.join(directory, entry), { force: true }).catch(() => {});
+    }
+  } catch {
+    /* best effort */
+  }
+}
+
 export async function downloadPackage(
   directory: string,
   release: ReleasePackage,
@@ -128,6 +147,7 @@ export async function downloadPackage(
   const filename = path.join(directory, release.name);
   try {
     await verifyPackage(filename, release);
+    await pruneOldPackages(directory, release.name);
     progress(100);
     return filename;
   } catch {
@@ -168,6 +188,7 @@ export async function downloadPackage(
   }
   await handle.close();
   await fs.rename(partial, filename);
+  await pruneOldPackages(directory, release.name);
   progress(100);
   return filename;
 }

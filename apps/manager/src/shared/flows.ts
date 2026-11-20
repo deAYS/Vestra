@@ -11,7 +11,17 @@ export interface ServiceLike {
   }): Promise<OperationSummary>;
 }
 
-export type FlowOk = { ok: true };
+export type FlowOk = { ok: true; warning?: string };
+
+/** Success notice plus any warning, without repeating "Installed."/"Removed.". */
+export function composeNotice(message: string, warning?: string): string {
+  if (!warning) return message;
+  return `${message} ${warning.replace(/(Installed|Removed)\. (?=Keep Vestra)/, "")}`;
+}
+
+function withWarning(summary: OperationSummary): { warning?: string } {
+  return summary.warning ? { warning: summary.warning } : {};
+}
 export type FlowErr = {
   ok: false;
   code?: string | undefined;
@@ -35,12 +45,13 @@ export async function runInstallFlow(
       ok: false,
       code: failed?.code,
       detail: failed?.detail,
-      message: "Installation failed.",
+      message: composeNotice("Installation failed.", installed.warning),
     };
   }
   const verify = await service.check({ channels: [channel] });
   const status = statusFor(verify, channel);
-  if (status?.health === "healthy") return { ok: true };
+  if (status?.health === "healthy")
+    return { ok: true, ...withWarning(installed) };
   return {
     ok: false,
     code: status?.code ?? "verification-failed",
@@ -64,12 +75,12 @@ export async function runRepairFlow(
       repaired: false,
       code: failed?.code,
       detail: failed?.detail,
-      message: "Repair failed.",
+      message: composeNotice("Repair failed.", repaired.warning),
     };
   }
   const after = await service.check({ channels: [channel] });
   const status = statusFor(after, channel);
-  if (status?.health === "healthy") return { ok: true, repaired: true };
+  if (status?.health === "healthy") return { ok: true, repaired: true, ...withWarning(repaired) };
   return {
     ok: false,
     repaired: false,
@@ -86,12 +97,12 @@ export async function runUninstallFlow(
 ): Promise<FlowOk | FlowErr> {
   const result = await service.uninstall({ channels: [channel], purge: false });
   if (result.ok && result.results.some((r) => r.channel === channel && r.ok))
-    return { ok: true };
+    return { ok: true, ...withWarning(result) };
   const failed = result.results.find((r) => !r.ok);
   return {
     ok: false,
     code: failed?.code,
     detail: failed?.detail,
-    message: "Uninstall failed.",
+    message: composeNotice("Uninstall failed.", result.warning),
   };
 }

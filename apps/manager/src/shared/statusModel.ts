@@ -1,3 +1,5 @@
+import type { RunState } from "@vestra/shared";
+import type { ChannelRecovery } from "./recovery.js";
 import type { DiscordChannel } from "./channels.js";
 import type { InstallHealth, InstallStatus } from "./types.js";
 
@@ -52,4 +54,217 @@ export function applyDeepResult(card: CardModel, deep: InstallStatus | undefined
     state: cardStateFromDeepHealth(deep.health),
     detail: deep.detail,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Row model: one truthful status line and at most one primary action.
+// ---------------------------------------------------------------------------
+
+export type RowState =
+  | "not-installed"
+  | "checking"
+  | "active"
+  | "not-started"
+  | "awaiting-login"
+  | "didnt-start"
+  | "needs-repair"
+  | "check-failed"
+  | "waiting-restart"
+  | "recovery-failed";
+
+export type RowPrimary = "install" | "repair" | "retry" | "restart";
+
+export interface RowModel {
+  channel: DiscordChannel;
+  version: string | null;
+  state: RowState;
+  /** The files on disk carry Vestra (Repair/Uninstall make sense). */
+  installed: boolean;
+  primary?: RowPrimary;
+  /** Plain-language reason for didnt-start only; never raw check detail. */
+  detail?: string;
+  startedAt?: number;
+}
+
+export const PRIMARY_LABEL: Record<RowPrimary, string> = {
+  install: "Install Vestra",
+  repair: "Repair",
+  retry: "Try again",
+  restart: "Restart Discord",
+};
+
+const UNRECOGNIZED_WINDOW = new Set([
+  "untrusted-url",
+  "subframe",
+  "no-frame",
+  "no-sender",
+]);
+
+/** Start failure reason code -> short plain text. Unknown codes are loading failures. */
+export function startFailureText(reason: string): string {
+  return UNRECOGNIZED_WINDOW.has(reason)
+    ? "Discord's window wasn't recognized"
+    : "Vestra failed while loading";
+}
+
+function row(
+  card: CardModel,
+  state: RowState,
+  installed: boolean,
+  extra: Pick<RowModel, "primary" | "detail" | "startedAt"> = {},
+): RowModel {
+  return {
+    channel: card.channel,
+    version: card.version,
+    state,
+    installed,
+    ...extra,
+  };
+}
+
+/** The recovery record is about exactly the version this row shows. */
+function aboutShownVersion(
+  card: CardModel,
+  recovery: ChannelRecovery | undefined,
+): boolean {
+  return (
+    card.version !== null &&
+    recovery?.version !== undefined &&
+    recovery.version === card.version
+  );
+}
+
+/**
+ * Files first (not-installed, checking, needs-repair, check-failed), then a
+ * recovery waiting for Discord to exit, then what the last start reported.
+ * Two exceptions for unpatched files of the shown version: recovery records
+ * waiting-for-exit only when the running version's files are unpatched, which
+ * status reports as not-installed, so that record is the truthful line; and a
+ * recovery that gave up on that version says so, with Repair, rather than a
+ * plain Not installed or Needs repair.
+ */
+export function rowModel(
+  card: CardModel,
+  run: RunState | undefined,
+  recovery: ChannelRecovery | undefined,
+): RowModel {
+  const waiting = recovery?.phase === "waiting-for-exit";
+  const gaveUp = recovery?.phase === "failed" && aboutShownVersion(card, recovery);
+  switch (card.state) {
+    case "not-installed":
+      if (waiting && aboutShownVersion(card, recovery))
+        return row(card, "waiting-restart", false, { primary: "restart" });
+      if (gaveUp) return row(card, "recovery-failed", false, { primary: "repair" });
+      return row(card, "not-installed", false, { primary: "install" });
+    case "installed-checking":
+      return row(card, "checking", true);
+    case "needs-repair":
+      if (gaveUp) return row(card, "recovery-failed", true, { primary: "repair" });
+      return row(card, "needs-repair", true, { primary: "repair" });
+    case "check-failed":
+      return row(card, "check-failed", true, { primary: "retry" });
+    case "healthy":
+      break;
+  }
+  if (waiting) return row(card, "waiting-restart", true, { primary: "restart" });
+  switch (run?.kind) {
+    case "active":
+      return row(card, "active", true, { startedAt: run.at });
+    case "failed":
+      return row(card, "didnt-start", true, {
+        primary: "repair",
+        detail: startFailureText(run.reason),
+      });
+    case "awaiting-login":
+      return row(card, "awaiting-login", true);
+    default:
+      return row(card, "not-started", true);
+  }
+}
+
+const MONTHS = [
+  "Jan",
+  "Feb",
+  "Mar",
+  "Apr",
+  "May",
+  "Jun",
+  "Jul",
+  "Aug",
+  "Sep",
+  "Oct",
+  "Nov",
+  "Dec",
+];
+
+function dayIndex(date: Date): number {
+  return Math.floor(
+    Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()) / 86400000,
+  );
+}
+
+/** "Nov 18", or "Nov 18, 2025" outside the current year (local time). */
+export function formatShortDate(at: number, now: Date): string {
+  const date = new Date(at);
+  const base = `${MONTHS[date.getMonth()]} ${date.getDate()}`;
+  return date.getFullYear() === now.getFullYear()
+    ? base
+    : `${base}, ${date.getFullYear()}`;
+}
+
+/** "today 14:41", "yesterday 09:05", else a short date (local time). */
+export function formatStartedAt(at: number, now: Date): string {
+  const date = new Date(at);
+  const days = dayIndex(now) - dayIndex(date);
+  const time = `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
+  if (days === 0) return `today ${time}`;
+  if (days === 1) return `yesterday ${time}`;
+  return formatShortDate(at, now);
+}
+
+export function rowStatusText(model: RowModel, now: Date): string {
+  switch (model.state) {
+    case "active":
+      return model.startedAt === undefined
+        ? "Vestra active"
+        : `Vestra active · started ${formatStartedAt(model.startedAt, now)}`;
+    case "didnt-start":
+      return `Installed, but didn't start — ${model.detail ?? "Vestra failed while loading"}`;
+    case "awaiting-login":
+      return "Installed · starts after you log in to Discord";
+    case "not-started":
+      return "Installed · will start next time Discord opens";
+    case "waiting-restart":
+      return "Waiting for Discord restart";
+    case "recovery-failed":
+      return "Couldn't re-install after Discord updated";
+    case "needs-repair":
+      return "Needs repair";
+    case "checking":
+      return "Checking…";
+    case "check-failed":
+      return "Couldn't check";
+    case "not-installed":
+      return "Not installed";
+  }
+}
+
+/** The most recent re-install recovery completed, for the footer. */
+export function lastReinstall(
+  state: Partial<Record<DiscordChannel, ChannelRecovery>>,
+): { version: string; at: number } | undefined {
+  let latest: { version: string; at: number } | undefined;
+  for (const record of Object.values(state)) {
+    if (record?.phase !== "patched" || record.version === undefined) continue;
+    if (latest === undefined || record.at > latest.at)
+      latest = { version: record.version, at: record.at };
+  }
+  return latest;
+}
+
+export function recoverySubline(
+  last: { version: string; at: number },
+  now: Date,
+): string {
+  return `Last re-installed into ${last.version} · ${formatShortDate(last.at, now)}`;
 }

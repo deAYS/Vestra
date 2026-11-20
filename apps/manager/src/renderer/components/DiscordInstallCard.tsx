@@ -1,122 +1,142 @@
 import { channelDisplayName, type DiscordChannel } from "../../shared/channels.js";
 import { channelBadge } from "../../shared/channelSelect.js";
-import type { CardModel } from "../../shared/statusModel.js";
-import type { OperationKind } from "../hooks/useManager.js";
+import {
+  PRIMARY_LABEL,
+  rowStatusText,
+  type RowModel,
+  type RowPrimary,
+  type RowState,
+} from "../../shared/statusModel.js";
 import { OperationButton } from "./OperationButton.js";
+import { OverflowMenu, type OverflowItem } from "./OverflowMenu.js";
 import { ProgressPanel } from "./ProgressPanel.js";
-import { StatusBadge } from "./StatusBadge.js";
 
-interface Props {
-  card: CardModel;
-  devMode: boolean;
-  selected: boolean;
-  busy: boolean;
-  activeOp: { channel: DiscordChannel; kind: OperationKind } | null;
-  progressText: string | null;
-  onSelect(channel: DiscordChannel): void;
+export interface RowActions {
   onInstall(channel: DiscordChannel): void;
   onRepair(channel: DiscordChannel): void;
+  onRetry(channel: DiscordChannel): void;
+  onRestart(channel: DiscordChannel): void;
   onUninstall(channel: DiscordChannel): void;
 }
 
+interface Props extends RowActions {
+  row: RowModel;
+  devMode: boolean;
+  busy: boolean;
+  /** This row's operation is running: progress replaces the buttons. */
+  working: boolean;
+  progressText: string | null;
+  now: Date;
+}
+
+type Tone = "ok" | "warn" | "error" | "info" | "neutral" | "pending" | "off";
+
+const TONE: Record<RowState, Tone> = {
+  active: "ok",
+  "didnt-start": "warn",
+  "needs-repair": "warn",
+  "check-failed": "error",
+  "waiting-restart": "info",
+  "recovery-failed": "error",
+  "awaiting-login": "neutral",
+  "not-started": "neutral",
+  checking: "pending",
+  "not-installed": "off",
+};
+
 export function DiscordInstallCard({
-  card,
+  row,
   devMode,
-  selected,
   busy,
-  activeOp,
+  working,
   progressText,
-  onSelect,
-  onInstall,
-  onRepair,
-  onUninstall,
+  now,
+  ...actions
 }: Props): JSX.Element {
-  const badge = channelBadge(card.channel, devMode);
-  const isActive = activeOp !== null && activeOp.channel === card.channel;
-  const version = card.version ?? "unknown version";
+  const { channel } = row;
+  const name = channelDisplayName(channel);
+  const badge = channelBadge(channel, devMode);
+  const primaryAction: Record<RowPrimary, () => void> = {
+    install: () => actions.onInstall(channel),
+    repair: () => actions.onRepair(channel),
+    retry: () => actions.onRetry(channel),
+    restart: () => actions.onRestart(channel),
+  };
+  // The menu never repeats the primary action (Restart Discord is a repair).
+  const menu: OverflowItem[] = [];
+  if (row.installed) {
+    if (row.primary !== "repair" && row.primary !== "restart")
+      menu.push({
+        label: "Repair",
+        testId: `repair-${channel}`,
+        onSelect: () => actions.onRepair(channel),
+      });
+    menu.push({
+      label: "Uninstall",
+      testId: `uninstall-${channel}`,
+      danger: true,
+      onSelect: () => actions.onUninstall(channel),
+    });
+  }
 
   return (
     <article
-      className={`vs-card${selected ? " vs-card--selected" : ""}`}
-      data-testid={`install-card-${card.channel}`}
-      onClick={() => onSelect(card.channel)}
+      className="vs-row"
+      data-testid={`install-card-${channel}`}
+      data-state={row.state}
+      aria-busy={working}
     >
-      <header className="vs-card__header">
-        <h3>{channelDisplayName(card.channel)}</h3>
-        {badge !== undefined ? (
-          <span className="vs-card__badge" data-testid={`badge-${card.channel}`}>
-            {badge}
+      <div className="vs-row__main">
+        <div className="vs-row__title">
+          <h3>{name}</h3>
+          <span className="vs-row__sep" aria-hidden="true">
+            ·
           </span>
-        ) : null}
-      </header>
-      <div className="vs-card__version" data-testid={`version-${card.channel}`}>
-        {version}
+          <span className="vs-row__version" data-testid={`version-${channel}`}>
+            {row.version ?? "unknown version"}
+          </span>
+          {badge !== undefined ? (
+            <span className="vs-row__badge" data-testid={`badge-${channel}`}>
+              {badge}
+            </span>
+          ) : null}
+        </div>
+        <p
+          className="vs-row__status"
+          data-testid={`row-status-${channel}`}
+          data-state={row.state}
+        >
+          <span className={`vs-dot vs-dot--${TONE[row.state]}`} aria-hidden="true" />
+          {rowStatusText(row, now)}
+        </p>
       </div>
-      <StatusBadge state={card.state} />
-      {card.state === "installed-checking" ? (
-        <div className="vs-card__checking">Checking...</div>
-      ) : null}
-
-      <div className="vs-card__actions">
-        {card.state === "not-installed" ? (
-          <OperationButton
-            label="Install Vestra"
-            variant="primary"
-            disabled={busy}
-            testId={`install-${card.channel}`}
-            onClick={() => onInstall(card.channel)}
-          />
-        ) : null}
-        {card.state === "installed-checking" ? (
-          <span className="vs-card__muted">Installed — verifying…</span>
-        ) : null}
-        {card.state === "healthy" ? (
+      <div className="vs-row__actions">
+        {working ? (
+          <ProgressPanel text={progressText ?? "Working…"} />
+        ) : (
           <>
-            <OperationButton
-              label="Repair"
-              disabled={busy}
-              testId={`repair-${card.channel}`}
-              onClick={() => onRepair(card.channel)}
-            />
-            <OperationButton
-              label="Uninstall"
-              variant="danger"
-              disabled={busy}
-              testId={`uninstall-${card.channel}`}
-              onClick={() => onUninstall(card.channel)}
-            />
+            {row.primary !== undefined ? (
+              <OperationButton
+                label={PRIMARY_LABEL[row.primary]}
+                variant="primary"
+                disabled={busy}
+                testId={`${row.primary}-${channel}`}
+                onClick={primaryAction[row.primary]}
+              />
+            ) : null}
+            {menu.length > 0 ? (
+              <OverflowMenu
+                label={`More actions for ${name}`}
+                testId={`row-menu-${channel}`}
+                disabled={busy}
+                items={menu}
+              />
+            ) : (
+              <span className="vs-menu-slot" aria-hidden="true" />
+            )}
           </>
-        ) : null}
-        {card.state === "needs-repair" ? (
-          <>
-            <OperationButton
-              label="Repair Vestra"
-              variant="primary"
-              disabled={busy}
-              testId={`repair-${card.channel}`}
-              onClick={() => onRepair(card.channel)}
-            />
-            <OperationButton
-              label="Uninstall"
-              variant="danger"
-              disabled={busy}
-              testId={`uninstall-${card.channel}`}
-              onClick={() => onUninstall(card.channel)}
-            />
-          </>
-        ) : null}
-        {card.state === "check-failed" ? (
-          <OperationButton
-            label="Try Again"
-            variant="primary"
-            disabled={busy}
-            testId={`repair-${card.channel}`}
-            onClick={() => onRepair(card.channel)}
-          />
-        ) : null}
+        )}
       </div>
-
-      {isActive && progressText !== null ? <ProgressPanel text={progressText} /> : null}
     </article>
   );
 }

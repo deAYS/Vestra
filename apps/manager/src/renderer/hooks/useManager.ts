@@ -3,21 +3,28 @@ import {
   channelDisplayName,
   type DiscordChannel,
 } from "../../shared/channels.js";
-import { selectDefaultChannel } from "../../shared/channelSelect.js";
 import {
+  composeNotice,
   runInstallFlow,
   runRepairFlow,
   runUninstallFlow,
+  type FlowErr,
+  type FlowOk,
+  type ServiceLike,
 } from "../../shared/flows.js";
 import type {
   DiscordInstallation,
   InstallerErrorCode,
   InstallerProgressEvent,
   InstallStatus,
+  RunStatusMap,
 } from "../../shared/types.js";
 import { managerApi } from "../types.js";
 
-export type OperationKind = "install" | "repair" | "uninstall";
+export type OperationKind = "install" | "repair" | "uninstall" | "restart";
+
+/** Operations that ask first: uninstall always, install/repair only while Discord runs. */
+export type ConfirmKind = "install" | "repair" | "uninstall";
 
 export interface OperationError {
   code: InstallerErrorCode | string | undefined;
@@ -33,7 +40,7 @@ export interface ManagerState {
   shallow: Partial<Record<DiscordChannel, InstallStatus>>;
   deep: Partial<Record<DiscordChannel, InstallStatus>>;
   checking: DiscordChannel[];
-  selected: DiscordChannel | undefined;
+  run: RunStatusMap;
   activeOp: { channel: DiscordChannel; kind: OperationKind } | null;
   progress: InstallerProgressEvent | null;
   progressText: string | null;
@@ -42,39 +49,96 @@ export interface ManagerState {
   /** discover() itself threw (or the bridge is unreachable). Distinct from []. */
   discoveryError: OperationError | null;
   notice: string | null;
-  confirmUninstall: DiscordChannel | null;
+  confirm: { kind: ConfirmKind; channel: DiscordChannel } | null;
   refresh(): Promise<void>;
-  select(channel: DiscordChannel): void;
   install(channel: DiscordChannel): Promise<void>;
   repair(channel: DiscordChannel): Promise<void>;
+  restart(channel: DiscordChannel): Promise<void>;
+  retry(channel: DiscordChannel): Promise<void>;
   requestUninstall(channel: DiscordChannel): void;
-  cancelUninstall(): void;
-  confirmUninstallNow(): Promise<void>;
+  cancelConfirm(): void;
+  confirmNow(): Promise<void>;
   dismissError(): void;
   dismissNotice(): void;
+}
+
+/** Start status changes outside the Manager (Discord opens, recovery runs). */
+const RUN_STATUS_POLL_MS = 15000;
+
+function recoveryKey(map: RunStatusMap, channel: DiscordChannel): string {
+  const record = map[channel]?.recovery;
+  return record ? `${record.phase}|${record.version ?? ""}|${record.at}` : "";
 }
 
 function phaseText(event: InstallerProgressEvent): string {
   switch (event.phase) {
     case "discovering":
-      return "Preparing Vestra...";
+      return "Preparing Vestra…";
     case "staging":
-      return "Staging Vestra...";
+      return "Staging Vestra…";
     case "stopping":
-      return "Closing Discord...";
+      return "Closing Discord…";
     case "restarting":
-      return "Restarting Discord...";
+      return "Restarting Discord…";
     case "patching": {
       const label = event.installation
         ? channelDisplayName(event.installation.channel)
         : "Discord";
-      return `Patching ${label}...`;
+      return `Patching ${label}…`;
     }
     case "verifying":
-      return "Verifying...";
+      return "Verifying…";
     case "complete":
       return "Done.";
   }
+}
+
+const OPERATIONS: Record<
+  OperationKind,
+  {
+    flow: (service: ServiceLike, channel: DiscordChannel) => Promise<FlowOk | FlowErr>;
+    success: string;
+    failure: string;
+  }
+> = {
+  install: {
+    flow: runInstallFlow,
+    success: "Vestra installed successfully.",
+    failure: "Installation failed.",
+  },
+  repair: {
+    flow: runRepairFlow,
+    success: "Vestra repaired successfully.",
+    failure: "Repair failed.",
+  },
+  restart: {
+    // Restart Discord is recovery's repair: close, patch, verify, reopen.
+    flow: (service, channel) =>
+      runRepairFlow(
+        {
+          ...service,
+          repair: (args) => managerApi().restartDiscord(args),
+        },
+        channel,
+      ),
+    success: "Discord restarted with Vestra.",
+    failure: "Restart failed.",
+  },
+  uninstall: {
+    flow: runUninstallFlow,
+    success: "Vestra was removed.",
+    failure: "Uninstall failed.",
+  },
+};
+
+function bridgeService(): ServiceLike {
+  const api = managerApi();
+  return {
+    check: (args) => api.check(args),
+    install: (args) => api.install(args),
+    repair: (args) => api.repair(args),
+    uninstall: (args) => api.uninstall(args),
+  };
 }
 
 export function useManager(): ManagerState {
@@ -95,9 +159,7 @@ export function useManager(): ManagerState {
     Partial<Record<DiscordChannel, InstallStatus>>
   >({});
   const [checking, setChecking] = useState<DiscordChannel[]>([]);
-  const [selected, setSelected] = useState<DiscordChannel | undefined>(
-    undefined,
-  );
+  const [run, setRun] = useState<RunStatusMap>({});
   const [activeOp, setActiveOp] = useState<{
     channel: DiscordChannel;
     kind: OperationKind;
@@ -109,9 +171,13 @@ export function useManager(): ManagerState {
     null,
   );
   const [notice, setNotice] = useState<string | null>(null);
-  const [confirmUninstall, setConfirmUninstall] =
-    useState<DiscordChannel | null>(null);
+  const [confirm, setConfirm] = useState<{
+    kind: ConfirmKind;
+    channel: DiscordChannel;
+  } | null>(null);
   const mounted = useRef(true);
+  /** Set synchronously so a double click cannot start two operations. */
+  const busy = useRef(false);
 
   useEffect(() => {
     mounted.current = true;
@@ -122,6 +188,39 @@ export function useManager(): ManagerState {
 
   const devModeRef = useRef(devMode);
   devModeRef.current = devMode;
+
+  /**
+   * Recovery record per channel as of the last time that channel's files were
+   * read (boot/Refresh, after its own operation, or a poll re-read). A change
+   * since then means the row's file state may be stale.
+   */
+  const recoverySeen = useRef<Partial<Record<DiscordChannel, string>>>({});
+  const shallowRef = useRef(shallow);
+  shallowRef.current = shallow;
+  const installationsRef = useRef(installations);
+  installationsRef.current = installations;
+
+  /** A failed read keeps what is shown; with nothing shown rows read neutral. */
+  const loadRun = useCallback(async (): Promise<RunStatusMap | null> => {
+    try {
+      const next = await managerApi().runStatus();
+      if (mounted.current) setRun(next);
+      return next;
+    } catch {
+      /* bridge or file trouble: never a reason to claim a state */
+      return null;
+    }
+  }, []);
+
+  /** Note what recovery said when these channels' files were (re)read. */
+  const noteFilesRead = useCallback(
+    (channels: readonly DiscordChannel[], map: RunStatusMap | null): void => {
+      if (map === null) return;
+      for (const channel of channels)
+        recoverySeen.current[channel] = recoveryKey(map, channel);
+    },
+    [],
+  );
 
   const checkOne = useCallback(
     async (channel: DiscordChannel): Promise<void> => {
@@ -210,16 +309,19 @@ export function useManager(): ManagerState {
         }
         if (!mounted.current) return;
         setInstallations(found);
-        const channels = found.map((f) => f.channel);
-        setSelected((prev) => {
-          if (prev !== undefined && channels.includes(prev)) return prev;
-          return selectDefaultChannel(channels, devModeRef.current);
-        });
+        // Start status before files and deep checks, so rows don't flash a
+        // neutral line and the recovery baseline predates the file read.
+        const runMap = await loadRun();
+        if (!mounted.current) return;
         const summary = await managerApi().status();
         if (!mounted.current) return;
         const next: Partial<Record<DiscordChannel, InstallStatus>> = {};
         for (const s of summary.statuses) next[s.installation.channel] = s;
         setShallow(next);
+        noteFilesRead(
+          summary.statuses.map((s) => s.installation.channel),
+          runMap,
+        );
         // Deep verification runs async per apparently-installed channel.
         const installed = summary.statuses.filter((s) => s.vestraInstalled);
         if (!isRefresh) setBooted(true);
@@ -236,8 +338,48 @@ export function useManager(): ManagerState {
         if (mounted.current && !isRefresh) setBooted(true);
       }
     },
-    [checkOne],
+    [checkOne, loadRun, noteFilesRead],
   );
+
+  /**
+   * Background refresh. Files outrank start status in the row, so a channel's
+   * files are re-read when recovery changed its record since they were last
+   * read (a background re-install), or when Discord moved to another version
+   * (a self-update, e.g. with recovery off). Only re-read channels are noted,
+   * so a change that lands during another channel's operation is not lost.
+   */
+  const pollRun = useCallback(async (): Promise<void> => {
+    const map = await loadRun();
+    if (map === null) return;
+    for (const { channel } of installationsRef.current) {
+      const status = map[channel];
+      if (status === undefined) continue;
+      const shownVersion =
+        shallowRef.current[channel]?.installation.version ??
+        installationsRef.current.find((i) => i.channel === channel)?.version ??
+        null;
+      const moved = status.version !== shownVersion;
+      if (!moved && recoverySeen.current[channel] === recoveryKey(map, channel))
+        continue;
+      if (busy.current || !mounted.current) return;
+      try {
+        const summary = await managerApi().status({ channels: [channel] });
+        if (!mounted.current) return;
+        const found = summary.statuses.find(
+          (s) => s.installation.channel === channel,
+        );
+        if (found === undefined) continue;
+        setShallow((prev) => ({ ...prev, [channel]: found }));
+        setInstallations((prev) =>
+          prev.map((i) => (i.channel === channel ? found.installation : i)),
+        );
+        noteFilesRead([channel], map);
+        if (found.vestraInstalled) await checkOne(channel);
+      } catch {
+        /* shown again on the next poll or Refresh */
+      }
+    }
+  }, [checkOne, loadRun, noteFilesRead]);
 
   useEffect(() => {
     const off = (() => {
@@ -251,8 +393,13 @@ export function useManager(): ManagerState {
       }
     })();
     void load(false);
+    const poll = setInterval(() => void pollRun(), RUN_STATUS_POLL_MS);
+    const onFocus = (): void => void pollRun();
+    window.addEventListener("focus", onFocus);
     return () => {
       if (typeof off === "function") off();
+      clearInterval(poll);
+      window.removeEventListener("focus", onFocus);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -262,13 +409,10 @@ export function useManager(): ManagerState {
     await load(true);
   }, [load]);
 
-  const select = useCallback((channel: DiscordChannel): void => {
-    setSelected(channel);
-    setNotice(null);
-  }, []);
-
   const finishMutation = useCallback(
     async (channel: DiscordChannel): Promise<void> => {
+      const runMap = await loadRun();
+      if (!mounted.current) return;
       const summary = await managerApi().status({ channels: [channel] });
       if (!mounted.current) return;
       const found = summary.statuses.find(
@@ -276,118 +420,115 @@ export function useManager(): ManagerState {
       );
       if (found !== undefined) {
         setShallow((prev) => ({ ...prev, [channel]: found }));
+        noteFilesRead([channel], runMap);
       }
       await checkOne(channel);
     },
-    [checkOne],
+    [checkOne, loadRun, noteFilesRead],
+  );
+
+  /** Caller holds `busy`; this always releases it. */
+  const perform = useCallback(
+    async (channel: DiscordChannel, kind: OperationKind): Promise<void> => {
+      const operation = OPERATIONS[kind];
+      busy.current = true;
+      setActiveOp({ channel, kind });
+      setProgress(null);
+      setError(null);
+      setErrorChannel(null);
+      setNotice(null);
+      try {
+        const result = await operation.flow(bridgeService(), channel);
+        if (!mounted.current) return;
+        await finishMutation(channel);
+        if (result.ok) {
+          setNotice(composeNotice(operation.success, result.warning));
+        } else {
+          setError({
+            code: result.code,
+            detail: result.detail,
+            message: result.message,
+          });
+          setErrorChannel(channel);
+        }
+      } catch (err: unknown) {
+        if (!mounted.current) return;
+        const detail = err instanceof Error ? err.message : String(err);
+        setError({ code: "unknown", detail, message: operation.failure });
+        setErrorChannel(channel);
+      } finally {
+        busy.current = false;
+        if (mounted.current) setActiveOp(null);
+      }
+    },
+    [finishMutation],
+  );
+
+  /** Install/Repair warn first only when that Discord is open (it will restart). */
+  const closeAndRun = useCallback(
+    async (channel: DiscordChannel, kind: "install" | "repair"): Promise<void> => {
+      if (busy.current) return;
+      busy.current = true;
+      setActiveOp({ channel, kind });
+      setProgress(null);
+      let running = true;
+      try {
+        running = await managerApi().discordRunning({ channels: [channel] });
+      } catch {
+        // Unknown: warn rather than close Discord unannounced.
+        running = true;
+      }
+      if (!mounted.current) return;
+      if (running) {
+        busy.current = false;
+        setActiveOp(null);
+        setConfirm({ kind, channel });
+        return;
+      }
+      await perform(channel, kind);
+    },
+    [perform],
   );
 
   const install = useCallback(
-    async (channel: DiscordChannel): Promise<void> => {
-      setActiveOp({ channel, kind: "install" });
-      setProgress(null);
-      setError(null);
-      setErrorChannel(null);
-      setNotice(null);
-      try {
-        const result = await runInstallFlow(managerApi(), channel);
-        if (!mounted.current) return;
-        await finishMutation(channel);
-        if (result.ok) {
-          setNotice("Vestra installed successfully.");
-        } else {
-          setError({
-            code: result.code,
-            detail: result.detail,
-            message: result.message,
-          });
-          setErrorChannel(channel);
-        }
-      } catch (err: unknown) {
-        if (!mounted.current) return;
-        const detail = err instanceof Error ? err.message : String(err);
-        setError({ code: "unknown", detail, message: "Installation failed." });
-        setErrorChannel(channel);
-      } finally {
-        if (mounted.current) setActiveOp(null);
-      }
-    },
-    [finishMutation],
+    (channel: DiscordChannel) => closeAndRun(channel, "install"),
+    [closeAndRun],
+  );
+  const repair = useCallback(
+    (channel: DiscordChannel) => closeAndRun(channel, "repair"),
+    [closeAndRun],
   );
 
-  const repair = useCallback(
+  const restart = useCallback(
     async (channel: DiscordChannel): Promise<void> => {
-      setActiveOp({ channel, kind: "repair" });
-      setProgress(null);
-      setError(null);
-      setErrorChannel(null);
-      setNotice(null);
-      try {
-        const result = await runRepairFlow(managerApi(), channel);
-        if (!mounted.current) return;
-        await finishMutation(channel);
-        if (result.ok) {
-          setNotice("Vestra repaired successfully.");
-        } else {
-          setError({
-            code: result.code,
-            detail: result.detail,
-            message: result.message,
-          });
-          setErrorChannel(channel);
-        }
-      } catch (err: unknown) {
-        if (!mounted.current) return;
-        const detail = err instanceof Error ? err.message : String(err);
-        setError({ code: "unknown", detail, message: "Repair failed." });
-        setErrorChannel(channel);
-      } finally {
-        if (mounted.current) setActiveOp(null);
-      }
+      if (busy.current) return;
+      await perform(channel, "restart");
     },
-    [finishMutation],
+    [perform],
+  );
+
+  const retry = useCallback(
+    async (channel: DiscordChannel): Promise<void> => {
+      await checkOne(channel);
+      await loadRun();
+    },
+    [checkOne, loadRun],
   );
 
   const requestUninstall = useCallback((channel: DiscordChannel): void => {
-    setConfirmUninstall(channel);
+    if (busy.current) return;
+    setConfirm({ kind: "uninstall", channel });
   }, []);
 
-  const cancelUninstall = useCallback((): void => {
-    setConfirmUninstall(null);
+  const cancelConfirm = useCallback((): void => {
+    setConfirm(null);
   }, []);
 
-  const confirmUninstallNow = useCallback(async (): Promise<void> => {
-    const channel = confirmUninstall;
-    if (channel === null) return;
-    setConfirmUninstall(null);
-    setActiveOp({ channel, kind: "uninstall" });
-    setProgress(null);
-    setError(null);
-    setErrorChannel(null);
-    setNotice(null);
-    try {
-      const result = await runUninstallFlow(managerApi(), channel);
-      if (!mounted.current) return;
-      await finishMutation(channel);
-      if (result.ok) {
-        setNotice("Vestra was removed.");
-      } else {
-        setError({
-          code: result.code,
-          detail: result.detail,
-          message: result.message,
-        });
-        setErrorChannel(channel);
-      }
-    } catch (err: unknown) {
-      if (!mounted.current) return;
-      const detail = err instanceof Error ? err.message : String(err);
-      setError({ code: "unknown", detail, message: "Uninstall failed." });
-      setErrorChannel(channel);
-    } finally {
-      if (mounted.current) setActiveOp(null);
-    }
-  }, [confirmUninstall, finishMutation]);
+  const confirmNow = useCallback(async (): Promise<void> => {
+    if (confirm === null || busy.current) return;
+    setConfirm(null);
+    await perform(confirm.channel, confirm.kind);
+  }, [confirm, perform]);
 
   const dismissError = useCallback((): void => {
     setError(null);
@@ -406,7 +547,7 @@ export function useManager(): ManagerState {
     shallow,
     deep,
     checking,
-    selected,
+    run,
     activeOp,
     progress,
     progressText: progress === null ? null : phaseText(progress),
@@ -414,14 +555,15 @@ export function useManager(): ManagerState {
     errorChannel,
     discoveryError,
     notice,
-    confirmUninstall,
+    confirm,
     refresh,
-    select,
     install,
     repair,
+    restart,
+    retry,
     requestUninstall,
-    cancelUninstall,
-    confirmUninstallNow,
+    cancelConfirm,
+    confirmNow,
     dismissError,
     dismissNotice,
   };

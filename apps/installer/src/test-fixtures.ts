@@ -45,11 +45,13 @@ async function packMinimalAsar(root: string, version: string): Promise<string> {
 export async function createTestDiscordInstall(options?: {
   channel?: DiscordChannel | undefined;
   version?: string | undefined;
+  /** Folder name of the channel root (default: the channel name). */
+  rootName?: string | undefined;
 }): Promise<TestDiscordInstall> {
   const channel = options?.channel ?? "canary";
   const version = options?.version ?? "1.0.0";
   const base = await fs.promises.mkdtemp(path.join(os.tmpdir(), "vestra-test-install-"));
-  const root = path.join(base, channel);
+  const root = path.join(base, options?.rootName ?? channel);
   const asarPath = await packMinimalAsar(root, version);
   const resourcesDir = path.dirname(asarPath);
   const appDir = path.dirname(resourcesDir);

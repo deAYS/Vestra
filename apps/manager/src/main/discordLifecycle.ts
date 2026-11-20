@@ -9,6 +9,7 @@ import type {
   OperationSummary,
 } from "@vestra/installer";
 import type { DiscordChannel } from "../shared/channels.js";
+import { systemTool } from "./systemTools.js";
 
 const execute = promisify(execFile);
 const imageNames = {
@@ -39,13 +40,28 @@ export function belongsToRoot(executable: string, root: string): boolean {
   );
 }
 
+/** PIDs of the channel's Discord executable running from that version folder. */
+export async function processesUnder(
+  target: DiscordInstallation,
+  system: Pick<DiscordSystem, "processes"> = windowsDiscordSystem,
+): Promise<number[]> {
+  const image = imageNames[target.channel].toLowerCase();
+  return (await system.processes())
+    .filter(
+      (proc) =>
+        belongsToRoot(proc.executable, target.appDir) &&
+        path.win32.basename(proc.executable).toLowerCase() === image,
+    )
+    .map((proc) => proc.pid);
+}
+
 export const windowsDiscordSystem: DiscordSystem = {
   async processes() {
     const script =
       "$ErrorActionPreference='Stop'; @(Get-CimInstance Win32_Process -Filter \"Name='Discord.exe' OR Name='DiscordPTB.exe' OR Name='DiscordCanary.exe' OR Name='Update.exe'\" | Select-Object ProcessId,ExecutablePath) | ConvertTo-Json -Compress";
     const encoded = Buffer.from(script, "utf16le").toString("base64");
     const { stdout } = await execute(
-      "powershell.exe",
+      systemTool("powershell"),
       ["-NoProfile", "-NonInteractive", "-EncodedCommand", encoded],
       { windowsHide: true, timeout: 15000 },
     );
@@ -66,7 +82,7 @@ export const windowsDiscordSystem: DiscordSystem = {
   },
   async stop(process) {
     try {
-      await execute("taskkill.exe", ["/PID", String(process.pid), "/T", "/F"], {
+      await execute(systemTool("taskkill"), ["/PID", String(process.pid), "/T", "/F"], {
         windowsHide: true,
         timeout: 15000,
       });
@@ -101,6 +117,30 @@ export const windowsDiscordSystem: DiscordSystem = {
   wait: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
 };
 
+export interface LifecycleHooks {
+  /** Runs after a verified operation and before Discord is reopened. */
+  afterVerify?(): Promise<void>;
+  /** The installation this run changed and verified, before Discord is reopened. */
+  onVerified?(installation: DiscordInstallation): void;
+  /**
+   * Reopen Discord after a verified operation even when it was already closed
+   * (the user's Restart Discord). A failed operation still reopens only a
+   * Discord this run closed.
+   */
+  alwaysRelaunch?: boolean;
+}
+
+const NOT_REOPENED = "Discord didn't reopen. Open it manually.";
+
+/** The operation's own error, telling the user Discord stayed closed too. */
+function withNotReopened(error: unknown): unknown {
+  if (error instanceof Error) {
+    error.message = `${error.message} ${NOT_REOPENED}`;
+    return error;
+  }
+  return new Error(`${String(error)} ${NOT_REOPENED}`);
+}
+
 export class DiscordLifecycle {
   private busy = false;
   constructor(
@@ -116,10 +156,23 @@ export class DiscordLifecycle {
     );
   }
 
+  /** Whether this channel's Discord is open, by the same filter `run` stops. Read-only. */
+  async isRunning(channel: DiscordChannel): Promise<boolean> {
+    const target = (await this.service.discover({ channels: [channel] }))[0];
+    if (!target) return false;
+    const image = imageNames[channel].toLowerCase();
+    return (await this.system.processes()).some(
+      (proc) =>
+        belongsToRoot(proc.executable, target.rootDir) &&
+        path.win32.basename(proc.executable).toLowerCase() === image,
+    );
+  }
+
   async run(
     kind: "install" | "repair" | "uninstall",
     channel: DiscordChannel,
     onProgress?: (event: InstallerProgressEvent) => void,
+    hooks: LifecycleHooks = {},
   ): Promise<OperationSummary> {
     if (this.busy)
       throw new Error("Another Discord operation is already running.");
@@ -180,7 +233,13 @@ export class DiscordLifecycle {
           : kind === "install"
             ? await this.service.install({ ...args, force: true })
             : await this.service.repair(args);
-      if (!result.ok) return result;
+      if (!result.ok) {
+        // A failed install still leaves the user with their original Discord.
+        const reopen = stopped;
+        stopped = false;
+        if (!reopen || (await this.reopened(channel, target))) return result;
+        return { ...result, warning: NOT_REOPENED };
+      }
       const checked = await this.service.check({ channels: [channel] });
       const verified = checked.statuses.find(
         (status) => status.installation.channel === channel,
@@ -193,21 +252,50 @@ export class DiscordLifecycle {
       ) {
         throw new Error("Discord verification failed after " + kind + ".");
       }
+      // Discord is still closed here: nothing it writes on relaunch is lost.
+      try {
+        await hooks.afterVerify?.();
+      } catch {
+        // Best effort; the verified operation stands.
+      }
+      try {
+        hooks.onVerified?.(target);
+      } catch {
+        // An observer never changes the outcome.
+      }
       onProgress?.({
         operation: kind,
         phase: "restarting",
         installation: target,
       });
-      await this.restart(channel, target);
+      // Reopen Discord when it was open before, or when the user asked for a restart.
+      const relaunch = stopped || hooks.alwaysRelaunch === true;
       stopped = false;
-      return result;
-    } finally {
-      // A failed install still leaves the user with their original Discord.
-      try {
-        if (stopped && target) await this.restart(channel, target);
-      } finally {
-        this.busy = false;
+      if (!relaunch) return result;
+      return (await this.reopened(channel, target))
+        ? result
+        : { ...result, warning: NOT_REOPENED };
+    } catch (error) {
+      // A failed operation still leaves the user with their original Discord.
+      if (stopped && target) {
+        stopped = false;
+        if (!(await this.reopened(channel, target))) throw withNotReopened(error);
       }
+      throw error;
+    } finally {
+      this.busy = false;
+    }
+  }
+
+  private async reopened(
+    channel: DiscordChannel,
+    fallback: DiscordInstallation,
+  ): Promise<boolean> {
+    try {
+      await this.restart(channel, fallback);
+      return true;
+    } catch {
+      return false;
     }
   }
 

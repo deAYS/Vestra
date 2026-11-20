@@ -1,6 +1,7 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import * as asar from "@electron/asar";
 import {
   assertDestructiveTestTargetAllowed,
   type SafetyOptions,
@@ -12,6 +13,7 @@ import { getRealFs } from "./realFs.js";
 export const VESTRA_DIR = "vestra";
 export const RECEIPT_FILE = "vestra-receipt.json";
 export const BACKUP_SUFFIX = ".vestra-backup";
+export const TMP_SUFFIX = ".vestra-tmp";
 
 export const HOOK_REQUIRE_PREFIX = "// __VESTRA_HOOK__";
 export const MAIN_HOOK_FILE = "vestra-main-hook.cjs";
@@ -80,16 +82,29 @@ export function hasInjectionBackup(install: DiscordInstall): boolean {
   }
 }
 
-/** Receipt + backup is the fast path; a surviving hook also proves injection. */
+/** Whether the archive's main entry carries the Vestra hook marker. */
 export function isInjected(install: DiscordInstall): boolean {
-  if (readReceipt(install) !== undefined && hasInjectionBackup(install)) return true;
-  // Missing metadata must not conceal a hook left inside the archive.
+  // The archive itself is the source of truth: a replaced (e.g. updated)
+  // archive next to a stale receipt and backup is not injected.
   try {
     return readAsarFile(install.asarPath, readAsarMain(install.asarPath))
       .includes(HOOK_REQUIRE_PREFIX);
   } catch {
+    // Unreadable archive: not injected; install recovers it from the backup.
     return false;
   }
+}
+
+/**
+ * Whether any Vestra trace remains: the hook in the archive, or a receipt
+ * and backup left behind (e.g. after Discord replaced the archive in place).
+ * Status and removal flows use this; inject decisions use `isInjected`.
+ */
+export function hasInjectionTraces(install: DiscordInstall): boolean {
+  return (
+    (readReceipt(install) !== undefined && hasInjectionBackup(install)) ||
+    isInjected(install)
+  );
 }
 
 /**
@@ -133,15 +148,24 @@ export function planInject(
       HOOK_REQUIRE_PREFIX,
       // Main process only: registers ipc handlers + preload chaining. The
       // renderer loader is injected by the preload (it needs the DOM).
-      `try { require("./${VESTRA_DIR}/${MAIN_HOOK_FILE}"); } catch (e) { try { console.error("[Vestra] hook failed:", e); } catch (_) {} }`,
+      `try { require(${JSON.stringify(hookRequirePath(mainEntry))}); } catch (e) { try { console.error("[Vestra] hook failed:", e); } catch (_) {} }`,
     ],
   };
   return { plan, payload };
 }
 
+/** Require path from the main entry's directory to the hook inside the archive. */
+function hookRequirePath(mainEntry: string): string {
+  const from = path.posix.dirname(mainEntry) || ".";
+  const rel = path.posix.relative(from, `${VESTRA_DIR}/${MAIN_HOOK_FILE}`);
+  return rel.startsWith("../") ? rel : `./${rel}`;
+}
+
 export interface ApplyOptions extends SafetyOptions {
   /** Keep the temp unpack dir for inspection (tests). */
   keepWorkDir?: string;
+  /** Override work-dir removal (tests). */
+  removeDir?: (dir: string) => Promise<void>;
 }
 
 /**
@@ -162,7 +186,8 @@ export async function applyInject(
   const workDir =
     options?.keepWorkDir ??
     (await fs.promises.mkdtemp(path.join(os.tmpdir(), "vestra-inject-")));
-  let backedUp = false;
+  let swapped = false;
+  const tmpPath = `${install.asarPath}${TMP_SUFFIX}`;
   try {
     // Physical archive copies: route through the unpatched filesystem.
     await getRealFs().promises.copyFile(
@@ -170,7 +195,6 @@ export async function applyInject(
       plan.backupPath,
       fs.constants.COPYFILE_EXCL,
     );
-    backedUp = true;
     await unpackAsar(install.asarPath, workDir);
 
     const vestraDir = path.join(workDir, VESTRA_DIR);
@@ -212,24 +236,41 @@ export async function applyInject(
       "utf8",
     );
 
-    await packAsar(workDir, install.asarPath);
+    // Write beside the live archive, then swap in one rename.
+    await packAsar(workDir, tmpPath);
+    await getRealFs().promises.rename(tmpPath, install.asarPath);
+    swapped = true;
+    asar.uncache(install.asarPath);
     await fs.promises.writeFile(
       plan.receiptPath,
       JSON.stringify(plan.receipt, null, 2),
       "utf8",
     );
   } catch (err: unknown) {
-    if (backedUp) {
+    // Only a completed swap can have changed the live archive.
+    if (swapped) {
       try {
-        await getRealFs().promises.copyFile(plan.backupPath, install.asarPath);
+        await getRealFs().promises.copyFile(plan.backupPath, tmpPath);
+        await getRealFs().promises.rename(tmpPath, install.asarPath);
+        asar.uncache(install.asarPath);
       } catch {
         // Backup restore also failed — surface the original error.
       }
     }
     throw new Error(`Inject failed for ${install.asarPath}: ${describe(err)}`);
   } finally {
+    try {
+      await getRealFs().promises.rm(tmpPath, { force: true });
+    } catch {
+      // Best effort: a leftover temp archive is harmless.
+    }
     if (options?.keepWorkDir === undefined) {
-      await fs.promises.rm(workDir, { recursive: true, force: true });
+      try {
+        await (options?.removeDir ??
+          ((dir: string) => fs.promises.rm(dir, { recursive: true, force: true })))(workDir);
+      } catch (err: unknown) {
+        console.warn(`[Vestra] could not remove temp dir: ${describe(err)}`);
+      }
     }
   }
 }
@@ -262,10 +303,18 @@ export async function uninject(
     if (readAsarFile(backup, main).includes(HOOK_REQUIRE_PREFIX)) {
       throw new Error(`Backup is already hooked: ${backup}`);
     }
-    await getRealFs().promises.copyFile(
-      backup,
-      install.asarPath,
-    );
+    const tmpPath = `${install.asarPath}${TMP_SUFFIX}`;
+    try {
+      await getRealFs().promises.copyFile(backup, tmpPath);
+      await getRealFs().promises.rename(tmpPath, install.asarPath);
+      asar.uncache(install.asarPath);
+    } finally {
+      try {
+        await getRealFs().promises.rm(tmpPath, { force: true });
+      } catch {
+        // Best effort.
+      }
+    }
   }
   await getRealFs().promises.rm(backupPathFor(install), { force: true });
   await fs.promises.rm(receiptPathFor(install), { force: true });

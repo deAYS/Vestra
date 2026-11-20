@@ -1,10 +1,12 @@
 import { spawn } from "node:child_process";
 import * as path from "node:path";
 import * as fs from "node:fs/promises";
+import { systemTool } from "./systemTools.js";
 import type { ReleasePackage } from "./githubUpdates.js";
 
-function literal(value: string): string {
-  return "'" + value.replace(/'/g, "''") + "'";
+/** PowerShell treats U+2018-U+201B like an ASCII apostrophe, so each must be doubled. */
+export function literal(value: string): string {
+  return "'" + value.replace(/['‘’‚‛]/g, "$&$&") + "'";
 }
 
 /** The helper outlives Electron; no shell command contains unquoted user paths. */
@@ -73,13 +75,7 @@ export async function launchUpdateHelper(
   // -EncodedCommand avoids Windows argument quoting ambiguities, including paths with spaces.
   const command = `& ${literal(filename)}`;
   const child = spawn(
-    path.join(
-      process.env["SystemRoot"] ?? "C:\\Windows",
-      "System32",
-      "WindowsPowerShell",
-      "v1.0",
-      "powershell.exe",
-    ),
+    systemTool("powershell"),
     [
       "-NoProfile",
       "-NonInteractive",

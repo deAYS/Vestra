@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { pathToFileURL, fileURLToPath } from "node:url";
-import type { InstallerService } from "@vestra/installer";
+import { withInstallLock, type InstallerService } from "@vestra/installer";
 import {
   MANAGER_IPC,
   isDiscordChannel,
@@ -19,7 +19,8 @@ import {
 import { launchUpdateHelper } from "./updateHandoff.js";
 import { isManagerSender } from "./sender.js";
 import { DiscordLifecycle } from "./discordLifecycle.js";
-import { MaintenanceController, withInstallLock } from "./maintenance.js";
+import { MaintenanceController, trackAfterOperation } from "./maintenance.js";
+import { composeNotice } from "../shared/flows.js";
 
 interface Pending {
   token: string;
@@ -50,6 +51,14 @@ export class ManagerUpdates {
   }
   private get pendingFile(): string {
     return path.join(this.directory, "pending.json");
+  }
+  private get errorFile(): string {
+    return path.join(this.directory, "handoff-error.txt");
+  }
+  /** Handoff leftovers are shown once at most; they must not outlive that. */
+  private async clearHandoff(): Promise<void> {
+    await fs.rm(this.pendingFile, { force: true }).catch(() => {});
+    await fs.rm(this.errorFile, { force: true }).catch(() => {});
   }
   constructor(
     private service: InstallerService,
@@ -127,6 +136,10 @@ export class ManagerUpdates {
       path.join(this.home, "update-status.json.tmp"),
       path.join(this.home, "update-status.json"),
     );
+  }
+  /** Surfaces a handoff failure; handoffError survives later phase changes until dismissed. */
+  private async fail(message: string): Promise<void> {
+    await this.publish({ phase: "error", message, handoffError: message });
   }
   private async exclusive(
     operation: () => Promise<void>,
@@ -243,7 +256,7 @@ export class ManagerUpdates {
             ...distribution,
             release: this.release,
             token: pending.token,
-            errorFile: path.join(this.directory, "handoff-error.txt"),
+            errorFile: this.errorFile,
           },
           this.directory,
         );
@@ -251,17 +264,32 @@ export class ManagerUpdates {
       }),
     );
   }
+  async dismissError(): Promise<UpdateState> {
+    const { handoffError: _dismissed, ...rest } = this.state;
+    this.state = rest;
+    await this.publish({});
+    return this.snapshot();
+  }
   async finish(approved = false): Promise<void> {
     let pending: Pending;
+    let raw: string;
     try {
-      pending = JSON.parse(await fs.readFile(this.pendingFile, "utf8"));
+      raw = await fs.readFile(this.pendingFile, "utf8");
     } catch (error) {
+      // A locked or unreadable file may still be needed; report it and keep it.
       if ((error as NodeJS.ErrnoException).code !== "ENOENT")
-        await this.publish({
-          phase: "error",
-          message:
-            "Update handoff could not be read. Use Repair to finish updating Discord.",
-        });
+        await this.fail(
+          "Update handoff could not be read. Use Repair to finish updating Discord.",
+        );
+      return;
+    }
+    try {
+      pending = JSON.parse(raw);
+    } catch {
+      await this.fail(
+        "Update handoff could not be read. Use Repair to finish updating Discord.",
+      );
+      await this.clearHandoff();
       return;
     }
     if (
@@ -270,11 +298,10 @@ export class ManagerUpdates {
       typeof pending.token !== "string" ||
       !pending.token
     ) {
-      await this.publish({
-        phase: "error",
-        message:
-          "The update handoff is invalid. Use Repair to finish updating Discord.",
-      });
+      await this.fail(
+        "The update handoff is invalid. Use Repair to finish updating Discord.",
+      );
+      await this.clearHandoff();
       return;
     }
     const argument = process.argv.find((value) =>
@@ -300,17 +327,18 @@ export class ManagerUpdates {
       }
       let failure = "";
       try {
-        failure = await fs.readFile(
-          path.join(this.directory, "handoff-error.txt"),
-          "utf8",
-        );
+        failure = await fs.readFile(this.errorFile, "utf8");
       } catch {}
-      await this.publish({
-        phase: "error",
-        message:
-          failure ||
+      await this.fail(
+        failure ||
           "An update was interrupted. Check for updates to retry, or use Repair to finish updating Discord.",
-      });
+      );
+      // The Setup helper may still be running for a fresh handoff; keep its files.
+      if (
+        Number.isFinite(pending.created) &&
+        Date.now() - pending.created >= 10 * 60 * 1000
+      )
+        await this.clearHandoff();
       return;
     }
     if (
@@ -318,11 +346,10 @@ export class ManagerUpdates {
       (!approved &&
         pending.token !== argument?.slice("--finish-update=".length))
     ) {
-      await this.publish({
-        phase: "error",
-        message:
-          "The update handoff is expired or does not match this Manager. No Discord files were changed.",
-      });
+      await this.fail(
+        "The update handoff is expired or does not match this Manager. No Discord files were changed.",
+      );
+      if (!valid) await this.clearHandoff();
       return;
     }
     this.resumePending = true;
@@ -334,6 +361,7 @@ export class ManagerUpdates {
       });
       const lifecycle =
         this.host.lifecycle ?? new DiscordLifecycle(this.service);
+      const warnings: string[] = [];
       await withInstallLock(this.home, async () => {
         for (const channel of [...new Set(pending.channels)]) {
           const result = await lifecycle.run("repair", channel);
@@ -341,19 +369,24 @@ export class ManagerUpdates {
             throw new Error(
               result.results.map((r) => r.detail ?? r.action).join("; "),
             );
-          await this.maintenance.track(channel, true);
+          const tracked = await trackAfterOperation(
+            this.maintenance,
+            "repair",
+            channel,
+            { ok: true } as { ok: boolean; warning?: string },
+          );
+          if (tracked.warning) warnings.push(tracked.warning);
         }
       });
-      await fs.rm(this.pendingFile, { force: true });
       this.resumePending = false;
-      await fs.rm(path.join(this.directory, "handoff-error.txt"), {
-        force: true,
-      });
+      await this.clearHandoff();
       await this.publish({
         phase: "current",
         checkedAt: Date.now(),
-        message:
+        message: composeNotice(
           "Vestra was updated. Your themes, plugins and preferences were kept.",
+          warnings.join(" ") || undefined,
+        ),
       });
     });
   }
@@ -371,6 +404,7 @@ export class ManagerUpdates {
       [MANAGER_IPC.updateCheck, () => this.check()],
       [MANAGER_IPC.updateDownload, () => this.download()],
       [MANAGER_IPC.updateInstall, () => this.install()],
+      [MANAGER_IPC.updateDismissError, () => this.dismissError()],
     ] as const)
       ipcMain.handle(channel, (event) => {
         if (!isManagerSender(event, url))

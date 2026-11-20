@@ -12,6 +12,7 @@ import {
   applyInject,
   getRealFs,
   hasInjectionBackup,
+  hasInjectionTraces,
   isInjected,
   listInstalls,
   planInject,
@@ -267,6 +268,28 @@ export async function installAll(
   return { results };
 }
 
+function sameRoot(a: string, b: string): boolean {
+  return path.resolve(a).toLowerCase() === path.resolve(b).toLowerCase();
+}
+
+function purgeSkipped(detail: string): PerInstallResult {
+  return { asarPath: "", channel: "all", ok: false, action: "failed", detail };
+}
+
+/** Rebuild a minimal install description from a registry record. */
+function installFromRecord(entry: RegistryEntry): DiscordInstall {
+  const resourcesDir = path.dirname(entry.asarPath);
+  const appDir = entry.appDir ?? path.dirname(resourcesDir);
+  return {
+    channel: entry.channel as DiscordChannel,
+    rootDir: entry.rootDir ?? path.dirname(appDir),
+    appDir,
+    resourcesDir,
+    asarPath: entry.asarPath,
+    version: entry.installVersion,
+  };
+}
+
 /** Remove Vestra from installs. `purge` also deletes the product home. */
 export async function uninstallAll(
   ctx: OperationContext,
@@ -285,7 +308,7 @@ export async function uninstallAll(
   // Union: registry entries (even if Discord moved) + injected discoveries.
   const paths = new Set<string>([
     ...Object.keys(registry),
-    ...discovered.filter((i) => isInjected(i)).map((i) => i.asarPath),
+    ...discovered.filter((i) => hasInjectionTraces(i)).map((i) => i.asarPath),
   ]);
   const results: PerInstallResult[] = [];
 
@@ -300,7 +323,33 @@ export async function uninstallAll(
     }
     try {
       if (install === undefined) {
-        // Discord is gone; drop the stale record.
+        const recorded = registry[asarPath] as RegistryEntry;
+        const recordedInstall = installFromRecord(recorded);
+        // Superseded sibling (Discord updated to a newer app-* dir): the live
+        // install is handled on its own, so the old record is just forgotten.
+        const superseded = discovered.some(
+          (d) =>
+            d.channel === recordedInstall.channel &&
+            sameRoot(d.rootDir, recordedInstall.rootDir) &&
+            !sameRoot(d.appDir, recordedInstall.appDir),
+        );
+        if (
+          !superseded &&
+          fs.existsSync(recorded.asarPath) &&
+          hasInjectionTraces(recordedInstall)
+        ) {
+          // The archive is still hooked but discovery cannot see it: keep
+          // the record so the user can retry with --root.
+          results.push({
+            asarPath,
+            channel,
+            ok: false,
+            action: "failed",
+            detail: "Not found by discovery; pass --root to uninstall it.",
+          });
+          continue;
+        }
+        // Discord is gone (or the archive is clean); drop the stale record.
         delete registry[asarPath];
         await saveRegistry(registryPath, registry);
         results.push({
@@ -314,7 +363,7 @@ export async function uninstallAll(
       }
       // Protection (1): refuse unsafe test targets before any Discord write.
       guardTarget(install, ctx);
-      if (!isInjected(install)) {
+      if (!hasInjectionTraces(install)) {
         delete registry[asarPath];
         await saveRegistry(registryPath, registry);
         results.push({
@@ -342,7 +391,14 @@ export async function uninstallAll(
   }
 
   if (options?.purge === true) {
-    await fs.promises.rm(ctx.homeDir, { recursive: true, force: true });
+    const channelFiltered = options.channels !== undefined && options.channels.length > 0;
+    if (!results.every((r) => r.ok)) {
+      results.push(purgeSkipped("Purge skipped: uninstall did not complete for every installation."));
+    } else if (channelFiltered) {
+      results.push(purgeSkipped("Purge skipped: a channel filter was given."));
+    } else {
+      await fs.promises.rm(ctx.homeDir, { recursive: true, force: true });
+    }
   }
   return { results };
 }
@@ -365,7 +421,7 @@ export async function checkHealth(
 ): Promise<HealthReport> {
   const { registryPath, payloadRoot } = layoutHome(ctx.homeDir);
   const base = { asarPath: install.asarPath, channel: install.channel };
-  const injected = isInjected(install);
+  const injected = hasInjectionTraces(install);
   if (!injected) {
     return {
       ...base,
@@ -423,6 +479,26 @@ export async function checkHealth(
 }
 
 /**
+ * Installs a repair acts on. Explicit channels are honored as given; with no
+ * filter only channels that have a registry record are repaired.
+ */
+export async function repairTargets(
+  ctx: OperationContext,
+  channels?: DiscordChannel[] | undefined,
+): Promise<DiscordInstall[]> {
+  if (channels !== undefined && channels.length > 0) return targetsFor(ctx, channels);
+  const { registryPath } = layoutHome(ctx.homeDir);
+  const records = Object.values(await loadRegistry(registryPath));
+  return targetsFor(ctx).filter((i) =>
+    records.some(
+      (e) =>
+        e.channel === i.channel &&
+        (e.rootDir === undefined || sameRoot(e.rootDir, i.rootDir)),
+    ),
+  );
+}
+
+/**
  * Explicit repair restages and reinstalls every selected installation.
  */
 export async function repairAll(
@@ -444,7 +520,7 @@ export async function repairAll(
   const registry = await loadRegistry(registryPath);
   const results: PerInstallResult[] = [];
 
-  for (const install of targetsFor(ctx, options?.channels)) {
+  for (const install of await repairTargets(ctx, options?.channels)) {
     try {
       // Protection (1): refuse unsafe test targets before any Discord write.
       guardTarget(install, ctx);

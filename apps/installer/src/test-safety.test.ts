@@ -52,7 +52,7 @@ import {
 import { checkHealth, installAll, pruneStaleRecords, statusAll, type OperationContext } from "./operations.js";
 import { runCli, type CliIO } from "./cli.js";
 import { layoutHome } from "./home.js";
-import { loadRegistry, saveRegistry } from "./registry.js";
+import { loadRegistry, saveRegistry, type RegistryEntry } from "./registry.js";
 import { createTestDiscordInstall, isolatedEnv, writeTestBundle } from "./test-fixtures.js";
 
 const ENV_KEYS = [
@@ -716,6 +716,12 @@ describe("test-safety guard", () => {
       process.env["HOME"] = emptyDir;
       process.env["XDG_CONFIG_HOME"] = emptyDir;
       process.env["VESTRA_TEST"] = "1";
+      // Repair only acts on recorded channels: record the three fake installs.
+      const records: Record<string, RegistryEntry> = {};
+      for (const [channel, asar] of Object.entries(fake.asar)) {
+        records[asar] = { asarPath: asar, channel, installVersion: "1.0.2000", payloadVersion: "0.0.0", at: "t" };
+      }
+      await saveRegistry(layoutHome(homeDir).registryPath, records);
       const io = makeIO();
       const code = await runCli(["check", "--repair", "--home", homeDir, "--bundle", bundlePath], io);
       assert.equal(code, 1);
