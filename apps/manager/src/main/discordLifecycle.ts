@@ -120,6 +120,25 @@ export const windowsDiscordSystem: DiscordSystem = {
 export interface LifecycleHooks {
   /** Runs after a verified operation and before Discord is reopened. */
   afterVerify?(): Promise<void>;
+  /** The installation this run changed and verified, before Discord is reopened. */
+  onVerified?(installation: DiscordInstallation): void;
+  /**
+   * Reopen Discord after a verified operation even when it was already closed
+   * (the user's Restart Discord). A failed operation still reopens only a
+   * Discord this run closed.
+   */
+  alwaysRelaunch?: boolean;
+}
+
+const NOT_REOPENED = "Discord didn't reopen. Open it manually.";
+
+/** The operation's own error, telling the user Discord stayed closed too. */
+function withNotReopened(error: unknown): unknown {
+  if (error instanceof Error) {
+    error.message = `${error.message} ${NOT_REOPENED}`;
+    return error;
+  }
+  return new Error(`${String(error)} ${NOT_REOPENED}`);
 }
 
 export class DiscordLifecycle {
@@ -214,7 +233,13 @@ export class DiscordLifecycle {
           : kind === "install"
             ? await this.service.install({ ...args, force: true })
             : await this.service.repair(args);
-      if (!result.ok) return result;
+      if (!result.ok) {
+        // A failed install still leaves the user with their original Discord.
+        const reopen = stopped;
+        stopped = false;
+        if (!reopen || (await this.reopened(channel, target))) return result;
+        return { ...result, warning: NOT_REOPENED };
+      }
       const checked = await this.service.check({ channels: [channel] });
       const verified = checked.statuses.find(
         (status) => status.installation.channel === channel,
@@ -233,30 +258,44 @@ export class DiscordLifecycle {
       } catch {
         // Best effort; the verified operation stands.
       }
+      try {
+        hooks.onVerified?.(target);
+      } catch {
+        // An observer never changes the outcome.
+      }
       onProgress?.({
         operation: kind,
         phase: "restarting",
         installation: target,
       });
-      // Only reopen Discord when it was open before the operation.
-      const wasRunning = stopped;
+      // Reopen Discord when it was open before, or when the user asked for a restart.
+      const relaunch = stopped || hooks.alwaysRelaunch === true;
       stopped = false;
-      if (!wasRunning) return result;
-      try {
-        await this.restart(channel, target);
-        return result;
-      } catch {
-        return { ...result, warning: "Discord didn't reopen. Open it manually." };
+      if (!relaunch) return result;
+      return (await this.reopened(channel, target))
+        ? result
+        : { ...result, warning: NOT_REOPENED };
+    } catch (error) {
+      // A failed operation still leaves the user with their original Discord.
+      if (stopped && target) {
+        stopped = false;
+        if (!(await this.reopened(channel, target))) throw withNotReopened(error);
       }
+      throw error;
     } finally {
-      // A failed install still leaves the user with their original Discord.
-      try {
-        if (stopped && target) await this.restart(channel, target);
-      } catch {
-        // The operation's own error is the one worth surfacing.
-      } finally {
-        this.busy = false;
-      }
+      this.busy = false;
+    }
+  }
+
+  private async reopened(
+    channel: DiscordChannel,
+    fallback: DiscordInstallation,
+  ): Promise<boolean> {
+    try {
+      await this.restart(channel, fallback);
+      return true;
+    } catch {
+      return false;
     }
   }
 

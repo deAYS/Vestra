@@ -23,7 +23,9 @@ function installation(channel: DiscordChannel, version: string): DiscordInstalla
   };
 }
 
-async function harness(options: { installed?: boolean; ok?: boolean; statusFails?: boolean } = {}) {
+async function harness(
+  options: { installed?: boolean; ok?: boolean; statusFails?: boolean; repairedVersion?: string } = {},
+) {
   const home = await fs.mkdtemp(path.join(os.tmpdir(), "vestra-operations-test-"));
   await fs.mkdir(path.join(home, "status"), { recursive: true });
   for (const channel of ["stable", "canary"])
@@ -36,9 +38,6 @@ async function harness(options: { installed?: boolean; ok?: boolean; statusFails
   const deps: OperationDeps = {
     service: {
       context: { homeDir: home },
-      async discover() {
-        return [installation("stable", "1.0.10")];
-      },
       async status() {
         if (options.statusFails) throw new Error("fixture status failure");
         return {
@@ -56,8 +55,14 @@ async function harness(options: { installed?: boolean; ok?: boolean; statusFails
     },
     lifecycle: {
       async run(kind, channel, _progress, hooks: LifecycleHooks = {}): Promise<OperationSummary> {
-        calls.push(`${kind}:${channel}:${hooks.afterVerify ? "clears" : "keeps"}`);
-        if (ok) await hooks.afterVerify?.();
+        calls.push(
+          `${kind}:${channel}:${hooks.afterVerify ? "clears" : "keeps"}` +
+            (hooks.alwaysRelaunch ? ":relaunch" : ""),
+        );
+        if (ok) {
+          await hooks.afterVerify?.();
+          hooks.onVerified?.(installation(channel, options.repairedVersion ?? "1.0.10"));
+        }
         return {
           ok,
           results: [{ asarPath: "/fake/app.asar", channel, ok, action: kind }],
@@ -118,7 +123,7 @@ test("Restart Discord repairs, then records the re-install as patched", async ()
   });
   const result = await runManagerOperation(h.deps, "restart", "stable");
   assert.equal(result.ok, true);
-  assert.deepEqual(h.calls, ["repair:stable:clears", "track:stable:true"]);
+  assert.deepEqual(h.calls, ["repair:stable:clears:relaunch", "track:stable:true"]);
   const state = await readRecoveryState(h.home);
   assert.equal(state.stable?.phase, "patched");
   assert.equal(state.stable?.version, "1.0.10");
@@ -133,4 +138,18 @@ test("a failed Restart Discord leaves the waiting record", async () => {
   await writeRecoveryState(h.home, { stable: waiting });
   await runManagerOperation(h.deps, "restart", "stable");
   assert.deepEqual((await readRecoveryState(h.home)).stable, waiting);
+});
+
+test("Restart Discord records the version the lifecycle repaired", async () => {
+  const h = await harness({ installed: false, repairedVersion: "1.0.11" });
+  await runManagerOperation(h.deps, "restart", "stable");
+  assert.equal((await readRecoveryState(h.home)).stable?.version, "1.0.11");
+});
+
+test("only Restart Discord asks the lifecycle to reopen a closed Discord", async () => {
+  for (const kind of ["install", "repair", "uninstall"] as const) {
+    const h = await harness({ installed: kind !== "install" });
+    await runManagerOperation(h.deps, kind, "stable");
+    assert.doesNotMatch(h.calls[0]!, /relaunch/, kind);
+  }
 });

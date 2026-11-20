@@ -27,6 +27,7 @@ function harness() {
   ];
   let healthy = true;
   let fail = false;
+  let refuse = false;
   const result = {
     ok: true,
     results: [
@@ -49,6 +50,11 @@ function harness() {
     async repair() {
       calls.push("repair");
       if (fail) throw new Error("fixture failure");
+      if (refuse)
+        return {
+          ok: false,
+          results: [{ ...result.results[0], ok: false, action: "failed", detail: "refused" }],
+        };
       return result;
     },
     async uninstall(args: { purge?: boolean }) {
@@ -99,6 +105,9 @@ function harness() {
     },
     fail() {
       fail = true;
+    },
+    refuse() {
+      refuse = true;
     },
     breakVerification() {
       healthy = false;
@@ -215,4 +224,66 @@ test("afterVerify never runs for a failed operation, and its failure is ignored"
   });
   assert.equal(result.ok, true);
   assert.deepEqual(ok.calls, ["stop:1", "repair", "check", "launch"]);
+});
+
+function failingLaunch(h: ReturnType<typeof harness>): DiscordLifecycle {
+  return new DiscordLifecycle(h.service, {
+    ...h.system,
+    async launch() {
+      h.calls.push("launch-failed");
+      throw new Error("spawn failed");
+    },
+  });
+}
+test("a failed operation whose relaunch also fails says Discord didn't reopen", async () => {
+  const h = harness();
+  h.fail();
+  await assert.rejects(
+    () => failingLaunch(h).run("repair", "stable"),
+    (error: Error) =>
+      error.message === "fixture failure Discord didn't reopen. Open it manually.",
+  );
+  assert.deepEqual(h.calls, ["stop:1", "repair", "launch-failed"]);
+});
+test("a refused operation whose relaunch fails carries the warning", async () => {
+  const h = harness();
+  h.refuse();
+  const result = await failingLaunch(h).run("repair", "stable");
+  assert.equal(result.ok, false);
+  assert.equal(result.warning, "Discord didn't reopen. Open it manually.");
+  const reopened = harness();
+  reopened.refuse();
+  const plain = await reopened.lifecycle.run("repair", "stable");
+  assert.equal(plain.warning, undefined);
+  assert.deepEqual(reopened.calls, ["stop:1", "repair", "launch"]);
+});
+test("alwaysRelaunch opens Discord after success even when it was closed", async () => {
+  const h = harness();
+  await h.system.stop({ pid: 1, executable: target.appDir + "\Discord.exe" });
+  h.calls.length = 0;
+  const result = await h.lifecycle.run("repair", "stable", undefined, { alwaysRelaunch: true });
+  assert.equal(result.ok, true);
+  assert.deepEqual(h.calls, ["repair", "check", "launch"]);
+});
+test("alwaysRelaunch never opens a closed Discord after a failure", async () => {
+  const h = harness();
+  await h.system.stop({ pid: 1, executable: target.appDir + "\Discord.exe" });
+  h.fail();
+  h.calls.length = 0;
+  await assert.rejects(() =>
+    h.lifecycle.run("repair", "stable", undefined, { alwaysRelaunch: true }),
+  );
+  assert.deepEqual(h.calls, ["repair"]);
+});
+test("onVerified receives the installation that was repaired and verified", async () => {
+  const h = harness();
+  const seen: string[] = [];
+  await h.lifecycle.run("repair", "stable", undefined, {
+    onVerified: (installation) => {
+      seen.push(installation.appDir);
+      h.calls.push("verified");
+    },
+  });
+  assert.deepEqual(seen, [target.appDir]);
+  assert.deepEqual(h.calls, ["stop:1", "repair", "check", "verified", "launch"]);
 });

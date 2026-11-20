@@ -204,3 +204,30 @@ describe("operation flows", () => {
     assert.equal(uninstalls[0]?.purge, false);
   });
 });
+
+test("a failed operation's warning (Discord didn't reopen) reaches its message", async () => {
+  const failed: OperationSummary = {
+    ok: false,
+    results: [
+      { asarPath: "/fake/app.asar", channel: "stable", ok: false, action: "failed", detail: "x" },
+    ],
+    warning: "Discord didn't reopen. Open it manually.",
+  };
+  const service: ServiceLike = {
+    async check() {
+      return { statuses: [], stale: [] };
+    },
+    install: async () => failed,
+    repair: async () => failed,
+    uninstall: async () => failed,
+  };
+  const install = await runInstallFlow(service, "stable");
+  const repair = await runRepairFlow(service, "stable");
+  const uninstall = await runUninstallFlow(service, "stable");
+  assert.equal(install.ok || install.message, "Installation failed. Discord didn't reopen. Open it manually.");
+  assert.equal(repair.ok || repair.message, "Repair failed. Discord didn't reopen. Open it manually.");
+  assert.equal(uninstall.ok || uninstall.message, "Uninstall failed. Discord didn't reopen. Open it manually.");
+  const { warning: _warning, ...bare } = failed;
+  const plain = await runRepairFlow({ ...service, repair: async () => bare }, "stable");
+  assert.equal(plain.ok || plain.message, "Repair failed.");
+});

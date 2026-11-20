@@ -45,7 +45,7 @@ export async function runInstallFlow(
       ok: false,
       code: failed?.code,
       detail: failed?.detail,
-      message: "Installation failed.",
+      message: composeNotice("Installation failed.", installed.warning),
     };
   }
   const verify = await service.check({ channels: [channel] });
@@ -75,7 +75,7 @@ export async function runRepairFlow(
       repaired: false,
       code: failed?.code,
       detail: failed?.detail,
-      message: "Repair failed.",
+      message: composeNotice("Repair failed.", repaired.warning),
     };
   }
   const after = await service.check({ channels: [channel] });
@@ -103,6 +103,6 @@ export async function runUninstallFlow(
     ok: false,
     code: failed?.code,
     detail: failed?.detail,
-    message: "Uninstall failed.",
+    message: composeNotice("Uninstall failed.", result.warning),
   };
 }

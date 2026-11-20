@@ -9,7 +9,7 @@ import type {
   OperationSummary,
   StatusSummary,
 } from "../shared/types.js";
-import type { DiscordLifecycle } from "./discordLifecycle.js";
+import type { DiscordLifecycle, LifecycleHooks } from "./discordLifecycle.js";
 import { trackAfterOperation, type MaintenanceController } from "./maintenance.js";
 import { versionOf } from "./recovery/monitor.js";
 import { markRecoveryPatched } from "./recovery/state.js";
@@ -20,7 +20,6 @@ export type ManagerOperation = "install" | "repair" | "uninstall" | "restart";
 export interface OperationDeps {
   service: {
     context: { homeDir: string };
-    discover(options: { channels: DiscordChannel[] }): Promise<DiscordInstallation[]>;
     status(options: { channels: DiscordChannel[] }): Promise<StatusSummary>;
   };
   lifecycle: Pick<DiscordLifecycle, "run">;
@@ -53,9 +52,10 @@ async function filesHadVestra(
 /**
  * Runs one operation under the install lock. A fresh payload (install, a repair
  * of files without Vestra) or an uninstall clears the channel's start status
- * while Discord is still closed. A successful Restart Discord records the
- * re-install as `patched`, as the recovery notification does, so the row stops
- * waiting even when the recovery process isn't running.
+ * while Discord is still closed. A successful Restart Discord reopens Discord
+ * even if it had closed meanwhile, and records the version it re-installed as
+ * `patched`, as the recovery notification does, so the row stops waiting even
+ * when the recovery process isn't running.
  */
 export function runManagerOperation(
   deps: OperationDeps,
@@ -68,16 +68,26 @@ export function runManagerOperation(
   return withInstallLock(home, async () => {
     const clears =
       kind === "repair" ? (await filesHadVestra(deps, channel)) === false : true;
-    const result = await deps.lifecycle.run(
-      kind,
-      channel,
-      onProgress,
-      clears ? { afterVerify: () => clearStartStatus(home, channel) } : {},
-    );
+    let repaired: DiscordInstallation | undefined;
+    const hooks: LifecycleHooks = {
+      ...(clears ? { afterVerify: () => clearStartStatus(home, channel) } : {}),
+      ...(operation === "restart"
+        ? {
+            alwaysRelaunch: true,
+            onVerified: (installation: DiscordInstallation) => {
+              repaired = installation;
+            },
+          }
+        : {}),
+    };
+    const result = await deps.lifecycle.run(kind, channel, onProgress, hooks);
     if (result.ok && operation === "restart") {
       try {
-        const target = (await deps.service.discover({ channels: [channel] }))[0];
-        await markRecoveryPatched(home, channel, target ? versionOf(target) : undefined);
+        await markRecoveryPatched(
+          home,
+          channel,
+          repaired ? versionOf(repaired) : undefined,
+        );
       } catch {
         // Best effort: the next recovery sweep records the same outcome.
       }
