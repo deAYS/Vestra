@@ -245,7 +245,7 @@ async function startRuntime(): Promise<void> {
       if (Settings.getPluginSetting("Vestra", "startupNotification") !== false)
         Toasts.info(
           `${VESTRA_BRANDING.name} is ready`,
-          `${enabled} plugin${enabled === 1 ? "" : "s"} active. Your workspace is ready.`,
+          `${enabled} plugin${enabled === 1 ? "" : "s"} enabled. Your workspace is ready.`,
           5000,
         );
     } catch (err: unknown) {
@@ -253,6 +253,7 @@ async function startRuntime(): Promise<void> {
     }
   } catch (err: unknown) {
     Logger.captureError(err, "Vestra.start");
+    pluginManager.abortBoot();
     await waitForPluginBoot();
     await pluginManager.shutdown();
     stopThemes?.();
@@ -282,7 +283,8 @@ async function stopRuntime(): Promise<void> {
     stopPluginShortcuts?.();
     stopPluginShortcuts = undefined;
     Logger.info("Stopping Vestra runtime…");
-    // Let the background boot finish first so no plugin starts after stop.
+    // No further plugin starts; wait only for the one in flight.
+    pluginManager.abortBoot();
     await waitForPluginBoot();
     // Suspend running plugins; enabled flags persist for next start().
     await pluginManager.shutdown();

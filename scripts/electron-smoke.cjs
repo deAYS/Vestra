@@ -272,6 +272,11 @@ app
         true,
         "runtime booted inside sandbox with strict CSP",
       );
+      // start() resolves once the UI is up; enabled plugins boot right after.
+      await waitFor(
+        "window.Vestra.Styles.has('ExamplePlugin') && window.Vestra.Styles.has('LocalFolderFixture')",
+        "enabled plugins finish booting in the background",
+      );
       const result = await evaluate(`(async () => {
       const v = window.Vestra;
       const localTheme = v.Settings.getThemes().some(theme => theme.sourceFile === 'Folder.theme.css');
