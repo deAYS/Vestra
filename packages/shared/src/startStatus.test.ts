@@ -104,3 +104,45 @@ test("parse keeps valid records and truncates reason", () => {
 test("status filename is posix per channel", () => {
   assert.equal(startStatusFilename("ptb"), "status/ptb.json");
 });
+
+test("failed start for this version ignores launch of another version", () => {
+  assert.deepEqual(
+    deriveRunState(
+      {
+        launch: rec("1.0.8", 50),
+        start: { ...rec("1.0.9", 12), ok: false, reason: "untrusted-url" },
+      },
+      "1.0.9",
+    ),
+    { kind: "failed", at: 12, reason: "untrusted-url" },
+  );
+});
+
+test("start at the same time as launch counts as active", () => {
+  assert.deepEqual(
+    deriveRunState({ launch: rec("1.0.9", 10), start: { ...rec("1.0.9", 10), ok: true } }, "1.0.9"),
+    { kind: "active", at: 10 },
+  );
+});
+
+test("failed start older than same-version launch is awaiting-login", () => {
+  assert.deepEqual(
+    deriveRunState(
+      { launch: rec("1.0.9", 20), start: { ...rec("1.0.9", 12), ok: false, reason: "x" } },
+      "1.0.9",
+    ),
+    { kind: "awaiting-login" },
+  );
+});
+
+test("parse keeps a valid record when the other is invalid", () => {
+  const onlyStart = parseStartStatus(
+    JSON.stringify({ launch: { at: "no" }, start: { ...rec("1.0.9", 2), ok: true } }),
+  );
+  assert.equal(onlyStart.launch, undefined);
+  assert.equal(onlyStart.start?.ok, true);
+  const onlyLaunch = parseStartStatus(
+    JSON.stringify({ launch: rec("1.0.9", 1), start: { ok: "yes" } }),
+  );
+  assert.deepEqual(onlyLaunch, { launch: rec("1.0.9", 1) });
+});

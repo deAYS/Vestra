@@ -90,7 +90,12 @@ export function deriveRunState(
         start.at >= launch.at)
     )
       return { kind: "active", at: start.at };
-    if (!start.ok && (!launch || start.at >= launch.at))
+    if (
+      !start.ok &&
+      (!launch ||
+        launch.discordVersion !== installedVersion ||
+        start.at >= launch.at)
+    )
       return { kind: "failed", at: start.at, reason: start.reason ?? "unknown" };
   }
   if (launch && launch.discordVersion === installedVersion)
