@@ -700,7 +700,7 @@ function shellFixture() {
     "//host/share/x.exe",
     "\\\\?\\C:\\Windows\\notepad.exe",
     "\\\\.\\C:\\Windows\\notepad.exe",
-    home + "\..\outside\evil.exe",
+    home + String.raw`\..\outside\evil.exe`,
     path.join(junction, "evil.exe"),
     path.join(home, "missing.txt"),
     "plugins\\a.txt",

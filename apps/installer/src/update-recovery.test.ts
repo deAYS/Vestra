@@ -281,3 +281,18 @@ test("Repair discovers a new app version instead of repatching its historical di
     await fixture.cleanup();
   }
 });
+
+test("a plain Install recovers an interrupted archive from the backup", async () => {
+  const { fixture, service } = await harness();
+  try {
+    assert.equal((await service.install()).ok, true);
+    await fs.writeFile(fixture.asarPath, "interrupted archive write");
+    const result = await service.install();
+    assert.equal(result.ok, true);
+    assert.equal(result.results[0]?.action, "installed");
+    assert.match(readAsarFile(fixture.asarPath, "package.json"), /main/);
+    assert.equal((await service.check()).statuses[0]?.health, "healthy");
+  } finally {
+    await fixture.cleanup();
+  }
+});

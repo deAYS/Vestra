@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { listInstalls, isInjected, readAsarMain, packAsar } from "./index.js";
+import { listInstalls, hasInjectionTraces, readAsarMain, packAsar } from "./index.js";
 import { getRealFs, __setRealFsForTests, __resetRealFsForTests, type RealFs } from "./realFs.js";
 import { RECEIPT_FILE, BACKUP_SUFFIX } from "./patch.js";
 
@@ -104,7 +104,7 @@ describe("realFs Electron regression (Stable + Canary)", () => {
     }
   });
 
-  test("isInjected uses real fs even when patched fs is present", async () => {
+  test("hasInjectionTraces uses real fs even when patched fs is present", async () => {
     const { base, cleanup } = await makeLocalAppData();
     try {
       const asarPath = path.join(base, "Discord", "app-1.0.9256", "resources", "app.asar");
@@ -126,9 +126,9 @@ describe("realFs Electron regression (Stable + Canary)", () => {
       await fs.promises.copyFile(asarPath, `${asarPath}${BACKUP_SUFFIX}`);
 
       __setRealFsForTests(asPatchedFs());
-      assert.equal(isInjected(install), false, "patched fs misreports backup");
+      assert.equal(hasInjectionTraces(install), false, "patched fs misreports backup");
       __setRealFsForTests(asOriginalFs());
-      assert.equal(isInjected(install), true, "real fs sees backup");
+      assert.equal(hasInjectionTraces(install), true, "real fs sees backup");
     } finally {
       await cleanup();
     }

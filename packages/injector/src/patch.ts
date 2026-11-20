@@ -90,9 +90,8 @@ export function isInjected(install: DiscordInstall): boolean {
     return readAsarFile(install.asarPath, readAsarMain(install.asarPath))
       .includes(HOOK_REQUIRE_PREFIX);
   } catch {
-    // Unreadable archive (interrupted write): fall back to the metadata so
-    // recovery from the backup stays reachable.
-    return readReceipt(install) !== undefined && hasInjectionBackup(install);
+    // Unreadable archive: not injected; install recovers it from the backup.
+    return false;
   }
 }
 
@@ -187,7 +186,7 @@ export async function applyInject(
   const workDir =
     options?.keepWorkDir ??
     (await fs.promises.mkdtemp(path.join(os.tmpdir(), "vestra-inject-")));
-  let backedUp = false;
+  let swapped = false;
   const tmpPath = `${install.asarPath}${TMP_SUFFIX}`;
   try {
     // Physical archive copies: route through the unpatched filesystem.
@@ -196,7 +195,6 @@ export async function applyInject(
       plan.backupPath,
       fs.constants.COPYFILE_EXCL,
     );
-    backedUp = true;
     await unpackAsar(install.asarPath, workDir);
 
     const vestraDir = path.join(workDir, VESTRA_DIR);
@@ -241,6 +239,7 @@ export async function applyInject(
     // Write beside the live archive, then swap in one rename.
     await packAsar(workDir, tmpPath);
     await getRealFs().promises.rename(tmpPath, install.asarPath);
+    swapped = true;
     asar.uncache(install.asarPath);
     await fs.promises.writeFile(
       plan.receiptPath,
@@ -248,7 +247,8 @@ export async function applyInject(
       "utf8",
     );
   } catch (err: unknown) {
-    if (backedUp) {
+    // Only a completed swap can have changed the live archive.
+    if (swapped) {
       try {
         await getRealFs().promises.copyFile(plan.backupPath, tmpPath);
         await getRealFs().promises.rename(tmpPath, install.asarPath);
@@ -303,10 +303,18 @@ export async function uninject(
     if (readAsarFile(backup, main).includes(HOOK_REQUIRE_PREFIX)) {
       throw new Error(`Backup is already hooked: ${backup}`);
     }
-    await getRealFs().promises.copyFile(
-      backup,
-      install.asarPath,
-    );
+    const tmpPath = `${install.asarPath}${TMP_SUFFIX}`;
+    try {
+      await getRealFs().promises.copyFile(backup, tmpPath);
+      await getRealFs().promises.rename(tmpPath, install.asarPath);
+      asar.uncache(install.asarPath);
+    } finally {
+      try {
+        await getRealFs().promises.rm(tmpPath, { force: true });
+      } catch {
+        // Best effort.
+      }
+    }
   }
   await getRealFs().promises.rm(backupPathFor(install), { force: true });
   await fs.promises.rm(receiptPathFor(install), { force: true });

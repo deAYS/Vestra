@@ -4,6 +4,7 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import * as os from "node:os";
 import { createRequire } from "node:module";
+import { TEST_SENTINEL } from "@vestra/shared/node/testSafety.js";
 import { packAsar, readAsarFile, unpackAsar } from "./asar.js";
 import type { DiscordInstall } from "./paths.js";
 import {
@@ -24,6 +25,7 @@ const payload: PayloadSources = {
 
 async function fixture(main: string) {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "vestra-patch-"));
+  await fs.writeFile(path.join(root, TEST_SENTINEL), "vestra test fixture");
   const source = path.join(root, "source");
   const entry = path.join(source, ...main.split("/"));
   await fs.mkdir(path.dirname(entry), { recursive: true });
@@ -49,7 +51,7 @@ async function fixture(main: string) {
   return { root, install, cleanup };
 }
 
-const safety = { testMode: false };
+const safety = { testMode: true };
 
 test("hook resolves for a nested main entry", async () => {
   const { root, install, cleanup } = await fixture("bootstrap/index.js");
@@ -124,6 +126,22 @@ test("no temporary archive remains after inject", async () => {
     const names = await fs.readdir(install.resourcesDir);
     assert.deepEqual(names.filter((n) => n.endsWith(".vestra-tmp")), []);
     assert.ok(readAsarFile(install.asarPath, "vestra/vestra-main-hook.cjs").includes(HOOK_FLAG));
+  } finally {
+    await cleanup();
+  }
+});
+
+test("a failure after the swap restores the archive and leaves no temp file", async () => {
+  const { install, cleanup } = await fixture("bundle.js");
+  try {
+    const original = await fs.readFile(install.asarPath);
+    const { plan } = planInject(install, payload, safety);
+    // A directory where the receipt belongs makes the final write fail.
+    await fs.mkdir(plan.receiptPath);
+    await assert.rejects(() => applyInject(plan, payload, safety), /Inject failed/);
+    assert.deepEqual(await fs.readFile(install.asarPath), original);
+    const names = await fs.readdir(install.resourcesDir);
+    assert.deepEqual(names.filter((n) => n.endsWith(".vestra-tmp")), []);
   } finally {
     await cleanup();
   }
