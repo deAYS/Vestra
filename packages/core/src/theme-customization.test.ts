@@ -18,6 +18,7 @@ import {
   themePreviewCss,
 } from "./themeCustomization.js";
 import { themePreviewDocument } from "./ui/ThemePeek.js";
+import lastGlassCss from "../../../themes/history/liquid-glass-2.2.0.theme.css";
 
 test("appearance, embedded backgrounds and exclusive selection survive a fresh desktop store", async () => {
   let disk: string | undefined;
@@ -276,7 +277,7 @@ test("customized glass paints large panes from the pre-blurred image with no liv
     const panes = rules.filter((rule) => LARGE_PANES.test(rule.selector));
     assert.ok(panes.length > 0);
     for (const rule of panes)
-      assert.ok(!rule.body.includes("backdrop-filter"), `no backdrop blur on ${rule.selector}`);
+      assert.ok(!/backdrop-filter:(?!var\(--vestra-glass-pane-filter,none\)!important)/.test(rule.body), `no backdrop blur on ${rule.selector}`);
     const popouts = rules.filter((rule) => POPOUTS.test(rule.selector) && !LARGE_PANES.test(rule.selector));
     assert.ok(popouts.some((rule) => rule.body.includes("backdrop-filter")), "popouts and menus keep their blur");
     // The generated rule follows (and overrides) the theme's own pane rules.
@@ -371,4 +372,24 @@ test("appearance previews show the glass blur with a preview-only backdrop filte
   const tintOnly = customizedThemeCss({ css, customization: { ...DEFAULT_THEME_CUSTOMIZATION, blur: 14 } });
   assert.ok(tintOnly.includes("--vestra-glass-preview-filter:none;"), "no image: tints only, like the live app");
   assert.ok(themePreviewDocument(withImage).includes("backdrop-filter:var(--vestra-glass-preview-filter,none)"));
+});
+
+test("a customized theme's own live pane blur is switched off, as the generator owned it before", () => {
+  // An edited copy of 2.2.0 is not migrated and still blurs its panes itself.
+  const edited = `${lastGlassCss}/* my edits */`;
+  const output = customizedThemeCss({ css: edited, customization: { ...DEFAULT_THEME_CUSTOMIZATION, backgroundImage: "data:image/png;base64,aGVsbG8=" } });
+  const rules = cssRules(output);
+  const generated = [...rules].reverse().find((rule) => rule.selector.includes('[class*="channelTextArea_"]') && !rule.selector.endsWith(">*") && rule.body.includes("--vestra-glass-image"));
+  assert.ok(generated?.body.includes("backdrop-filter:var(--vestra-glass-pane-filter,none)!important"), "the generated pane rule wins over the theme's backdrop blur");
+  assert.ok(themePreviewDocument(output).includes("#app-mount{--vestra-glass-pane-filter:var(--vestra-glass-preview-filter,none)}"), "only previews turn the pane blur back on");
+});
+
+test("pane classes inside popouts and dialogs do not paint the wallpaper image", () => {
+  const glass = THEME_LIBRARY.find((theme) => theme.name === "Vestra Liquid Glass")!;
+  for (const css of [glass.css, customizedThemeCss({ css: glass.css, customization: DEFAULT_THEME_CUSTOMIZATION })]) {
+    const guard = cssRules(css).find((rule) => rule.body.includes("--vestra-glass-image:none") && rule.selector.includes('[role="dialog"]'));
+    assert.ok(guard, "dialogs reset the image variable");
+    for (const surface of ["userPopout_", "menu_", "autocomplete_", "settingsLayer_"])
+      assert.ok(guard.selector.includes(surface), `${surface} resets the image variable`);
+  }
 });

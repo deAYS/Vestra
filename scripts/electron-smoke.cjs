@@ -1008,6 +1008,13 @@ app
         !nestedPane.includes("url(") && nestedPane.includes("rgba(22, 18, 30, 0.68)"),
         `a pane inside a pane tints over its parent instead of repainting the image: ${nestedPane}`,
       );
+      const popoutPane = await evaluate(
+        "(() => {document.getElementById('plain-profile').insertAdjacentHTML('beforeend','<div id=\"fixture-popout-input\" class=\"channelTextArea_fixture\">Message</div>');const image=getComputedStyle(document.getElementById('fixture-popout-input')).backgroundImage;document.getElementById('fixture-popout-input').remove();return image})()",
+      );
+      assert.ok(
+        !popoutPane.includes("url("),
+        `a pane class inside a popout does not paint the wallpaper image: ${popoutPane}`,
+      );
       assert.equal(
         await evaluate(
           "getComputedStyle(document.getElementById('fixture-chat')).borderRadius",

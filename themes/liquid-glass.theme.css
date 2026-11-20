@@ -185,6 +185,7 @@ html,body{background:#262132!important;}
   border:1px solid var(--glass-edge)!important;border-radius:var(--glass-radius,22px)!important;
   box-shadow:var(--glass-shadow);margin:0 10px 10px 0;min-height:0;
 }
+#app-mount :is([role="dialog"],.user-profile-popout,.user-profile-modal,.user-profile-modal-v2,[class*="userPopout_"],[class*="userProfileModal_"],[class*="autocomplete_"],[class*="menu_"][role="menu"],[class*="messagesPopoutWrap_"],[class*="recentMentionsPopout_"],[class*="standardSidebarView_"],[class*="settingsModal_"],[class*="settingsLayer_"]){--vestra-glass-image:none;}
 #app-mount [class*="tabBody_"]:not(.custom-user-profile-theme):not(.custom-user-profile-theme *):not([data-vestra-root]){background:transparent!important;}
 #app-mount [class*="nowPlayingColumn_"]:not(.custom-user-profile-theme):not(.custom-user-profile-theme *):not([data-vestra-root]){background:#ffffff06!important;border-left:1px solid var(--glass-edge)!important;}
 #app-mount :is(.user-profile-popout,.user-profile-modal,.user-profile-modal-v2,.user-profile-sidebar,.user-profile-sidebar-redesign,[class*="userPopout_"],[class*="userProfileModal_"]):not(.custom-user-profile-theme):not(.custom-user-profile-theme *):not([data-vestra-root]){
