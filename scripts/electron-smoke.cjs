@@ -1148,6 +1148,24 @@ app
         "window.Vestra.Settings.getThemes().some(theme=>theme.id!=='glass'&&theme.customization?.opacity===68&&!theme.enabled)",
         "a shared theme imports with its appearance and does not replace the active one",
       );
+      // The fixture's own settings file (appData is the fixture folder; the
+      // hook was loaded as Discord.exe, so the channel is stable).
+      const settingsFile = path.join(
+        app.getPath("appData"),
+        "Vestra",
+        "settings",
+        "stable.json",
+      );
+      const savedSetting = (key) => {
+        try {
+          const saved = JSON.parse(
+            require("node:fs").readFileSync(settingsFile, "utf8"),
+          );
+          return saved?.plugins?.Vestra?.settings?.[key];
+        } catch {
+          return undefined;
+        }
+      };
       await evaluate("window.Vestra.Settings.flush()");
       assert.equal(
         await evaluate(
@@ -1156,14 +1174,49 @@ app
         true,
         "the blocking settings flush reaches the main process and is confirmed",
       );
-      // No flush: the page-close listener must write this before the reload.
-      await evaluate(
-        "window.Vestra.Settings.setPluginSetting('Vestra','smokeCloseFlush',2)",
+      assert.equal(
+        savedSetting("smokeSyncFlush"),
+        1,
+        "the blocking flush is in the settings file",
       );
-      await win.loadURL("https://discord.com/channels/789/123");
+      // No flush: the page-close listener must write this before the reload.
+      // The page navigates well within the 300 ms debounce, so only
+      // beforeunload/pagehide -> flushSettingsSync -> the sender-checked sync
+      // IPC -> the main-process write can put the value on disk.
+      await evaluate(
+        "window.Vestra.Settings.setPluginSetting('Vestra','smokeCloseFlush',2);window.__fixtureSetAt=performance.now();true",
+      );
+      assert.equal(
+        savedSetting("smokeCloseFlush"),
+        undefined,
+        "the change is not on disk before the page closes",
+      );
+      const reloaded = new Promise((resolve) =>
+        win.webContents.once("did-finish-load", resolve),
+      );
+      const closeAfterMs = await evaluate(
+        "(() => {const elapsed=performance.now()-window.__fixtureSetAt;setTimeout(()=>{location.href='https://discord.com/channels/789/123'},0);return elapsed})()",
+      );
+      assert.ok(
+        closeAfterMs < 250,
+        `the page closes within the debounce (${Math.round(closeAfterMs)} ms after the change)`,
+      );
+      await reloaded;
       await waitFor(
         "Boolean(window.Vestra?.started) && document.getElementById('vestra-splash') === null",
         "customized Glass restores in a new renderer",
+      );
+      // The new renderer rewrites the file on connect; poll past that write.
+      const closeFlushDeadline = Date.now() + 6000;
+      while (
+        savedSetting("smokeCloseFlush") !== 2 &&
+        Date.now() < closeFlushDeadline
+      )
+        await pause(50);
+      assert.equal(
+        savedSetting("smokeCloseFlush"),
+        2,
+        "the page-close flush wrote the change to the settings file",
       );
       assert.deepEqual(
         await evaluate(
