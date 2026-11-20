@@ -137,8 +137,8 @@ test("login is quiet; logout stops runtime and relogin starts it without duplica
       },
     },
     ipcRenderer: {
-      async invoke() {
-        reads++;
+      async invoke(channel: string) {
+        if (channel.endsWith("bootstrap")) reads++;
         return {
           bundle: `window.Vestra={Vestra:{Settings:{async connectStorage(){},load(){}},Native:{connect(){}},UI:{closeSettings(){order.push('close')}},Toasts:{clear(){order.push('clear')}},async start(){order.push('start')},async stop(){order.push('stop');delete window.Vestra}}};`,
           plugins: [{ name: "Example", source: "order.push('plugin')" }],
@@ -213,6 +213,7 @@ interface FixtureOptions {
   appData?: string;
   receipt?: unknown;
   discordVersion?: string;
+  failRename?: boolean;
 }
 
 function mainFixture(
@@ -296,7 +297,11 @@ function mainFixture(
     },
     mkdirSync: guarded(realFs.mkdirSync),
     writeFileSync: guarded(realFs.writeFileSync),
-    renameSync: guarded(realFs.renameSync),
+    renameSync: guarded((from: string, to: string) => {
+      if (opts.failRename) throw new Error("EPERM");
+      realFs.renameSync(from, to);
+    }),
+    unlinkSync: guarded(realFs.unlinkSync),
     realpathSync: (p: string) => realFs.realpathSync(p),
     promises: {
       async mkdir() {},
@@ -320,7 +325,7 @@ function mainFixture(
     buildMainHookSource({ preloadPath: "/payload/vestra-preload.cjs" }),
     {
       URL,
-      console,
+      console: { ...console, warn() {} },
       process: { execPath, env: {}, pid: 4242 },
       setImmediate(fn: () => void) {
         fn();
@@ -601,8 +606,12 @@ test("report channel is internal, sender-checked, capped and records a failed st
     assert.equal(readStatus(appData, "ptb").start, undefined);
     await report(sender, ["untrusted-url"]);
     assert.equal(readStatus(appData, "ptb").start?.reason, "untrusted-url");
-    await report(sender, ["a".repeat(500)]);
-    assert.equal(readStatus(appData, "ptb").start?.reason?.length, 200);
+    for (const bad of ["a".repeat(65), "Has Caps", "C:\\secret\\path", "", "x_y"]) {
+      await report(sender, [bad]);
+      assert.equal(readStatus(appData, "ptb").start?.reason, "bootstrap-error");
+    }
+    await report(sender, ["a".repeat(64)]);
+    assert.equal(readStatus(appData, "ptb").start?.reason, "a".repeat(64));
     await report(sender, [42]);
     assert.equal(readStatus(appData, "ptb").start?.reason, "bootstrap-error");
     assert.equal(readStatus(appData, "ptb").start?.ok, false);
@@ -624,6 +633,48 @@ test("an unwritable status directory never breaks bootstrap", async () => {
     assert.equal(realFs.readFileSync(blocker, "utf8"), "not a directory");
   } finally {
     realFs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a failed status rename removes its temp file", () => {
+  const appData = tempAppData();
+  try {
+    mainFixture("C:/Discord/Discord.exe", {
+      appData,
+      receipt: { channel: "stable" },
+      failRename: true,
+    });
+    const dir = path.join(appData, "Vestra", "status");
+    assert.deepEqual(realFs.readdirSync(dir), []);
+  } finally {
+    realFs.rmSync(appData, { recursive: true, force: true });
+  }
+});
+
+test("started channel is internal, sender-checked and records a successful start", async () => {
+  const appData = tempAppData();
+  try {
+    const { handlers, sender } = mainFixture("C:/Discord/Discord.exe", {
+      appData,
+      receipt: { channel: "stable" },
+    });
+    const started = handlers.get("vestra:native:started")!;
+    await assert.rejects(
+      () =>
+        started(
+          { senderFrame: { url: "https://evil.test/app" }, sender: sender.sender },
+          [],
+        ),
+      /untrusted/,
+    );
+    await handlers.get("vestra:native:report")!(sender, ["boom"]);
+    assert.equal(readStatus(appData, "stable").start?.ok, false);
+    await started(sender, []);
+    const start = readStatus(appData, "stable").start;
+    assert.equal(start?.ok, true);
+    assert.equal(start?.reason, undefined);
+  } finally {
+    realFs.rmSync(appData, { recursive: true, force: true });
   }
 });
 
@@ -778,6 +829,77 @@ test("preload reports bootstrap-error for failures without a sender reason", asy
     throw new Error("ENOENT: some private location");
   });
   assert.deepEqual(reports, [["bootstrap-error"]]);
+});
+
+test("relogin reusing the cached payload reports a fresh successful start", async () => {
+  const host = new Window({ url: "https://discord.com/login" });
+  host.document.body.innerHTML =
+    '<main id="app-mount"><div class="authBox_fixture"></div></main>';
+  const world: Record<string, unknown> = {};
+  const page = vm.createContext({ window: world, console });
+  const calls: string[] = [];
+  let notifyMutation = (): void => {};
+  const bundle = `if (!window.__tried) { window.__tried = true; throw new Error("renderer failure"); } window.Vestra={Vestra:{Settings:{async connectStorage(){},load(){}},Native:{connect(){}},UI:{closeSettings(){},},Toasts:{clear(){}},async start(){},async stop(){}}};`;
+  const native = {
+    contextBridge: {
+      exposeInMainWorld(name: string, value: unknown) {
+        world[name] = value;
+      },
+    },
+    ipcRenderer: {
+      async invoke(channel: string) {
+        calls.push(channel.slice("vestra:native:".length));
+        if (channel.endsWith("bootstrap"))
+          return { bundle, plugins: [], loader: buildLoaderSource() };
+        return undefined;
+      },
+    },
+    webFrame: {
+      executeJavaScript(source: string) {
+        return Promise.resolve(vm.runInContext(source, page));
+      },
+    },
+  };
+  const context = vm.createContext({
+    URL,
+    console: { ...console, error() {} },
+    location: host.location,
+    process: { isMainFrame: true },
+    window: host,
+    document: host.document,
+    MutationObserver: class {
+      constructor(notify: () => void) {
+        notifyMutation = notify;
+      }
+      observe(): void {}
+      disconnect(): void {}
+    },
+    setTimeout,
+    clearTimeout,
+    require: () => native,
+  });
+  const settle = async (n: number): Promise<void> => {
+    for (let i = 0; i < 40 && calls.length < n; i++)
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    await new Promise((resolve) => setTimeout(resolve, 40));
+  };
+  const setApp = (html: string): void => {
+    host.document.getElementById("app-mount")!.innerHTML = html;
+    notifyMutation();
+  };
+  try {
+    vm.runInContext(buildPreloadSource({ splash: false }), context);
+    setApp('<div class="guilds_fixture"></div>');
+    await settle(2);
+    assert.deepEqual(calls, ["bootstrap", "report"]);
+    setApp('<div class="authBox_fixture"></div>');
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    setApp('<div class="guilds_fixture"></div>');
+    await settle(3);
+    assert.deepEqual(calls, ["bootstrap", "report", "started"]);
+  } finally {
+    await host.happyDOM.close();
+  }
 });
 
 test("preload rejects invalid retry delays", () => {

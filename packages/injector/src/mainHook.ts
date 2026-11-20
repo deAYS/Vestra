@@ -1,6 +1,5 @@
 import {
   isDiscordRendererUrl,
-  START_REASON_MAX,
   startStatusFilename,
   VESTRA_IPC_PREFIX,
   VESTRA_NATIVE_CHANNELS,
@@ -129,8 +128,12 @@ function statusSource(): string {
       next[kind] = record;
       fs.mkdirSync(path.dirname(file), { recursive: true });
       const tmp = file + "." + process.pid + ".tmp";
-      fs.writeFileSync(tmp, JSON.stringify(next));
-      fs.renameSync(tmp, file);
+      try {
+        fs.writeFileSync(tmp, JSON.stringify(next));
+        fs.renameSync(tmp, file);
+      } catch (_) {
+        try { fs.unlinkSync(tmp); } catch (_) {}
+      }
     } catch (_) {}
   }`;
 }
@@ -351,8 +354,16 @@ export function buildMainHookSource(options: MainHookOptions): string {
   // Internal (not a native capability): the preload reports a failed start.
   ipcMain.handle(PREFIX + "report", async (event, args) => {
     assertSender(event);
-    const reason = Array.isArray(args) && typeof args[0] === "string" ? args[0] : "bootstrap-error";
-    writeStatus("start", { ok: false, reason: reason.slice(0, ${START_REASON_MAX}) });
+    const raw = Array.isArray(args) ? args[0] : undefined;
+    const reason = typeof raw === "string" && /^[a-z-]{1,64}$/.test(raw) ? raw : "bootstrap-error";
+    writeStatus("start", { ok: false, reason });
+  });
+
+  // Internal: the preload reports a successful start that reused its cached
+  // payload (no new bootstrap call), so the status reflects this session.
+  ipcMain.handle(PREFIX + "started", async (event) => {
+    assertSender(event);
+    writeStatus("start", { ok: true });
   });
 
   // Preload chaining: Electron runs a single "preload" per window. When

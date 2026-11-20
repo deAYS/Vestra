@@ -114,6 +114,7 @@ export function buildPreloadSource(options?: PreloadOptions): string {
     try {
       ${options?.splash === false ? "" : "mountSplash();"}
       if (splash) splash.set(12, "Loading Vestra runtime…");
+      const reused = payloadCache !== undefined;
       const payload = payloadCache || await invokeBootstrap(ticket);
       if (!payload || typeof payload.bundle !== "string" || typeof payload.loader !== "string") throw new Error("Invalid bootstrap response");
       payloadCache = payload;
@@ -136,6 +137,7 @@ export function buildPreloadSource(options?: PreloadOptions): string {
       if (!sessionReady || generation !== ticket) return;
       if (splash) splash.set(55, "Starting plugins and themes…");
       await webFrame.executeJavaScript(payload.loader + "\\n//# sourceURL=vestra-loader.js");
+      if (reused && sessionReady && generation === ticket) { try { await ipcRenderer.invoke(prefix + "started", []); } catch (_) {} }
     } catch (err) {
       console.error("[Vestra] bootstrap failed:", err);
       if (sessionReady && generation === ticket) { failed = true; await reportFailure(err); }
