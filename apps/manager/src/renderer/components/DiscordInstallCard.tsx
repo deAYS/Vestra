@@ -37,6 +37,7 @@ const TONE: Record<RowState, Tone> = {
   "needs-repair": "warn",
   "check-failed": "error",
   "waiting-restart": "info",
+  "recovery-failed": "error",
   "awaiting-login": "neutral",
   "not-started": "neutral",
   checking: "pending",

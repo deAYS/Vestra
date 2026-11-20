@@ -66,8 +66,9 @@ and also sweeps every ten minutes as a safety net. It never closes Discord by
 itself: if Discord already runs the new unpatched version, recovery waits until
 Discord closes and then patches it, and you can use the **Restart Discord**
 notification or Manager button when you are ready. Failed attempts retry up to
-three times with a growing delay, then show the failure in the Manager and in a
-notification. Turn this off in the Manager to remove its Windows startup entry.
+three times with a growing delay. Then the row reads **Couldn't re-install after
+Discord updated** with a **Repair** button, and a notification opens the Manager
+when clicked. Turn this off in the Manager to remove its Windows startup entry.
 Recovery only tracks channels and installation roots where you installed Vestra.
 It keeps an independent runtime under `%LocalAppData%\Vestra\maintenance`, so Portable
 recovery does not depend on a temporary extraction directory. Its state is kept in

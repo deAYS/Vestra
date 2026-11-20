@@ -649,6 +649,27 @@ describe("manager renderer", () => {
     assert.match(text(), /Last re-installed into 1\.0\.1156/);
   });
 
+  test("a failed re-install of the shown version offers Repair, never Install", async () => {
+    fake.recovery.canary = {
+      phase: "failed",
+      version: "1.0.1156",
+      at: Date.now(),
+      attempts: 3,
+      detail: "invalid-asar",
+    };
+    await mount();
+    assert.equal(statusOf("canary"), "Couldn't re-install after Discord updated");
+    assert.equal(byTestId("repair-canary")?.textContent, "Repair");
+    assert.equal(byTestId("install-canary"), null);
+    assert.equal(statusOf("stable"), "Not installed", "other channels are untouched");
+    await click(byTestId("repair-canary"));
+    const repairs = callsOf("repair");
+    assert.equal(repairs.length, 1);
+    assert.deepEqual((repairs[0]?.args as { channels: string[] }).channels, ["canary"]);
+    assert.equal(callsOf("restartDiscord").length, 0);
+    assert.equal(statusOf("canary"), "Installed · will start next time Discord opens");
+  });
+
   test("a background re-install moves the row on when the window regains focus", async () => {
     fake.recovery.canary = {
       phase: "waiting-for-exit",

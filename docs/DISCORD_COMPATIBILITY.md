@@ -166,11 +166,13 @@ Keep Vestra installed registers the named HKCU Run value VestraMaintenance. Its
 independent local runtime supports Portable builds after extraction cleanup. It
 observes only registered roots on selected channels, using folder watching plus a
 ten-minute safety sweep, and patches a newly staged Discord version while the
-old one is still running. It checks integrity before repairing and defers during
-updater activity. It never closes Discord on its own: when Discord already runs
+old one is still running. It checks integrity before repairing and waits until
+Discord's updater has finished staging the new version (its `.app-<version>.installing`
+folder is gone). It never closes Discord on its own: when Discord already runs
 the new unpatched version, it waits for Discord to close, then patches, and offers
-a Restart Discord action. Attempts are capped at three with backoff; failures are
-reported in the Manager and a notification. State lives in
+a Restart Discord action. Attempts are capped at three with backoff. After the
+last one, the Manager row shows "Couldn't re-install after Discord updated" with
+Repair, and a notification opens the Manager when clicked. State lives in
 `%AppData%\Vestra\recovery-state.json`. Foreground and background writes share
 an OS-owned named pipe lock on Windows, released automatically on process exit.
 Archive writes are atomic (temporary file, then rename), and a replaced archive

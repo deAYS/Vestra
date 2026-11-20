@@ -69,7 +69,8 @@ export type RowState =
   | "didnt-start"
   | "needs-repair"
   | "check-failed"
-  | "waiting-restart";
+  | "waiting-restart"
+  | "recovery-failed";
 
 export type RowPrimary = "install" | "repair" | "retry" | "restart";
 
@@ -121,12 +122,26 @@ function row(
   };
 }
 
+/** The recovery record is about exactly the version this row shows. */
+function aboutShownVersion(
+  card: CardModel,
+  recovery: ChannelRecovery | undefined,
+): boolean {
+  return (
+    card.version !== null &&
+    recovery?.version !== undefined &&
+    recovery.version === card.version
+  );
+}
+
 /**
  * Files first (not-installed, checking, needs-repair, check-failed), then a
  * recovery waiting for Discord to exit, then what the last start reported.
- * One exception: recovery records waiting-for-exit only when the running
- * version's files are unpatched, which status reports as not-installed. A
- * waiting record for exactly that version is the truthful line.
+ * Two exceptions for unpatched files of the shown version: recovery records
+ * waiting-for-exit only when the running version's files are unpatched, which
+ * status reports as not-installed, so that record is the truthful line; and a
+ * recovery that gave up on that version says so, with Repair, rather than a
+ * plain Not installed or Needs repair.
  */
 export function rowModel(
   card: CardModel,
@@ -134,19 +149,17 @@ export function rowModel(
   recovery: ChannelRecovery | undefined,
 ): RowModel {
   const waiting = recovery?.phase === "waiting-for-exit";
+  const gaveUp = recovery?.phase === "failed" && aboutShownVersion(card, recovery);
   switch (card.state) {
     case "not-installed":
-      if (
-        waiting &&
-        card.version !== null &&
-        recovery.version !== undefined &&
-        recovery.version === card.version
-      )
+      if (waiting && aboutShownVersion(card, recovery))
         return row(card, "waiting-restart", false, { primary: "restart" });
+      if (gaveUp) return row(card, "recovery-failed", false, { primary: "repair" });
       return row(card, "not-installed", false, { primary: "install" });
     case "installed-checking":
       return row(card, "checking", true);
     case "needs-repair":
+      if (gaveUp) return row(card, "recovery-failed", true, { primary: "repair" });
       return row(card, "needs-repair", true, { primary: "repair" });
     case "check-failed":
       return row(card, "check-failed", true, { primary: "retry" });
@@ -223,6 +236,8 @@ export function rowStatusText(model: RowModel, now: Date): string {
       return "Installed · will start next time Discord opens";
     case "waiting-restart":
       return "Waiting for Discord restart";
+    case "recovery-failed":
+      return "Couldn't re-install after Discord updated";
     case "needs-repair":
       return "Needs repair";
     case "checking":

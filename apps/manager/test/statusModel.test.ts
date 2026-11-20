@@ -103,6 +103,13 @@ const waiting: ChannelRecovery = {
   at: AT,
   attempts: 0,
 };
+const failed: ChannelRecovery = {
+  phase: "failed",
+  version: "1.0.9",
+  at: AT,
+  attempts: 3,
+  detail: "invalid-asar",
+};
 
 describe("row model", () => {
   const cases: Array<{
@@ -231,6 +238,55 @@ describe("row model", () => {
       want: { state: "not-installed", primary: "install" },
     },
     {
+      name: "a failed re-install of the shown version offers Repair over Not installed",
+      card: card("not-installed", "1.0.9"),
+      recovery: failed,
+      want: { state: "recovery-failed", primary: "repair", installed: false },
+    },
+    {
+      name: "a failed re-install of the shown version offers Repair over Needs repair",
+      card: card("needs-repair", "1.0.9"),
+      recovery: failed,
+      want: { state: "recovery-failed", primary: "repair", installed: true },
+    },
+    {
+      name: "a failed re-install of another version leaves Not installed",
+      card: card("not-installed", "1.0.10"),
+      recovery: failed,
+      want: { state: "not-installed", primary: "install" },
+    },
+    {
+      name: "a failed re-install of another version leaves Needs repair",
+      card: card("needs-repair", "1.0.10"),
+      recovery: failed,
+      want: { state: "needs-repair", primary: "repair", installed: true },
+    },
+    {
+      name: "a failed record without a version never matches",
+      card: card("not-installed", "1.0.9"),
+      recovery: { phase: "failed", at: AT, attempts: 3 },
+      want: { state: "not-installed", primary: "install" },
+    },
+    {
+      name: "an unknown card version never matches a failed record",
+      card: card("not-installed", null),
+      recovery: failed,
+      want: { state: "not-installed", primary: "install" },
+    },
+    {
+      name: "a failed record does not change a healthy row",
+      card: card("healthy", "1.0.9"),
+      run: active,
+      recovery: failed,
+      want: { state: "active" },
+    },
+    {
+      name: "a failed record does not change checking or check-failed",
+      card: card("check-failed", "1.0.9"),
+      recovery: failed,
+      want: { state: "check-failed", primary: "retry" },
+    },
+    {
       name: "patched recovery does not change an active row",
       card: card("healthy"),
       run: active,
@@ -284,6 +340,10 @@ describe("row model", () => {
       [{ ...base, state: "not-started" }, "Installed · will start next time Discord opens"],
       [{ ...base, state: "waiting-restart", primary: "restart" }, "Waiting for Discord restart"],
       [{ ...base, state: "needs-repair", primary: "repair" }, "Needs repair"],
+      [
+        { ...base, installed: false, state: "recovery-failed", primary: "repair" },
+        "Couldn't re-install after Discord updated",
+      ],
       [{ ...base, state: "checking" }, "Checking…"],
       [{ ...base, state: "check-failed", primary: "retry" }, "Couldn't check"],
       [{ ...base, installed: false, state: "not-installed", primary: "install" }, "Not installed"],
