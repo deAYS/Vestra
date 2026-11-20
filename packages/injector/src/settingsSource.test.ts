@@ -68,6 +68,10 @@ test("a settings read waits for a slow pending write instead of returning the st
     path.join(os.tmpdir(), "vestra-settings-test-"),
   );
   let release: () => void = () => {};
+  let reached: () => void = () => {};
+  const atRename = new Promise<void>((resolve) => {
+    reached = resolve;
+  });
   let slow = false;
   const slowFs = {
     ...fs,
@@ -77,6 +81,7 @@ test("a settings read waits for a slow pending write instead of returning the st
         if (slow && from.endsWith(".json.tmp"))
           await new Promise<void>((resolve) => {
             release = resolve;
+            reached();
           });
         return fs.promises.rename(from, to);
       },
@@ -100,8 +105,8 @@ test("a settings read waits for a slow pending write instead of returning the st
     await backend.writeSettings('{"selected":"old"}');
     slow = true;
     const pending = backend.writeSettings('{"selected":"new"}');
-    // Let the write reach its slow rename before the reload reads.
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    // The reload reads while the write is held at its final rename.
+    await atRename;
     const read = backend.readSettings();
     // The write lands only after the read started.
     setTimeout(() => release(), 30);
