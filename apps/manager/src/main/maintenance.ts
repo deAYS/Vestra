@@ -136,10 +136,16 @@ export class MaintenanceController {
    * After a Manager update, recovery is still registered on the previous
    * build's runtime. Stages and registers this build's runtime when the
    * configured one differs; the running recovery process hands over to it on
-   * its next trigger. Resolves false when nothing needed to change.
+   * its next trigger. Resolves false when nothing needed to change, and for a
+   * Manager opened from a runtime copy, which must not register itself.
    */
   async refreshRuntime(): Promise<boolean> {
     if (!this.host.packaged || process.platform !== "win32") return false;
+    const fromRuntime = path
+      .resolve(this.host.executable)
+      .toLowerCase()
+      .startsWith(path.resolve(this.runtimeParent).toLowerCase() + path.sep);
+    if (fromRuntime) return false;
     const config = await readMaintenance(this.home);
     if (!isActive(config)) return false;
     const name = await this.runtimeName();

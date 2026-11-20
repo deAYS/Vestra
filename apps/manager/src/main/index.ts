@@ -179,10 +179,11 @@ async function boot(): Promise<void> {
     return;
   }
   createManagerWindow();
-  // After a Manager update, move recovery onto this build's runtime. Best
-  // effort and never awaited: the window does not wait for it.
-  void maintenance.refreshRuntime().catch(logRecovery);
   await updates.finish();
+  // After a Manager update, move recovery onto this build's runtime. Best
+  // effort and never awaited: the window does not wait for it. After finish(),
+  // so a Discord update handoff never meets a busy install lock.
+  void maintenance.refreshRuntime().catch(logRecovery);
   void updates.check();
   const updateTimer = setInterval(
     () => void updates.check(),

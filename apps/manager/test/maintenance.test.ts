@@ -258,6 +258,16 @@ onWindows("boot leaves recovery alone when it is off or already on this runtime"
       JSON.stringify({ enabled: true, channels: ["stable"], runtime: "C:/x/old/Vestra.exe" }),
     );
     assert.equal(await unpackaged.refreshRuntime(), false);
+    // A Manager opened from a runtime copy (the failure notice) never re-registers it.
+    const copy = path.join(f.localAppData, "Vestra", "maintenance", "copyhash00000000");
+    await fs.mkdir(path.join(copy, "resources"), { recursive: true });
+    await fs.writeFile(path.join(copy, "resources", "app.asar"), "asar-0");
+    const fromCopy = new MaintenanceController(
+      f.service,
+      { packaged: true, executable: path.join(copy, "Vestra.exe"), localAppData: f.localAppData },
+      { exec: async () => calls.push("reg"), launch: async () => {} },
+    );
+    assert.equal(await fromCopy.refreshRuntime(), false);
     assert.deepEqual(calls, []);
   } finally {
     await fs.rm(f.root, { recursive: true, force: true });
