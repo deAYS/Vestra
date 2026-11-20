@@ -307,3 +307,176 @@ test("reloading native settings with a pending write keeps the unsaved change", 
   await settings.flush();
   assert.equal(JSON.parse(backend.writes.at(-1)!).plugins.Fixture.settings.value, "unsaved");
 });
+
+/** Backend whose async writes can be held open and settled by the test. */
+function heldBackend() {
+  const writes: string[] = [];
+  const syncWrites: string[] = [];
+  const held: Array<{ text: string; resolve: () => void; reject: (e: Error) => void }> = [];
+  let hold = false;
+  let syncOk = true;
+  return {
+    writes,
+    syncWrites,
+    held,
+    setHold(value: boolean) {
+      hold = value;
+    },
+    setSyncOk(value: boolean) {
+      syncOk = value;
+    },
+    storage: {
+      async readSettingsFile() {
+        return undefined;
+      },
+      writeSettingsFile(text: string) {
+        if (!hold) {
+          writes.push(text);
+          return Promise.resolve();
+        }
+        return new Promise<void>((resolve, reject) => {
+          held.push({
+            text,
+            resolve: () => {
+              writes.push(text);
+              resolve();
+            },
+            reject,
+          });
+        });
+      },
+      writeSettingsFileSync(text: string) {
+        syncWrites.push(text);
+        return syncOk;
+      },
+    },
+  };
+}
+
+test("overlapping storage connections keep the blocking writer", async () => {
+  const clock = fakeTimers();
+  const syncWrites: string[] = [];
+  let releaseRead: (value: string | undefined) => void = () => {};
+  let nativeReads = 0;
+  const preload = {
+    readSettingsFile: () =>
+      new Promise<string | undefined>((resolve) => {
+        releaseRead = resolve;
+      }),
+    async writeSettingsFile() {},
+    writeSettingsFileSync(text: string) {
+      syncWrites.push(text);
+      return true;
+    },
+  };
+  const native = {
+    async readSettingsFile() {
+      nativeReads++;
+      return undefined;
+    },
+    async writeSettingsFile() {},
+  };
+  const settings = new SettingsStore(undefined, { timers: clock.timers });
+  const first = settings.connectStorage(preload);
+  const second = settings.connectStorage(native);
+  await new Promise((resolve) => setImmediate(resolve));
+  releaseRead(undefined);
+  assert.deepEqual(await Promise.all([first, second]), [true, true]);
+  assert.equal(nativeReads, 0, "the second caller joins the first connection");
+  settings.setEnabled("FocusMode", true);
+  assert.equal(settings.flushSync(), true);
+  assert.equal(syncWrites.length, 1);
+
+  // A storage without a sync writer that connects first does not block a later one offering it.
+  const later = new SettingsStore(undefined, { timers: clock.timers });
+  await later.connectStorage(native);
+  await later.connectStorage(preload);
+  later.setEnabled("FocusMode", true);
+  assert.equal(later.flushSync(), true);
+  assert.equal(syncWrites.length, 2);
+});
+
+test("a failed blocking flush is not retried by the second close listener for the same state", async () => {
+  const clock = fakeTimers();
+  let calls = 0;
+  const settings = new SettingsStore(undefined, { timers: clock.timers });
+  await settings.connectStorage({
+    async readSettingsFile() {
+      return undefined;
+    },
+    async writeSettingsFile() {},
+    writeSettingsFileSync() {
+      calls++;
+      return false;
+    },
+  });
+  settings.setEnabled("FocusMode", true);
+  assert.equal(settings.flushSync(), false, "beforeunload");
+  assert.equal(settings.flushSync(), false, "pagehide");
+  assert.equal(calls, 1, "the page is blocked at most once per state");
+  settings.setEnabled("FocusMode", false);
+  assert.equal(settings.flushSync(), false);
+  assert.equal(calls, 2, "a new change is tried again");
+  await settings.flush();
+  assert.equal(settings.getPersistenceStatus().error, undefined, "the async path still saves it");
+});
+
+test("a write still in flight does not count as saved for the blocking flush", async () => {
+  const clock = fakeTimers();
+  const backend = heldBackend();
+  const settings = new SettingsStore(undefined, { timers: clock.timers });
+  await settings.connectStorage(backend.storage);
+  backend.setHold(true);
+  settings.setPluginSetting("Fixture", "value", "in flight");
+  await clock.advance(300);
+  assert.equal(backend.held.length, 1, "the debounced write is in flight");
+  assert.equal(settings.flushSync(), true);
+  assert.equal(backend.syncWrites.length, 1);
+  assert.deepEqual(JSON.parse(backend.syncWrites[0]!), JSON.parse(JSON.stringify(settings.getSnapshot())));
+  backend.held[0]!.resolve();
+  await settings.flush();
+  await clock.advance(5000);
+  assert.equal(backend.held.length, 1, "no duplicate write after the sync flush");
+});
+
+test("late results of older writes never override the banner or a clean flush", async () => {
+  const clock = fakeTimers();
+  const backend = heldBackend();
+  const settings = new SettingsStore(undefined, { timers: clock.timers });
+  await settings.connectStorage(backend.storage);
+
+  // An older async write fails after a newer blocking flush succeeded.
+  backend.setHold(true);
+  settings.setPluginSetting("Fixture", "value", 1);
+  await clock.advance(300);
+  settings.setPluginSetting("Fixture", "value", 2);
+  assert.equal(settings.flushSync(), true);
+  backend.held[0]!.reject(new Error("fixture stale failure"));
+  await clock.advance(0);
+  assert.equal(settings.getPersistenceStatus().error, undefined);
+  await settings.flush();
+
+  // An old failure does not make a later clean flush reject.
+  settings.setPluginSetting("Fixture", "value", 3);
+  await clock.advance(300);
+  backend.held[1]!.reject(new Error("fixture disk full"));
+  await clock.advance(0);
+  assert.match(settings.getPersistenceStatus().error!, /disk full/);
+  settings.setPluginSetting("Fixture", "value", 4);
+  assert.equal(settings.flushSync(), true);
+  assert.equal(settings.getPersistenceStatus().error, undefined);
+  await settings.flush();
+  await assert.doesNotReject(() => settings.flush());
+
+  // A newer failure keeps the banner even when an older write then succeeds.
+  backend.setHold(true);
+  settings.setPluginSetting("Fixture", "value", 5);
+  await clock.advance(300);
+  const older = backend.held.at(-1)!;
+  settings.setPluginSetting("Fixture", "value", 6);
+  backend.setSyncOk(false);
+  assert.equal(settings.flushSync(), false);
+  older.resolve();
+  await clock.advance(0);
+  assert.ok(settings.getPersistenceStatus().error, "the newest result wins");
+});

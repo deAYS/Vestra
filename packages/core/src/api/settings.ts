@@ -368,12 +368,27 @@ export class SettingsStore {
   private readonly useLocalStorage: boolean;
   private readonly memoryRaw: { raw: string | null } = { raw: null };
   private readonly timers: SettingsTimers;
-  /** Native file writes are debounced: `revision` counts changes, `writtenRevision` the last one handed to storage. */
+  /**
+   * Native file writes are debounced and tracked by revision: `revision`
+   * counts changes, `confirmedRevision` is the newest one storage confirmed,
+   * `handedRevision` the newest one handed to storage (possibly in flight).
+   * Write results update the banner only when they belong to the newest
+   * write (`writeSeq`), so a late result never overrides a newer one.
+   *
+   * Retry policy: a failed write leaves the store dirty and is retried on
+   * the next change, `flush()` or page close. There is no background retry.
+   */
   private revision = 0;
-  private writtenRevision = 0;
+  private confirmedRevision = 0;
+  private handedRevision = 0;
+  private writeSeq = 0;
+  /** Revision whose blocking flush already failed; the next close listener skips it. */
+  private syncFailedRevision = -1;
   private writeQueued = false;
   private trailingTimer: unknown;
   private maxWaitTimer: unknown;
+  private syncWriter: ((text: string) => boolean) | undefined;
+  private connecting: Promise<boolean> | undefined;
 
   constructor(logger?: ScopedLogger, options?: SettingsStoreOptions) {
     this.logger = logger ?? Logger.extend("Settings");
@@ -381,9 +396,27 @@ export class SettingsStore {
     this.timers = options?.timers ?? defaultTimers;
   }
 
-  /** Connect before plugin registration; desktop preferences live outside Discord storage. */
+  /**
+   * Connect before plugin registration; desktop preferences live outside
+   * Discord storage. Concurrent callers share the in-flight connection, so a
+   * later caller never replaces storage that is already connecting.
+   */
   async connectStorage(storage: SettingsFileStorage): Promise<boolean> {
-    if (this.nativeStorage) return true;
+    while (this.connecting) await this.connecting;
+    if (this.nativeStorage) {
+      this.adoptSyncWriter(storage);
+      return true;
+    }
+    const attempt = this.connectNow(storage);
+    this.connecting = attempt;
+    try {
+      return await attempt;
+    } finally {
+      if (this.connecting === attempt) this.connecting = undefined;
+    }
+  }
+
+  private async connectNow(storage: SettingsFileStorage): Promise<boolean> {
     try {
       const saved = await storage.readSettingsFile();
       this.nativeRaw =
@@ -391,12 +424,14 @@ export class SettingsStore {
         (this.useLocalStorage ? readRaw() : this.memoryRaw.raw) ??
         undefined;
       this.nativeStorage = storage;
+      this.adoptSyncWriter(storage);
       this.load();
       this.persist();
       await this.flush();
       return true;
     } catch (error) {
       this.nativeStorage = undefined;
+      this.syncWriter = undefined;
       this.persistenceError =
         error instanceof Error ? error.message : String(error);
       this.logger.captureError(error, "Settings.connectStorage");
@@ -405,47 +440,62 @@ export class SettingsStore {
     }
   }
 
-  /** Write pending changes now. Rejects when the file write fails (the banner state is set too). */
+  /** Keep the first blocking writer offered; never drop one for a storage without it. */
+  private adoptSyncWriter(storage: SettingsFileStorage): void {
+    const writeSync = storage.writeSettingsFileSync;
+    if (this.syncWriter || typeof writeSync !== "function") return;
+    this.syncWriter = (text) => writeSync.call(storage, text);
+  }
+
+  /**
+   * Write pending changes now and wait for them. Rejects when that write
+   * fails (the banner state is set too); resolves at once when nothing is
+   * pending, even if an older write failed.
+   */
   async flush(): Promise<void> {
+    if (!this.nativeStorage || !this.isDirty()) return;
     this.writeNow();
     await this.nativeWrites;
   }
 
   /**
    * Blocking flush for page close (`beforeunload`/`pagehide`). Returns true when
-   * nothing is pending or the synchronous writer confirmed the write.
+   * nothing is pending or the synchronous writer confirmed the write. A write
+   * still in flight does not count as saved, so the current snapshot is sent.
    */
   flushSync(): boolean {
     this.cancelTimers();
-    const storage = this.nativeStorage;
-    if (!storage || !this.isDirty()) return true;
-    const writeSync = storage.writeSettingsFileSync;
-    if (typeof writeSync !== "function") {
+    if (!this.nativeStorage || !this.isDirty()) return true;
+    const writeSync = this.syncWriter;
+    if (!writeSync) {
       // No blocking channel on this host: best effort through the async path.
       this.writeNow();
       return false;
     }
     const revision = this.revision;
+    // beforeunload and pagehide both fire on close: block at most once per state.
+    if (this.syncFailedRevision === revision) return false;
+    const seq = ++this.writeSeq;
     let ok = false;
     let failure: unknown;
     try {
       const raw = this.serializeNative();
-      this.writtenRevision = revision;
-      ok = writeSync.call(storage, raw) === true;
+      this.handedRevision = Math.max(this.handedRevision, revision);
+      ok = writeSync(raw) === true;
     } catch (error) {
       failure = error;
     }
     if (ok) {
-      this.setPersistenceError(undefined);
+      this.syncFailedRevision = -1;
+      this.writeSucceeded(revision, seq);
       return true;
     }
-    if (this.writtenRevision === revision) this.writtenRevision = -1;
-    if (failure !== undefined)
-      this.logger.captureError(failure, "Settings.flushSync");
-    this.setPersistenceError(
-      failure instanceof Error
-        ? failure.message
-        : "Preferences could not be saved to disk.",
+    this.syncFailedRevision = revision;
+    this.writeFailed(
+      revision,
+      seq,
+      failure ?? new Error("Preferences could not be saved to disk."),
+      "Settings.flushSync",
     );
     return false;
   }
@@ -703,8 +753,14 @@ export class SettingsStore {
     return raw;
   }
 
+  /** Unsaved until storage confirms it; an in-flight write still counts as dirty. */
   private isDirty(): boolean {
-    return this.revision !== this.writtenRevision;
+    return this.revision !== this.confirmedRevision;
+  }
+
+  /** Dirty and not already handed to storage by a write that may still succeed. */
+  private needsWrite(): boolean {
+    return this.isDirty() && this.revision !== this.handedRevision;
   }
 
   private scheduleWrite(): void {
@@ -731,34 +787,45 @@ export class SettingsStore {
   private writeNow(): void {
     this.cancelTimers();
     const storage = this.nativeStorage;
-    if (!storage || !this.isDirty() || this.writeQueued) return;
+    if (!storage || !this.needsWrite() || this.writeQueued) return;
     this.writeQueued = true;
     const write = this.nativeWrites
       .catch(() => {})
       .then(async () => {
         this.writeQueued = false;
-        if (this.nativeStorage !== storage || !this.isDirty()) return false;
+        if (this.nativeStorage !== storage || !this.needsWrite()) return;
         const revision = this.revision;
-        this.writtenRevision = revision;
+        const seq = ++this.writeSeq;
+        this.handedRevision = revision;
         try {
           await storage.writeSettingsFile(this.serializeNative());
         } catch (error) {
-          // Still unsaved: the next flush (or page close) tries again.
-          if (this.writtenRevision === revision) this.writtenRevision = -1;
+          this.writeFailed(revision, seq, error, "Settings.saveFile");
           throw error;
         }
-        return true;
+        this.writeSucceeded(revision, seq);
       });
     this.nativeWrites = write;
-    void write.then(
-      (wrote) => {
-        if (wrote) this.setPersistenceError(undefined);
-      },
-      (error: unknown) => {
-        this.logger.captureError(error, "Settings.saveFile");
-        this.setPersistenceError(errorMessage(error));
-      },
-    );
+    // Failures are reported by writeFailed; flush() callers still see the rejection.
+    write.catch(() => {});
+  }
+
+  private writeSucceeded(revision: number, seq: number): void {
+    if (revision > this.confirmedRevision) this.confirmedRevision = revision;
+    if (seq === this.writeSeq) this.setPersistenceError(undefined);
+  }
+
+  private writeFailed(
+    revision: number,
+    seq: number,
+    error: unknown,
+    context: string,
+  ): void {
+    this.logger.captureError(error, context);
+    // Not saved: the next change, flush() or close may hand it over again.
+    if (this.handedRevision === revision)
+      this.handedRevision = this.confirmedRevision;
+    if (seq === this.writeSeq) this.setPersistenceError(errorMessage(error));
   }
 
   private setPersistenceError(

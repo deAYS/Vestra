@@ -214,6 +214,10 @@ interface FixtureOptions {
   receipt?: unknown;
   discordVersion?: string;
   failRename?: boolean;
+  /** Settings file rename (tmp -> json) throws, so `writeSettings` rejects. */
+  failSettingsRename?: boolean;
+  /** Settings tmp writes wait until the test calls a function from `heldWrites`. */
+  holdSettingsWrites?: boolean;
 }
 
 function mainFixture(
@@ -229,6 +233,9 @@ function mainFixture(
     (event: { returnValue?: unknown }, ...args: unknown[]) => void
   >();
   const files = new Map<string, string>();
+  const warnings: unknown[][] = [];
+  const timers: Array<{ fn: () => void; ms: number; cleared: boolean }> = [];
+  const heldWrites: Array<() => void> = [];
   const registered: unknown[] = [];
   const modernSession = {
     getPreloadScripts: () => registered,
@@ -324,9 +331,13 @@ function mainFixture(
         return [];
       },
       async writeFile(filename: string, text: string) {
+        if (opts.holdSettingsWrites && /[\\/]settings[\\/][a-z]+\.json\.tmp$/.test(filename))
+          await new Promise<void>((resolve) => heldWrites.push(resolve));
         files.set(filename, text);
       },
       async rename(from: string, to: string) {
+        if (opts.failSettingsRename && /[\\/]settings[\\/][a-z]+\.json$/.test(to))
+          throw Object.assign(new Error("EPERM"), { code: "EPERM" });
         const text = files.get(from);
         if (text === undefined) throw Object.assign(new Error("ENOENT"), { code: "ENOENT" });
         files.delete(from);
@@ -349,8 +360,20 @@ function mainFixture(
     {
       URL,
       Buffer,
-      console: { ...console, warn() {} },
+      console: {
+        ...console,
+        warn(...args: unknown[]) {
+          warnings.push(args);
+        },
+      },
       process: { execPath, env: {}, pid: 4242 },
+      setTimeout(fn: () => void, ms: number) {
+        timers.push({ fn, ms, cleared: false });
+        return timers.length - 1;
+      },
+      clearTimeout(id: number) {
+        if (timers[id]) timers[id]!.cleared = true;
+      },
       setImmediate(fn: () => void) {
         fn();
       },
@@ -367,6 +390,9 @@ function mainFixture(
     handlers,
     syncHandlers,
     files,
+    warnings,
+    timers,
+    heldWrites,
     shellCalls,
     electron,
     registered,
@@ -563,6 +589,77 @@ test("settings:flush is internal, sender-checked and writes the main frame's set
   flush!(event, text);
   assert.equal(await reply, true);
   assert.equal(settingsFile(), text);
+});
+
+test("settings:flush answers false after 2 s on a slow disk, once, while the write still lands", async () => {
+  const { syncHandlers, files, sender, timers, heldWrites } = mainFixture(
+    "C:/Discord/DiscordCanary.exe",
+    { holdSettingsWrites: true },
+  );
+  const flush = syncHandlers.get("vestra:native:settings:flush")!;
+  const replies: unknown[] = [];
+  const event = Object.defineProperty({ ...sender }, "returnValue", {
+    set: (value: unknown) => replies.push(value),
+  }) as { returnValue?: unknown };
+  const text = JSON.stringify({ plugins: {} });
+  flush(event, text);
+  for (let i = 0; i < 10 && heldWrites.length === 0; i++)
+    await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(heldWrites.length, 1, "the write is in progress");
+  assert.deepEqual(replies, [], "the renderer is still waiting");
+  const bound = timers.find((t) => t.ms === 2000 && !t.cleared);
+  assert.ok(bound, "a 2 s bound is armed");
+  bound!.fn();
+  assert.deepEqual(replies, [false]);
+  heldWrites[0]!();
+  for (let i = 0; i < 10; i++) await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(replies, [false], "only the first reply is sent");
+  assert.equal(
+    [...files.entries()].find(([name]) => /[\\/]settings[\\/]canary\.json$/.test(name))?.[1],
+    text,
+    "the write continues after the timeout",
+  );
+});
+
+test("settings:flush replies false and logs when the main-side write rejects", async () => {
+  const { syncHandlers, sender, warnings, timers } = mainFixture(
+    "C:/Discord/DiscordCanary.exe",
+    { failSettingsRename: true },
+  );
+  const flush = syncHandlers.get("vestra:native:settings:flush")!;
+  const { event, reply } = syncEvent(sender);
+  flush(event, JSON.stringify({ plugins: {} }));
+  assert.equal(await reply, false);
+  assert.ok(
+    warnings.some((args) => String(args[0]).includes("settings flush failed") && args[1] === "EPERM"),
+    "the failure is logged without a path",
+  );
+  assert.ok(timers.every((t) => t.ms !== 2000 || t.cleared), "the bound timer is cleared");
+});
+
+test("settings:flush survives a throwing returnValue setter without unhandled rejections", async () => {
+  const { syncHandlers, sender } = mainFixture();
+  const flush = syncHandlers.get("vestra:native:settings:flush")!;
+  const unhandled: unknown[] = [];
+  const onUnhandled = (reason: unknown) => unhandled.push(reason);
+  process.on("unhandledRejection", onUnhandled);
+  try {
+    let attempts = 0;
+    const event = Object.defineProperty({ ...sender }, "returnValue", {
+      set: () => {
+        attempts++;
+        throw new Error("fixture: renderer gone");
+      },
+    }) as { returnValue?: unknown };
+    assert.doesNotThrow(() => flush(event, JSON.stringify({ plugins: {} })));
+    for (let i = 0; i < 10 && attempts === 0; i++)
+      await new Promise((resolve) => setImmediate(resolve));
+    for (let i = 0; i < 5; i++) await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(attempts, 1, "the late reply was attempted once");
+    assert.deepEqual(unhandled, []);
+  } finally {
+    process.off("unhandledRejection", onUnhandled);
+  }
 });
 
 test("preload exposes a synchronous settings flush and wires it into the settings store", async () => {
