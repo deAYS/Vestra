@@ -30,7 +30,7 @@ the npm SDK is available until it has actually been published by the scope owner
 ## GitHub Pages
 
 The website source is `site/`. `bun run site:build` produces `site/dist`, copying
-the brand, settings screenshot, shared splash implementation and the four actual
+the brand, settings screenshot, shared splash implementation and the six built-in
 CSS presets. Download buttons therefore use the same themes as the client.
 
 Preview it with `bun run site:preview`, then open
