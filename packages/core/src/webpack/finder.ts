@@ -152,7 +152,11 @@ export class WebpackFinder {
       const def = exports["default"];
       const candidates = isRecord(def) && def !== exports ? [exports, def] : [exports];
       for (const candidate of candidates) {
-        if (filter(candidate as WebpackExports) === true) return candidate as WebpackExports;
+        try {
+          if (filter(candidate as WebpackExports) === true) return candidate as WebpackExports;
+        } catch (err: unknown) {
+          this.logger.captureError(err, "Webpack.filter");
+        }
       }
     } catch (err: unknown) {
       this.logger.captureError(err, "Webpack.revalidate");

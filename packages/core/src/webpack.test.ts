@@ -303,6 +303,17 @@ test("waitForModule keeps its timeout, abort and validation semantics", async ()
   assert.equal(await aborted, undefined);
   assert.ok(Date.now() - started < 1_000, "abort resolves promptly");
 
+  const forever = new AbortController();
+  let foreverResult: unknown = "pending";
+  const endless = waitForModule(() => undefined, () => false, { timeoutMs: Infinity, signal: forever.signal }, undefined, noEvents);
+  void endless.then((v) => {
+    foreverResult = v;
+  });
+  await delay(30);
+  assert.equal(foreverResult, "pending", "timeoutMs: Infinity waits until aborted");
+  forever.abort();
+  assert.equal(await endless, undefined);
+
   let unsubscribed = 0;
   await waitForModule(() => ({ now: true }), () => true, undefined, undefined, () => () => {
     unsubscribed += 1;

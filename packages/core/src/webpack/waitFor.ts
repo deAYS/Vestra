@@ -7,6 +7,8 @@ export type ModuleSearch = () => WebpackExports | undefined;
 /** Subscribe to "new modules may be available" events; returns an unsubscribe. */
 export type RegistrationSubscribe = (listener: () => void) => () => void;
 
+const MAX_TIMER_MS = 2_147_483_647;
+
 /**
  * Resolve `search()` once it finds a module. Checks immediately, then each
  * time webpack registers modules (see `onModulesRegistered`), and a last time
@@ -73,12 +75,16 @@ export async function waitForModule(
     };
 
     signal?.addEventListener("abort", onAbort, { once: true });
-    timer = setTimeout(() => {
-      check();
-      if (done) return;
-      log.warn("Webpack.waitFor() timed out without a match.");
-      finish(undefined);
-    }, timeoutMs);
+    // Timers overflow past 2^31-1 ms and fire at once; longer timeouts
+    // (e.g. Infinity) wait until a match or abort, as the old deadline loop did.
+    if (timeoutMs <= MAX_TIMER_MS) {
+      timer = setTimeout(() => {
+        check();
+        if (done) return;
+        log.warn("Webpack.waitFor() timed out without a match.");
+        finish(undefined);
+      }, timeoutMs);
+    }
     try {
       unsubscribe = subscribe(check);
     } catch (err: unknown) {
